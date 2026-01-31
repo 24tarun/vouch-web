@@ -77,6 +77,9 @@ export const taskMachine = setup({
             // Can only postpone once (if postponedAt is not set)
             return context.postponedAt === undefined;
         },
+        canPostponeBeforeDeadline: ({ context }) => {
+            return context.postponedAt === undefined && new Date() < context.deadline;
+        },
         isBeforeDeadline: ({ context }) => {
             return new Date() < context.deadline;
         },
@@ -98,7 +101,7 @@ export const taskMachine = setup({
             on: {
                 POSTPONE: {
                     target: "POSTPONED",
-                    guard: "canPostpone",
+                    guard: "canPostponeBeforeDeadline",
                     actions: [
                         "setPostponedAt",
                         {

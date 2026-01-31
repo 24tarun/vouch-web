@@ -203,7 +203,7 @@ export default function TaskDetailClient({
                                 {isLoading ? "Marking..." : "✅ Mark Complete"}
                             </Button>
 
-                            {task.status === "ACTIVE" && !task.postponed_at && (
+                            {task.status === "ACTIVE" && !task.postponed_at && !isOverdue && (
                                 <Dialog open={postponeOpen} onOpenChange={setPostponeOpen}>
                                     <DialogTrigger asChild>
                                         <Button

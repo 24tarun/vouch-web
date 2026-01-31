@@ -97,6 +97,11 @@ export async function activateTask(taskId: string) {
         return { error: "Task not found" };
     }
 
+    // Prevent activating after the deadline
+    if (new Date() >= new Date((task as any).deadline)) {
+        return { error: "Deadline has passed" };
+    }
+
     if (!canTransition((task as any).status as TaskStatus, "ACTIVATE")) {
         return { error: `Cannot activate task in ${(task as any).status} status` };
     }
@@ -201,6 +206,11 @@ export async function postponeTask(taskId: string, newDeadline: string) {
         return { error: "Task not found" };
     }
 
+    // Prevent postponing after the deadline
+    if (new Date() >= new Date((task as any).deadline)) {
+        return { error: "Deadline has passed" };
+    }
+
     if (!canTransition((task as any).status as TaskStatus, "POSTPONE")) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
@@ -262,9 +272,50 @@ export async function getTask(taskId: string) {
         .eq("id", (taskId as any))
         .single();
 
-    // Only return if user is owner or voucher
-    if (task && ((task as any).user_id === user.id || (task as any).voucher_id === user.id)) {
-        return task;
+    if (task) {
+        const isOwner = (task as any).user_id === user.id;
+        const isVoucher = (task as any).voucher_id === user.id;
+
+        if (isOwner || isVoucher) {
+            const now = new Date();
+            const deadline = new Date((task as any).deadline);
+            const shouldAutoFail = now >= deadline && ["ACTIVE", "POSTPONED", "CREATED"].includes((task as any).status);
+
+            if (shouldAutoFail) {
+                const currentPeriod = now.toISOString().slice(0, 7);
+
+                await (supabase.from("tasks") as any)
+                    .update({ status: "FAILED", updated_at: now.toISOString() } as any)
+                    .eq("id", (taskId as any));
+
+                await (supabase.from("ledger_entries") as any).insert({
+                    user_id: (task as any).user_id,
+                    task_id: (task as any).id,
+                    period: currentPeriod,
+                    amount_cents: (task as any).failure_cost_cents,
+                    entry_type: "failure",
+                });
+
+                await (supabase.from("task_events") as any).insert({
+                    task_id: (task as any).id,
+                    event_type: "DEADLINE_MISSED",
+                    actor_id: null,
+                    from_status: (task as any).status,
+                    to_status: "FAILED",
+                    metadata: { reason: "Deadline passed without completion" },
+                });
+
+                (task as any).status = "FAILED";
+                (task as any).updated_at = now.toISOString();
+
+                revalidatePath(`/dashboard/tasks/${taskId}`);
+            }
+        }
+
+        // Only return if user is owner or voucher
+        if (isOwner || isVoucher) {
+            return task;
+        }
     }
 
     return null;
