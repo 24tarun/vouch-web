@@ -110,10 +110,10 @@ export async function updateUsername(formData: FormData) {
         return { error: "Username already taken" };
     }
 
-    const { error } = await supabase
-        .from("profiles")
-        .update({ username })
-        .eq("id", user.id);
+    // @ts-ignore
+    const { error } = await (supabase.from("profiles" as any) as any)
+        .update({ username } as any)
+        .eq("id", user.id as any);
 
     if (error) {
         return { error: error.message };

@@ -99,39 +99,48 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Profile
+                Insert: Omit<Profile, "id" | "created_at">
                 Update: Partial<Profile>
             }
             friendships: {
                 Row: Friendship
-                Insert: Friendship
+                Insert: Omit<Friendship, "id" | "created_at">
                 Update: Partial<Friendship>
             }
             tasks: {
                 Row: Task
-                Insert: Partial<Task>
+                Insert: Omit<Task, "id" | "created_at" | "updated_at">
                 Update: Partial<Task>
             }
             task_events: {
                 Row: TaskEvent
-                Insert: Partial<TaskEvent>
+                Insert: Omit<TaskEvent, "id" | "created_at">
                 Update: Partial<TaskEvent>
             }
             ledger_entries: {
                 Row: LedgerEntry
-                Insert: Partial<LedgerEntry>
+                Insert: Omit<LedgerEntry, "id" | "created_at">
                 Update: Partial<LedgerEntry>
             }
             rectify_passes: {
                 Row: RectifyPass
-                Insert: Partial<RectifyPass>
+                Insert: Omit<RectifyPass, "id" | "created_at">
                 Update: Partial<RectifyPass>
             }
             force_majeure: {
                 Row: ForceMajeure
-                Insert: Partial<ForceMajeure>
+                Insert: Omit<ForceMajeure, "id" | "created_at">
                 Update: Partial<ForceMajeure>
             }
+        }
+        Views: {
+            [_ in never]: never
+        }
+        Functions: {
+            [_ in never]: never
+        }
+        Enums: {
+            [_ in never]: never
         }
     }
 }

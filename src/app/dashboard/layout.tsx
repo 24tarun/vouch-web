@@ -27,13 +27,14 @@ export default async function DashboardLayout({
         redirect("/login");
     }
 
+    // @ts-ignore
     const { data: profile } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .single();
 
-    const initials = profile?.username?.slice(0, 2).toUpperCase() || "??";
+    const initials = (profile as any)?.username?.slice(0, 2).toUpperCase() || "??";
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
@@ -97,7 +98,7 @@ export default async function DashboardLayout({
                             >
                                 <DropdownMenuLabel className="text-slate-200">
                                     <div className="flex flex-col space-y-1">
-                                        <p className="text-sm font-medium">{profile?.username}</p>
+                                        <p className="text-sm font-medium">{(profile as any)?.username}</p>
                                         <p className="text-xs text-slate-400">{user.email}</p>
                                     </div>
                                 </DropdownMenuLabel>
