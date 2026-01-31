@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
+import { resend } from "@/lib/resend";
 import { type Database } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 
@@ -51,6 +52,67 @@ export async function voucherAccept(taskId: string) {
 
     revalidatePath("/dashboard/voucher");
     revalidatePath(`/dashboard/tasks/${taskId}`);
+    return { success: true };
+}
+
+export async function voucherDeleteTask(taskId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    // Fetch task with user info, ensure caller is voucher
+    // @ts-ignore
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select(`
+      *,
+      user:profiles!tasks_user_id_fkey(email, username)
+    `)
+        .eq("id", (taskId as any))
+        .eq("voucher_id", (user as any).id)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found or you are not the voucher" };
+    }
+
+    // Delete the task (cascades remove events/ledger)
+    const { error } = await (supabase.from("tasks") as any)
+        .delete()
+        .eq("id", (taskId as any));
+
+    if (error) {
+        return { error: error.message };
+    }
+
+    // Notify the task owner via email if available
+    if (resend && (task as any).user?.email) {
+        try {
+            await resend.emails.send({
+                from: "Vouch <noreply@remails.tarunh.com>",
+                to: (task as any).user.email,
+                subject: `Task deleted by voucher: ${(task as any).title}`,
+                html: `
+          <h1>Task Deleted</h1>
+          <p>Hi ${(task as any).user.username || "there"},</p>
+          <p>Your voucher deleted the task: <strong>${(task as any).title}</strong>.</p>
+          <p>If this was unexpected, please reach out to your voucher.</p>
+          <br/>
+          <a href="${process.env.NEXT_PUBLIC_APP_URL || ""}/dashboard">Go to Vouch</a>
+        `,
+            });
+        } catch (emailError) {
+            console.error(`Failed to send voucher delete email for task ${taskId}`, emailError);
+        }
+    }
+
+    revalidatePath("/dashboard/voucher");
+    revalidatePath("/dashboard");
+
     return { success: true };
 }
 
@@ -208,6 +270,36 @@ export async function getPendingVouchRequests() {
         .eq("voucher_id", (user as any).id)
         .eq("status", "AWAITING_VOUCHER")
         .order("voucher_response_deadline", { ascending: true });
+
+    return (tasks as any) || [];
+}
+
+export async function getAssignedTasksForVoucher() {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return [];
+
+    // Include all non-final states; voucher can delete even active tasks
+    const allowedStatuses = [
+        "CREATED",
+        "ACTIVE",
+        "POSTPONED",
+        "MARKED_COMPLETED",
+        "AWAITING_VOUCHER",
+    ];
+
+    // @ts-ignore
+    const { data: tasks } = await (supabase.from("tasks") as any)
+        .select(`
+      *,
+      user:profiles!tasks_user_id_fkey(*)
+    `)
+        .eq("voucher_id", (user as any).id)
+        .in("status", allowedStatuses)
+        .order("deadline", { ascending: true });
 
     return (tasks as any) || [];
 }

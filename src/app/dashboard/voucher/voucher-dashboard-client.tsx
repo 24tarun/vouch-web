@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { voucherAccept, voucherDeny, authorizeRectify } from "@/actions/voucher";
+import { voucherAccept, voucherDeny, authorizeRectify, voucherDeleteTask } from "@/actions/voucher";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,11 +18,13 @@ import type { TaskWithRelations } from "@/lib/types";
 interface VoucherDashboardClientProps {
     pendingTasks: TaskWithRelations[];
     failedTasks: TaskWithRelations[];
+    assignedTasks: TaskWithRelations[];
 }
 
 export default function VoucherDashboardClient({
     pendingTasks,
     failedTasks,
+    assignedTasks,
 }: VoucherDashboardClientProps) {
     const router = useRouter();
     const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -61,6 +63,17 @@ export default function VoucherDashboardClient({
         router.refresh();
     }
 
+    async function handleDelete(taskId: string) {
+        setLoadingId(taskId);
+        setError(null);
+        const result = await voucherDeleteTask(taskId);
+        if (result.error) {
+            setError(result.error);
+        }
+        setLoadingId(null);
+        router.refresh();
+    }
+
     return (
         <div className="space-y-6">
             <div>
@@ -89,6 +102,12 @@ export default function VoucherDashboardClient({
                         className="data-[state=active]:bg-purple-600"
                     >
                         Can Rectify ({failedTasks.length})
+                    </TabsTrigger>
+                    <TabsTrigger
+                        value="assigned"
+                        className="data-[state=active]:bg-purple-600"
+                    >
+                        Assigned ({assignedTasks.length})
                     </TabsTrigger>
                 </TabsList>
 
@@ -128,6 +147,27 @@ export default function VoucherDashboardClient({
                                     key={task.id}
                                     task={task}
                                     onRectify={() => handleRectify(task.id)}
+                                    isLoading={loadingId === task.id}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </TabsContent>
+
+                <TabsContent value="assigned" className="mt-4">
+                    {assignedTasks.length === 0 ? (
+                        <Card className="bg-slate-800/50 border-slate-700">
+                            <CardContent className="py-12 text-center">
+                                <p className="text-slate-400">No assigned tasks</p>
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <div className="space-y-4">
+                            {assignedTasks.map((task) => (
+                                <AssignedCard
+                                    key={task.id}
+                                    task={task}
+                                    onDelete={() => handleDelete(task.id)}
                                     isLoading={loadingId === task.id}
                                 />
                             ))}
@@ -201,6 +241,49 @@ function VouchRequestCard({
                         className="flex-1 border-red-500/50 text-red-300 hover:bg-red-500/10"
                     >
                         {isLoading ? "..." : "❌ Deny"}
+                    </Button>
+                </div>
+            </CardContent>
+        </Card>
+    );
+}
+
+function AssignedCard({
+    task,
+    onDelete,
+    isLoading,
+}: {
+    task: TaskWithRelations;
+    onDelete: () => void;
+    isLoading: boolean;
+}) {
+    return (
+        <Card className="bg-slate-800/50 border-slate-700">
+            <CardHeader>
+                <div className="flex items-start justify-between">
+                    <div>
+                        <CardTitle className="text-white">{task.title}</CardTitle>
+                        <CardDescription className="text-slate-400">
+                            Owner: {task.user?.username}
+                        </CardDescription>
+                    </div>
+                    <Badge className="bg-slate-600 text-white">{task.status}</Badge>
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+                {task.description && <p className="text-slate-300">{task.description}</p>}
+                <div className="flex items-center gap-4 text-sm text-slate-400">
+                    <span>Deadline: {new Date(task.deadline).toLocaleString()}</span>
+                    <span>Stake: €{(task.failure_cost_cents / 100).toFixed(2)}</span>
+                </div>
+                <div className="flex gap-3">
+                    <Button
+                        onClick={onDelete}
+                        disabled={isLoading}
+                        variant="outline"
+                        className="flex-1 border-red-500/50 text-red-300 hover:bg-red-500/10"
+                    >
+                        {isLoading ? "Deleting..." : "🗑️ Delete Task"}
                     </Button>
                 </div>
             </CardContent>
