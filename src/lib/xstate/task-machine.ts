@@ -10,6 +10,7 @@ export type TaskStatus =
     | "COMPLETED"
     | "FAILED"
     | "RECTIFIED"
+    | "DELETED"
     | "SETTLED";
 
 // Events that can trigger state transitions
@@ -23,7 +24,8 @@ export type TaskEvent =
     | { type: "TIMEOUT_24H" }
     | { type: "RECTIFY" }
     | { type: "MONTH_CLOSE" }
-    | { type: "FORCE_MAJEURE" };
+    | { type: "FORCE_MAJEURE" }
+    | { type: "VOUCHER_DELETE" };
 
 // Context for the task machine
 export interface TaskContext {
@@ -95,6 +97,10 @@ export const taskMachine = setup({
                     target: "ACTIVE",
                     actions: ["updateTimestamp"],
                 },
+                VOUCHER_DELETE: {
+                    target: "DELETED",
+                    actions: ["updateTimestamp"],
+                },
             },
         },
         ACTIVE: {
@@ -123,6 +129,10 @@ export const taskMachine = setup({
                     target: "SETTLED",
                     actions: ["updateTimestamp"],
                 },
+                VOUCHER_DELETE: {
+                    target: "DELETED",
+                    actions: ["updateTimestamp"],
+                },
             },
         },
         POSTPONED: {
@@ -138,6 +148,10 @@ export const taskMachine = setup({
                 },
                 FORCE_MAJEURE: {
                     target: "SETTLED",
+                    actions: ["updateTimestamp"],
+                },
+                VOUCHER_DELETE: {
+                    target: "DELETED",
                     actions: ["updateTimestamp"],
                 },
             },
@@ -160,6 +174,10 @@ export const taskMachine = setup({
                 },
                 TIMEOUT_24H: {
                     target: "FAILED",
+                    actions: ["updateTimestamp"],
+                },
+                VOUCHER_DELETE: {
+                    target: "DELETED",
                     actions: ["updateTimestamp"],
                 },
             },
@@ -195,20 +213,24 @@ export const taskMachine = setup({
         SETTLED: {
             type: "final",
         },
+        DELETED: {
+            type: "final",
+        },
     },
 });
 
 // Helper function to get valid transitions from a state
 export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     const transitions: Record<TaskStatus, TaskEvent["type"][]> = {
-        CREATED: ["ACTIVATE"],
-        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE"],
-        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE"],
+        CREATED: ["ACTIVATE", "VOUCHER_DELETE"],
+        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
+        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
         MARKED_COMPLETED: [], // Auto-transitions to AWAITING_VOUCHER
-        AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_24H"],
+        AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_24H", "VOUCHER_DELETE"],
         COMPLETED: ["MONTH_CLOSE"],
         FAILED: ["RECTIFY", "MONTH_CLOSE"],
         RECTIFIED: ["MONTH_CLOSE"],
+        DELETED: [],
         SETTLED: [],
     };
     return transitions[status];

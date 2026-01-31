@@ -80,14 +80,36 @@ export async function voucherDeleteTask(taskId: string) {
         return { error: "Task not found or you are not the voucher" };
     }
 
-    // Delete the task (cascades remove events/ledger)
+    // Check if task is in a non-final state
+    const nonFinalStatuses = [
+        "CREATED",
+        "ACTIVE",
+        "POSTPONED",
+        "MARKED_COMPLETED",
+        "AWAITING_VOUCHER",
+    ];
+    if (!nonFinalStatuses.includes((task as any).status)) {
+        return { error: `Cannot delete task in ${(task as any).status} status` };
+    }
+
+    // Update status to DELETED (soft delete)
     const { error } = await (supabase.from("tasks") as any)
-        .delete()
-        .eq("id", (taskId as any));
+        .update({ status: "DELETED", updated_at: new Date().toISOString() } as any)
+        .eq("id", (taskId as any))
+        .eq("voucher_id", (user as any).id);
 
     if (error) {
         return { error: error.message };
     }
+
+    // Log the deletion event
+    await supabase.from("task_events").insert({
+        task_id: taskId as any,
+        event_type: "VOUCHER_DELETE",
+        actor_id: (user as any).id,
+        from_status: (task as any).status,
+        to_status: "DELETED",
+    } as any);
 
     // Notify the task owner via email if available
     if (resend && (task as any).user?.email) {

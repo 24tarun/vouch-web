@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
 import { type Database } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
+import { resend } from "@/lib/resend";
 
 export async function createTask(formData: FormData) {
     const supabase: SupabaseClient<Database> = await createClient();
@@ -123,6 +124,26 @@ export async function activateTask(taskId: string) {
         to_status: "ACTIVE",
     });
 
+    // Notify the user via email if available
+    if (resend && user.email) {
+        try {
+            await resend.emails.send({
+                from: "Vouch <notifications@vouch.tarun.dev>",
+                to: user.email,
+                subject: "Task Activated!",
+                html: `
+          <h1>Task Activated</h1>
+          <p>Hi,</p>
+          <p>You have successfully activated the task: <strong>${(task as any).title}</strong>.</p>
+          <p>Your deadline is: <strong>${new Date((task as any).deadline).toLocaleString()}</strong></p>
+          <p>Good luck!</p>
+        `,
+            });
+        } catch (error) {
+            console.error("Failed to send activation email:", error);
+        }
+    }
+
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
 }
@@ -138,7 +159,7 @@ export async function markTaskComplete(taskId: string) {
     }
 
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("*")
+        .select("*, voucher:profiles!tasks_voucher_id_fkey(email, username), user:profiles!tasks_user_id_fkey(username)")
         .eq("id", (taskId as any))
         .eq("user_id", (user as any).id)
         .single();
@@ -180,7 +201,26 @@ export async function markTaskComplete(taskId: string) {
         to_status: "AWAITING_VOUCHER",
     });
 
-    // TODO: Send email to voucher via Trigger.dev
+    // Notify the voucher via email
+    if (resend && (task as any).voucher?.email) {
+        try {
+            await resend.emails.send({
+                from: "Vouch <notifications@vouch.tarun.dev>",
+                to: (task as any).voucher.email,
+                subject: `Review Request: ${(task as any).title}`,
+                html: `
+          <h1>Task Completed!</h1>
+          <p>Hi ${(task as any).voucher.username},</p>
+          <p><strong>${(task as any).user?.username || "The user"}</strong> has marked their task <strong>"${(task as any).title}"</strong> as complete.</p>
+          <p>Please review and verify it before the deadline: <strong>${new Date((task as any).voucher_response_deadline).toLocaleString()}</strong></p>
+          <br/>
+          <a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/voucher">Review Task</a>
+        `,
+            });
+        } catch (error) {
+            console.error("Failed to send voucher review email:", error);
+        }
+    }
 
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };

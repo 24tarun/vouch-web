@@ -126,6 +126,7 @@ export default function VoucherDashboardClient({
                                     task={task}
                                     onAccept={() => handleAccept(task.id)}
                                     onDeny={() => handleDeny(task.id)}
+                                    onDelete={() => handleDelete(task.id)}
                                     isLoading={loadingId === task.id}
                                 />
                             ))}
@@ -183,11 +184,13 @@ function VouchRequestCard({
     task,
     onAccept,
     onDeny,
+    onDelete,
     isLoading,
 }: {
     task: TaskWithRelations;
     onAccept: () => void;
     onDeny: () => void;
+    onDelete: () => void;
     isLoading: boolean;
 }) {
     const deadline = new Date(task.voucher_response_deadline || "");
@@ -241,6 +244,14 @@ function VouchRequestCard({
                         className="flex-1 border-red-500/50 text-red-300 hover:bg-red-500/10"
                     >
                         {isLoading ? "..." : "❌ Deny"}
+                    </Button>
+                    <Button
+                        onClick={onDelete}
+                        disabled={isLoading}
+                        variant="ghost"
+                        className="flex-1 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                    >
+                        {isLoading ? "..." : "🗑️ Delete"}
                     </Button>
                 </div>
             </CardContent>
