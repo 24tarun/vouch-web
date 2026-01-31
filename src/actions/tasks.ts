@@ -78,57 +78,6 @@ export async function createTask(formData: FormData) {
     redirect(`/dashboard/tasks/${(task as any).id}`);
 }
 
-export async function activateTask(taskId: string) {
-    const supabase = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-        return { error: "Not authenticated" };
-    }
-
-    const { data: task } = await (supabase.from("tasks") as any)
-        .select("*")
-        .eq("id", (taskId as any))
-        .eq("user_id", (user as any).id)
-        .single();
-
-    if (!task) {
-        return { error: "Task not found" };
-    }
-
-    // Prevent activating after the deadline
-    if (new Date() >= new Date((task as any).deadline)) {
-        return { error: "Deadline has passed" };
-    }
-
-    if (!canTransition((task as any).status as TaskStatus, "ACTIVATE")) {
-        return { error: `Cannot activate task in ${(task as any).status} status` };
-    }
-
-    // @ts-ignore
-    const { error } = await (supabase.from("tasks") as any)
-        .update({ status: "ACTIVE" } as any)
-        .eq("id", (taskId as any));
-
-    if (error) {
-        return { error: error.message };
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: (taskId as any),
-        event_type: "ACTIVATE",
-        actor_id: (user as any).id,
-        from_status: (task as any).status,
-        to_status: "ACTIVE",
-    });
-
-
-    revalidatePath(`/dashboard/tasks/${taskId}`);
-    return { success: true };
-}
-
 export async function markTaskComplete(taskId: string) {
     const supabase = await createClient();
     const {
@@ -300,7 +249,7 @@ export async function getTask(taskId: string) {
         if (isOwner || isVoucher) {
             const now = new Date();
             const deadline = new Date((task as any).deadline);
-            const shouldAutoFail = now >= deadline && ["ACTIVE", "POSTPONED", "CREATED"].includes((task as any).status);
+            const shouldAutoFail = now >= deadline && ["CREATED", "POSTPONED"].includes((task as any).status);
 
             if (shouldAutoFail) {
                 const currentPeriod = now.toISOString().slice(0, 7);

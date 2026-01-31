@@ -18,7 +18,7 @@ export const deadlineWarning = schedules.task({
         *,
         user:profiles!tasks_user_id_fkey(email, username)
       `)
-            .eq("status", "ACTIVE")
+            .eq("status", "CREATED")
             .gt("deadline", nowIso)
             .lt("deadline", oneHourFromNow) as any;
 
@@ -71,8 +71,8 @@ export const deadlineWarning = schedules.task({
                 task_id: task.id,
                 event_type: "DEADLINE_WARNING",
                 actor_id: null, // System event
-                from_status: "ACTIVE",
-                to_status: "ACTIVE",
+                from_status: "CREATED",
+                to_status: "CREATED",
                 metadata: { deadline: task.deadline },
             } as any);
         }

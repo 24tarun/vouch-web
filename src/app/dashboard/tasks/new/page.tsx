@@ -196,21 +196,10 @@ export default function NewTaskPage() {
                                 disabled={isLoading || friends.length === 0}
                                 className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                             >
-                                {isLoading ? "Creating..." : "Create Task"}
+                                {isLoading ? "Creating..." : "🚀 Create Task"}
                             </Button>
                         </div>
                     </form>
-                </CardContent>
-            </Card>
-
-            {/* Info Card */}
-            <Card className="mt-6 bg-slate-800/30 border-slate-700/50">
-                <CardContent className="py-4">
-                    <p className="text-sm text-slate-400 text-center">
-                        💡 Tasks are <strong>created</strong> first, then you{" "}
-                        <strong>activate</strong> them when ready. Once activated, the
-                        countdown begins and the commitment is irreversible.
-                    </p>
                 </CardContent>
             </Card>
         </div>

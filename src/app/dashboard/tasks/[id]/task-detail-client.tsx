@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { activateTask, markTaskComplete, postponeTask } from "@/actions/tasks";
+import { markTaskComplete, postponeTask } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
 import {
     Card,
@@ -40,14 +40,23 @@ export default function TaskDetailClient({
     const [error, setError] = useState<string | null>(null);
     const [postponeOpen, setPostponeOpen] = useState(false);
 
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     const deadline = new Date(task.deadline);
     const isOverdue =
         deadline < new Date() &&
         !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"].includes(task.status);
 
+    if (!mounted) {
+        return <div className="p-10 text-center text-slate-500">Loading task details...</div>;
+    }
+
     const statusColors: Record<string, string> = {
-        CREATED: "bg-slate-500",
-        ACTIVE: "bg-blue-500",
+        CREATED: "bg-blue-500",
         POSTPONED: "bg-yellow-500",
         MARKED_COMPLETED: "bg-purple-500",
         AWAITING_VOUCHER: "bg-purple-500",
@@ -56,17 +65,6 @@ export default function TaskDetailClient({
         RECTIFIED: "bg-orange-500",
         SETTLED: "bg-slate-600",
     };
-
-    async function handleActivate() {
-        setIsLoading(true);
-        setError(null);
-        const result = await activateTask(task.id);
-        if (result.error) {
-            setError(result.error);
-        }
-        setIsLoading(false);
-        router.refresh();
-    }
 
     async function handleMarkComplete() {
         setIsLoading(true);
@@ -183,17 +181,7 @@ export default function TaskDetailClient({
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-wrap gap-3">
-                    {task.status === "CREATED" && (
-                        <Button
-                            onClick={handleActivate}
-                            disabled={isLoading}
-                            className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
-                        >
-                            {isLoading ? "Activating..." : "🚀 Activate Task"}
-                        </Button>
-                    )}
-
-                    {(task.status === "ACTIVE" || task.status === "POSTPONED") && (
+                    {(task.status === "CREATED" || task.status === "POSTPONED") && (
                         <>
                             <Button
                                 onClick={handleMarkComplete}
@@ -203,7 +191,7 @@ export default function TaskDetailClient({
                                 {isLoading ? "Marking..." : "✅ Mark Complete"}
                             </Button>
 
-                            {task.status === "ACTIVE" && !task.postponed_at && !isOverdue && (
+                            {task.status === "CREATED" && !task.postponed_at && !isOverdue && (
                                 <Dialog open={postponeOpen} onOpenChange={setPostponeOpen}>
                                     <DialogTrigger asChild>
                                         <Button

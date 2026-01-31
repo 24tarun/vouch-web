@@ -83,7 +83,6 @@ export async function voucherDeleteTask(taskId: string) {
     // Check if task is in a non-final state
     const nonFinalStatuses = [
         "CREATED",
-        "ACTIVE",
         "POSTPONED",
         "MARKED_COMPLETED",
         "AWAITING_VOUCHER",
@@ -307,7 +306,6 @@ export async function getAssignedTasksForVoucher() {
     // Include all non-final states; voucher can delete even active tasks
     const allowedStatuses = [
         "CREATED",
-        "ACTIVE",
         "POSTPONED",
         "MARKED_COMPLETED",
         "AWAITING_VOUCHER",

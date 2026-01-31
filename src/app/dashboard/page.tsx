@@ -45,7 +45,7 @@ export default async function DashboardPage() {
 
     const activeTasks =
         tasks?.filter((t: Task) =>
-            ["CREATED", "ACTIVE", "POSTPONED", "MARKED_COMPLETED", "AWAITING_VOUCHER"].includes(
+            ["CREATED", "POSTPONED", "MARKED_COMPLETED", "AWAITING_VOUCHER"].includes(
                 t.status
             )
         ) || [];
@@ -181,8 +181,7 @@ export default async function DashboardPage() {
 
 function TaskCard({ task }: { task: Task }) {
     const statusColors: Record<string, string> = {
-        CREATED: "bg-slate-500",
-        ACTIVE: "bg-blue-500",
+        CREATED: "bg-blue-500",
         POSTPONED: "bg-yellow-500",
         MARKED_COMPLETED: "bg-purple-500",
         AWAITING_VOUCHER: "bg-purple-500",

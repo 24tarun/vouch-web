@@ -3,7 +3,6 @@ import { setup, assign } from "xstate";
 // Task status types matching the PRD
 export type TaskStatus =
     | "CREATED"
-    | "ACTIVE"
     | "POSTPONED"
     | "MARKED_COMPLETED"
     | "AWAITING_VOUCHER"
@@ -15,8 +14,7 @@ export type TaskStatus =
 
 // Events that can trigger state transitions
 export type TaskEvent =
-    | { type: "ACTIVATE" }
-    | { type: "POSTPONE"; newDeadline: Date }
+    { type: "POSTPONE"; newDeadline: Date }
     | { type: "MARK_COMPLETE" }
     | { type: "DEADLINE_PASSED" }
     | { type: "VOUCHER_ACCEPT" }
@@ -92,18 +90,6 @@ export const taskMachine = setup({
     context: {} as TaskContext,
     states: {
         CREATED: {
-            on: {
-                ACTIVATE: {
-                    target: "ACTIVE",
-                    actions: ["updateTimestamp"],
-                },
-                VOUCHER_DELETE: {
-                    target: "DELETED",
-                    actions: ["updateTimestamp"],
-                },
-            },
-        },
-        ACTIVE: {
             on: {
                 POSTPONE: {
                     target: "POSTPONED",
@@ -222,8 +208,7 @@ export const taskMachine = setup({
 // Helper function to get valid transitions from a state
 export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     const transitions: Record<TaskStatus, TaskEvent["type"][]> = {
-        CREATED: ["ACTIVATE", "VOUCHER_DELETE"],
-        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
+        CREATED: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
         POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
         MARKED_COMPLETED: [], // Auto-transitions to AWAITING_VOUCHER
         AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_24H", "VOUCHER_DELETE"],

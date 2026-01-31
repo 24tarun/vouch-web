@@ -112,7 +112,6 @@ export async function removeFriend(friendId: string) {
         .eq("voucher_id", friendId)
         .in("status", [
             "CREATED",
-            "ACTIVE",
             "POSTPONED",
             "MARKED_COMPLETED",
             "AWAITING_VOUCHER",
