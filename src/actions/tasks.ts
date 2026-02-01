@@ -142,7 +142,7 @@ export async function markTaskComplete(taskId: string) {
           <h1>Task Completed!</h1>
           <p>Hi ${(task as any).voucher.username},</p>
           <p><strong>${(task as any).user?.username || "The user"}</strong> has marked their task <strong>"${(task as any).title}"</strong> as complete.</p>
-          <p>Please review and verify it before the deadline: <strong>${new Date((task as any).voucher_response_deadline).toLocaleString()}</strong></p>
+          <p>Please review and verify it before the deadline: <strong>${voucherResponseDeadline.toLocaleString()}</strong></p>
           <br/>
           <a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/voucher">Review Task</a>
         `,
