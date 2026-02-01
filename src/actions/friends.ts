@@ -125,14 +125,27 @@ export async function removeFriend(friendId: string) {
     }
 
     // @ts-ignore
-    const { error } = await supabase
+    const { error: error1 } = await supabase
         .from("friendships")
         .delete()
         .eq("user_id", user.id)
         .eq("friend_id", friendId);
 
-    if (error) {
-        return { error: error.message };
+    if (error1) {
+        return { error: error1.message };
+    }
+
+    // Reciprocal deletion (Admin client)
+    const supabaseAdmin = createAdminClient();
+    // @ts-ignore
+    const { error: error2 } = await supabaseAdmin
+        .from("friendships")
+        .delete()
+        .eq("user_id", friendId)
+        .eq("friend_id", user.id);
+
+    if (error2) {
+        console.error("Failed to delete reciprocal friendship:", error2);
     }
 
     revalidatePath("/dashboard/friends");

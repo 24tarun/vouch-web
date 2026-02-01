@@ -72,6 +72,37 @@ To test background jobs (like deadline warnings) locally:
 
 This will start a tunnel and allow your local Trigger.dev tasks to execute.
 
+## 6. Deploying Trigger.dev Tasks to Production
+
+When you make changes to trigger files (`src/trigger/*`) or environment variables:
+
+### Deploy Tasks
+
+```bash
+npx trigger.dev@latest deploy
+```
+
+### Set Environment Variables in Trigger.dev Dashboard
+
+1. Go to [Trigger.dev Dashboard](https://cloud.trigger.dev)
+2. Navigate to your project → **Settings** → **Environment Variables**
+3. Add the following variables for **production**:
+   - `NEXT_PUBLIC_SUPABASE_URL` = Your Supabase project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` = Your Supabase secret/service role key
+   - `RESEND_API_KEY` = Your Resend API key
+   - `NEXT_PUBLIC_APP_URL` = Your production URL (e.g., `https://tas.tarunh.com`)
+
+### Test Your Tasks
+
+1. Go to Trigger.dev Dashboard → **Tasks**
+2. Find your task (e.g., `deadline-warning`, `monthly-settlement`)
+3. Click **"Test"** to manually trigger it
+4. Check **Runs** tab for execution logs
+
+**Scheduled Tasks:**
+- `deadline-warning`: Runs every 15 minutes (checks tasks with <1 hour until deadline)
+- `monthly-settlement`: Runs on 1st of each month at 9am (sends ledger settlement emails)
+
 ## Tech Stack
 
 - **Framework**: Next.js 15 (App Router)

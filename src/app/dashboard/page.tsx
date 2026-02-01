@@ -44,16 +44,16 @@ export default async function DashboardPage() {
         (ledgerEntries as any)?.reduce((sum: number, entry: any) => sum + entry.amount_cents, 0) || 0;
 
     const activeTasks =
-        tasks?.filter((t: Task) =>
-            ["CREATED", "POSTPONED", "MARKED_COMPLETED", "AWAITING_VOUCHER"].includes(
-                t.status
-            )
+        (tasks as Task[])?.filter((t) =>
+            ["CREATED", "POSTPONED"].includes(t.status)
         ) || [];
 
-    const completedTasks =
-        tasks?.filter((t: Task) => t.status === "COMPLETED") || [];
-    const failedTasks =
-        tasks?.filter((t: Task) => ["FAILED", "RECTIFIED"].includes(t.status)) || [];
+    const historyTasks =
+        (tasks as Task[])?.filter((t) =>
+            !["CREATED", "POSTPONED"].includes(t.status)
+        ) || [];
+
+    const completedCount = tasks?.filter((t: Task) => t.status === "COMPLETED").length || 0;
 
     return (
         <div className="space-y-8">
@@ -106,7 +106,7 @@ export default async function DashboardPage() {
                     </CardHeader>
                     <CardContent>
                         <p className="text-3xl font-bold text-green-400">
-                            {completedTasks.length}
+                            {completedCount}
                         </p>
                     </CardContent>
                 </Card>
@@ -152,63 +152,85 @@ export default async function DashboardPage() {
 
             {/* Active Tasks */}
             <div>
-                <h2 className="text-xl font-semibold text-white mb-4">Your Tasks</h2>
+                <h2 className="text-xl font-semibold text-white mb-4">🔥 Active Tasks</h2>
                 {activeTasks.length === 0 ? (
                     <Card className="bg-slate-800/50 border-slate-700">
-                        <CardContent className="py-12 text-center">
-                            <p className="text-slate-400 mb-4">No active tasks yet</p>
+                        <CardContent className="py-8 text-center">
+                            <p className="text-slate-400 mb-4">No active tasks</p>
                             <Link href="/dashboard/tasks/new">
                                 <Button
                                     variant="outline"
                                     className="border-slate-600 text-slate-300"
                                 >
-                                    Create your first task
+                                    Create a task
                                 </Button>
                             </Link>
                         </CardContent>
                     </Card>
                 ) : (
-                    <div className="grid gap-4">
+                    <div className="grid gap-3">
                         {activeTasks.map((task: Task) => (
                             <TaskCard key={task.id} task={task} />
                         ))}
                     </div>
                 )}
             </div>
+
+            {/* Task History */}
+            {historyTasks.length > 0 && (
+                <div>
+                    <h2 className="text-xl font-semibold text-slate-400 mb-4">📋 History</h2>
+                    <div className="grid gap-2">
+                        {historyTasks.map((task: Task) => (
+                            <TaskCard key={task.id} task={task} variant="history" />
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
-function TaskCard({ task }: { task: Task }) {
-    const statusColors: Record<string, string> = {
-        CREATED: "bg-blue-500",
-        POSTPONED: "bg-yellow-500",
-        MARKED_COMPLETED: "bg-purple-500",
-        AWAITING_VOUCHER: "bg-purple-500",
-        COMPLETED: "bg-green-500",
-        FAILED: "bg-red-500",
-        RECTIFIED: "bg-orange-500",
-        SETTLED: "bg-slate-600",
+function TaskCard({ task, variant = "active" }: { task: Task; variant?: "active" | "history" }) {
+    const statusConfig: Record<string, { color: string; icon: string; label: string }> = {
+        CREATED: { color: "bg-blue-500", icon: "🎯", label: "Active" },
+        POSTPONED: { color: "bg-yellow-500", icon: "⏸️", label: "Postponed" },
+        MARKED_COMPLETED: { color: "bg-purple-500", icon: "⏳", label: "Waiting" },
+        AWAITING_VOUCHER: { color: "bg-purple-500", icon: "⏳", label: "Waiting" },
+        COMPLETED: { color: "bg-green-500", icon: "✅", label: "Accepted" },
+        FAILED: { color: "bg-red-500", icon: "❌", label: "Denied / Failed" },
+        RECTIFIED: { color: "bg-orange-500", icon: "🔄", label: "Rectified" },
+        SETTLED: { color: "bg-slate-600", icon: "📁", label: "Settled" },
+        DELETED: { color: "bg-slate-600", icon: "🗑️", label: "Deleted" },
     };
 
+    const config = statusConfig[task.status] || { color: "bg-slate-500", icon: "❓", label: task.status };
     const deadline = new Date(task.deadline);
-    const isOverdue = deadline < new Date() && !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"].includes(task.status);
+    const isOverdue = deadline < new Date() && !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(task.status);
+
+    const cardStyles = {
+        active: "bg-slate-800/50 border-slate-700 hover:border-purple-500/50",
+        history: "bg-slate-800/30 border-slate-700/50 opacity-70 hover:opacity-100",
+    };
 
     return (
         <Link href={`/dashboard/tasks/${task.id}`}>
-            <Card className="bg-slate-800/50 border-slate-700 hover:border-purple-500/50 transition-colors cursor-pointer">
+            <Card className={`${cardStyles[variant]} transition-all cursor-pointer`}>
                 <CardContent className="p-4">
                     <div className="flex items-center justify-between">
                         <div className="flex-1">
                             <div className="flex items-center gap-3">
-                                <h3 className="font-medium text-white">{task.title}</h3>
-                                <Badge className={`${statusColors[task.status]} text-white text-xs`}>
-                                    {task.status.replace("_", " ")}
+                                <span className="text-lg">{config.icon}</span>
+                                <h3 className={`font-medium ${variant === "history" ? "text-slate-300" : "text-white"}`}>
+                                    {task.title}
+                                </h3>
+                                <Badge className={`${config.color} text-white text-xs`}>
+                                    {config.label}
                                 </Badge>
                             </div>
                             <div className="flex items-center gap-4 mt-2 text-sm text-slate-400">
                                 <span className={isOverdue ? "text-red-400" : ""}>
-                                    Due: {deadline.toLocaleDateString()} {deadline.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                    {variant === "history" ? "Deadline:" : "Due:"} {deadline.toLocaleDateString()} {deadline.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                 </span>
                                 <span>Stake: €{(task.failure_cost_cents / 100).toFixed(2)}</span>
                             </div>
