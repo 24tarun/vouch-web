@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import type { Profile } from "@/lib/types";
+import { createClient } from "@/lib/supabase/client";
 
 export default function FriendsPage() {
     const [friends, setFriends] = useState<Profile[]>([]);
@@ -23,7 +24,40 @@ export default function FriendsPage() {
     const [success, setSuccess] = useState<string | null>(null);
 
     useEffect(() => {
-        loadFriends();
+        let subscription: any;
+
+        const setupRealtime = async () => {
+            const supabase = createClient();
+            const { data: { user } } = await supabase.auth.getUser();
+
+            if (user) {
+                loadFriends();
+
+                subscription = supabase
+                    .channel('friendships-changes')
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: '*',
+                            schema: 'public',
+                            table: 'friendships',
+                            filter: `user_id=eq.${user.id}`,
+                        },
+                        (payload) => {
+                            loadFriends();
+                        }
+                    )
+                    .subscribe();
+            }
+        };
+
+        setupRealtime();
+
+        return () => {
+            if (subscription) {
+                subscription.unsubscribe();
+            }
+        };
     }, []);
 
     async function loadFriends() {
@@ -37,35 +71,47 @@ export default function FriendsPage() {
         setError(null);
         setSuccess(null);
 
-        const formData = new FormData();
-        formData.append("email", email);
+        try {
+            const formData = new FormData();
+            formData.append("email", email);
 
-        const result = await addFriend(formData);
+            const result = await addFriend(formData);
 
-        if (result.error) {
-            setError(result.error);
-        } else {
-            setSuccess("Friend added successfully!");
-            setEmail("");
-            loadFriends();
+            if (result.error) {
+                setError(result.error);
+            } else {
+                setSuccess("Friend added successfully!");
+                setEmail("");
+                // loadFriends() is strictly not needed if Realtime works, but good for immediate feedback if Realtime is slow
+                loadFriends();
+            }
+        } catch (err) {
+            setError("An unexpected error occurred");
+            console.error(err);
+        } finally {
+            setIsLoading(false);
         }
-
-        setIsLoading(false);
     }
 
     async function handleRemoveFriend(friendId: string) {
         setIsLoading(true);
         setError(null);
 
-        const result = await removeFriend(friendId);
+        try {
+            const result = await removeFriend(friendId);
 
-        if (result.error) {
-            setError(result.error);
-        } else {
-            loadFriends();
+            if (result.error) {
+                setError(result.error);
+            } else {
+                // loadFriends(); // Handled by Realtime theoretically, but good to keep
+                loadFriends();
+            }
+        } catch (err) {
+            setError("Failed to remove friend");
+            console.error(err);
+        } finally {
+            setIsLoading(false);
         }
-
-        setIsLoading(false);
     }
 
     return (

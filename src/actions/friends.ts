@@ -52,17 +52,6 @@ export async function addFriend(formData: FormData) {
         return { error: "Already friends with this user" };
     }
 
-    // Verify unique constraint for reciprocal check too
-    // @ts-ignore
-    const { data: existingReverse } = await supabase
-        .from("friendships")
-        .select("*")
-        .eq("user_id", (friend as any).id)
-        .eq("friend_id", (user as any).id)
-        .single();
-
-    // Perform transaction-like insert (not true transaction but sequential)
-
     // 1. User -> Friend (Regular client)
     // @ts-ignore
     const { error: error1 } = await supabase.from("friendships" as any).insert({
@@ -75,18 +64,19 @@ export async function addFriend(formData: FormData) {
     }
 
     // 2. Friend -> User (Admin client to bypass RLS)
-    if (!existingReverse) {
-        const supabaseAdmin = createAdminClient();
-        // @ts-ignore
-        const { error: error2 } = await supabaseAdmin.from("friendships" as any).insert({
-            user_id: (friend as any).id,
-            friend_id: (user as any).id,
-        });
+    // We attempt insert always. If it fails due to unique constraint, that's fine (already exists).
+    const supabaseAdmin = createAdminClient();
 
-        if (error2) {
-            console.error("Failed to create reciprocal friendship:", error2);
-            // Ideally we would rollback here, but for now we just log
-        }
+    // @ts-ignore
+    const { error: error2 } = await supabaseAdmin.from("friendships" as any).insert({
+        user_id: (friend as any).id,
+        friend_id: (user as any).id,
+    });
+
+    if (error2 && error2.code !== '23505') { // 23505 is unique_violation
+        console.error("Failed to create reciprocal friendship:", error2);
+        // We log but don't fail the user request since *their* link was created.
+        // Ideally we might want to rollback, but let's keep it simple for now.
     }
 
     revalidatePath("/dashboard/friends");
