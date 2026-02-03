@@ -33,9 +33,9 @@ export default async function HomePage() {
                 Sign In
               </Button>
             </Link>
-            <Link href="/login">
+            <Link href="/login?mode=signup">
               <Button className="bg-slate-200 hover:bg-white text-slate-900 font-semibold border-none">
-                Get Started
+                Sign Up
               </Button>
             </Link>
           </div>
@@ -59,12 +59,12 @@ export default async function HomePage() {
             your money goes to charity. Pure accountability.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/login">
+            <Link href="/login?mode=signup">
               <Button
                 size="lg"
                 className="bg-slate-200 hover:bg-white text-slate-900 font-bold text-base px-8 py-6 rounded"
               >
-                Start Your First Task
+                Sign Up Now
               </Button>
             </Link>
           </div>

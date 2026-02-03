@@ -55,12 +55,12 @@ export default async function DashboardLayout({
                     <div className="flex flex-col">
                         <div className="flex justify-between h-14 items-center">
                             {/* Logo */}
-                            <Link href="/dashboard" className="flex items-center gap-2">
+                            <a href="/dashboard" className="flex items-center gap-2">
                                 <div className="h-7 w-7 rounded bg-slate-200 flex items-center justify-center">
                                     <span className="text-[10px] font-bold text-slate-900 leading-none">TAS</span>
                                 </div>
                                 <span className="text-base font-bold tracking-tight text-white">TAS</span>
-                            </Link>
+                            </a>
 
                             {/* User Menu */}
                             <DropdownMenu>

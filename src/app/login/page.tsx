@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { signIn, signUp } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,15 +14,26 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 
-export default function LoginPage() {
+function LoginContent() {
+    const searchParams = useSearchParams();
+    const initialMode = searchParams.get("mode") === "signup" ? "signup" : "signin";
+
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
-    const [mode, setMode] = useState<"signin" | "signup">("signin");
+    const [mode, setMode] = useState<"signin" | "signup">(initialMode);
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{
         type: "success" | "error";
         text: string;
     } | null>(null);
+
+    // Update mode if query param changes
+    useEffect(() => {
+        const queryMode = searchParams.get("mode");
+        if (queryMode === "signup" || queryMode === "signin") {
+            setMode(queryMode);
+        }
+    }, [searchParams]);
 
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -164,5 +176,13 @@ export default function LoginPage() {
                 </CardContent>
             </Card>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500 font-mono text-xs uppercase tracking-widest">Loading...</div>}>
+            <LoginContent />
+        </Suspense>
     );
 }
