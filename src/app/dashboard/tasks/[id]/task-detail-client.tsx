@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { markTaskComplete, postponeTask } from "@/actions/tasks";
+import { markTaskComplete, postponeTask, forceMajeureTask } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
 import {
     Card,
@@ -92,6 +92,18 @@ export default function TaskDetailClient({
         router.refresh();
     }
 
+    async function handleForceMajeure() {
+        if (!confirm("Are you sure? This uses your 1 monthly Force Majeure pass and will settle the task without failure cost.")) return;
+        setIsLoading(true);
+        setError(null);
+        const result = await forceMajeureTask(task.id);
+        if (result.error) {
+            setError(result.error);
+        }
+        setIsLoading(false);
+        router.refresh();
+    }
+
     // Calculate max postpone time (1 hour from current deadline)
     const maxPostpone = new Date(deadline.getTime() + 60 * 60 * 1000);
     const minPostpone = new Date(deadline.getTime() + 60 * 1000);
@@ -104,7 +116,9 @@ export default function TaskDetailClient({
                     <h1 className="text-3xl font-bold text-white">{task.title}</h1>
                     <div className="flex items-center gap-3 mt-2">
                         <Badge className={`${statusColors[task.status]} text-white`}>
-                            {task.status.replace("_", " ")}
+                            {task.status === "FAILED"
+                                ? (task.marked_completed_at ? "DENIED" : "FAILED")
+                                : task.status === "SETTLED" ? "FORCE MAJEURE" : task.status.replace("_", " ")}
                         </Badge>
                         <span className="text-slate-400">
                             Voucher: {task.voucher?.username}
@@ -161,7 +175,7 @@ export default function TaskDetailClient({
                         </div>
                     )}
 
-                    {task.voucher_response_deadline && (
+                    {task.voucher_response_deadline && (task.status === "AWAITING_VOUCHER" || task.status === "MARKED_COMPLETED") && (
                         <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
                             <p className="text-sm text-purple-300">
                                 🕐 Voucher must respond by{" "}
@@ -238,6 +252,17 @@ export default function TaskDetailClient({
                         </>
                     )}
 
+                    {task.status === "FAILED" && (
+                        <Button
+                            variant="ghost"
+                            onClick={handleForceMajeure}
+                            disabled={isLoading}
+                            className="text-slate-500 hover:text-white hover:bg-slate-800"
+                        >
+                            {isLoading ? "..." : "🆘 Use Force Majeure"}
+                        </Button>
+                    )}
+
                     {task.status === "AWAITING_VOUCHER" && (
                         <p className="text-slate-400">
                             Waiting for voucher response...
@@ -253,7 +278,9 @@ export default function TaskDetailClient({
                     {task.status === "FAILED" && (
                         <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 w-full">
                             <p className="text-red-300">
-                                ❌ Task failed. €{(task.failure_cost_cents / 100).toFixed(2)} added to ledger.
+                                {task.marked_completed_at
+                                    ? `❌ Denied by voucher.`
+                                    : `❌ Deadline missed. Failure cost:`} €{(task.failure_cost_cents / 100).toFixed(2)} added to ledger.
                             </p>
                         </div>
                     )}

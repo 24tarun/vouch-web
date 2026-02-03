@@ -329,6 +329,9 @@ export async function getFailedTasks() {
 
     if (!user) return [];
 
+    const currentPeriod = new Date().toISOString().slice(0, 7);
+
+    // Get failed tasks
     // @ts-ignore
     const { data: tasks } = await (supabase.from("tasks") as any)
         .select(`
@@ -339,5 +342,55 @@ export async function getFailedTasks() {
         .eq("status", "FAILED")
         .order("updated_at", { ascending: false });
 
-    return (tasks as any) || [];
+    if (!tasks) return [];
+
+    // Get pass counts for each owner
+    const tasksWithCounts = await Promise.all(tasks.map(async (task: any) => {
+        const { count } = await supabase
+            .from("rectify_passes" as any)
+            .select("*", { count: 'exact', head: true })
+            .eq("user_id", task.user_id)
+            .eq("period", currentPeriod);
+
+        return { ...task, rectify_passes_used: count || 0 };
+    }));
+
+    return tasksWithCounts;
+}
+
+export async function getVouchHistory() {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return [];
+
+    const finalStatuses = ["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"];
+
+    const currentPeriod = new Date().toISOString().slice(0, 7);
+
+    // @ts-ignore
+    const { data: tasks } = await (supabase.from("tasks") as any)
+        .select(`
+      *,
+      user:profiles!tasks_user_id_fkey(*)
+    `)
+        .eq("voucher_id", (user as any).id)
+        .in("status", finalStatuses)
+        .order("updated_at", { ascending: false });
+
+    if (!tasks) return [];
+
+    const tasksWithCounts = await Promise.all(tasks.map(async (task: any) => {
+        const { count } = await supabase
+            .from("rectify_passes" as any)
+            .select("*", { count: 'exact', head: true })
+            .eq("user_id", task.user_id)
+            .eq("period", currentPeriod);
+
+        return { ...task, rectify_passes_used: count || 0 };
+    }));
+
+    return tasksWithCounts;
 }

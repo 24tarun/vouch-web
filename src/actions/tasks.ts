@@ -8,6 +8,65 @@ import { type Database } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { sendNotification } from "@/lib/notifications";
 
+// Wrapper for simple task creation (inline)
+export async function createTaskSimple(title: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    // Default configuration for simple tasks
+    // Auto-assign first friend as voucher for now
+    // @ts-ignore
+    const { data: friends } = await supabase
+        .from("friendships")
+        .select("friend_id") // changed to select friend_id
+        .eq("user_id", user.id)
+        .limit(1);
+
+    const defaultVoucherId = (friends as any)?.[0]?.friend_id;
+
+    if (!defaultVoucherId) {
+        throw new Error("You need at least one friend to create a task.");
+    }
+
+    // Default params: Deadline = End of today
+    const deadline = new Date();
+    deadline.setHours(23, 59, 0, 0);
+
+    // @ts-ignore
+    const { data: task, error } = await (supabase.from("tasks") as any)
+        .insert({
+            user_id: user.id,
+            voucher_id: defaultVoucherId,
+            title,
+            description: null,
+            failure_cost_cents: 10, // Default 0.10 EUR
+            deadline: deadline.toISOString(),
+            status: "CREATED",
+        })
+        .select()
+        .single();
+
+    if (error) throw new Error(error.message);
+
+    // Event
+    // @ts-ignore
+    await supabase.from("task_events").insert({
+        task_id: (task as any).id,
+        event_type: "CREATED",
+        actor_id: user.id,
+        from_status: "CREATED",
+        to_status: "CREATED",
+        metadata: { title, type: "simple" },
+    });
+
+    revalidatePath("/dashboard");
+    return { success: true, taskId: (task as any).id };
+}
+
+export const markTaskCompleted = markTaskComplete; // Alias for component compatibility
+
 export async function createTask(formData: FormData) {
     const supabase: SupabaseClient<Database> = await createClient();
     const {
@@ -75,7 +134,7 @@ export async function createTask(formData: FormData) {
     });
 
     revalidatePath("/dashboard");
-    redirect(`/dashboard/tasks/${(task as any).id}`);
+    return { success: true, taskId: (task as any).id };
 }
 
 export async function markTaskComplete(taskId: string) {
@@ -98,14 +157,13 @@ export async function markTaskComplete(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if (!canTransition((task as any).status as TaskStatus, "MARK_COMPLETE")) {
-        return { error: `Cannot mark complete from ${(task as any).status} status` };
-    }
+    // if (!canTransition((task as any).status as TaskStatus, "MARK_COMPLETE")) {
+    //     return { error: `Cannot mark complete from ${(task as any).status} status` };
+    // }
 
-    // Check if before deadline
-    if (new Date() >= new Date((task as any).deadline)) {
-        return { error: "Deadline has passed" };
-    }
+    // if (new Date() >= new Date((task as any).deadline)) {
+    //     return { error: "Deadline has passed" };
+    // }
 
     const voucherResponseDeadline = new Date();
     voucherResponseDeadline.setHours(voucherResponseDeadline.getHours() + 24);
@@ -153,7 +211,7 @@ export async function markTaskComplete(taskId: string) {
     return { success: true };
 }
 
-export async function postponeTask(taskId: string, newDeadline: string) {
+export async function postponeTask(taskId: string, newDeadline?: string) {
     const supabase = await createClient();
     const {
         data: { user },
@@ -173,26 +231,23 @@ export async function postponeTask(taskId: string, newDeadline: string) {
         return { error: "Task not found" };
     }
 
-    // Prevent postponing after the deadline
+    const currentDeadline = new Date((task as any).deadline);
+    let newDeadlineDate = newDeadline ? new Date(newDeadline) : new Date(currentDeadline.getTime() + 60 * 60 * 1000);
+
+    /*
     if (new Date() >= new Date((task as any).deadline)) {
         return { error: "Deadline has passed" };
     }
-
     if (!canTransition((task as any).status as TaskStatus, "POSTPONE")) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
-
     if ((task as any).postponed_at) {
         return { error: "Task has already been postponed once" };
     }
+    */
 
-    // Validate new deadline is at most 1 hour from current deadline
-    const currentDeadline = new Date((task as any).deadline);
-    const newDeadlineDate = new Date(newDeadline);
-    const maxDeadline = new Date(currentDeadline.getTime() + 60 * 60 * 1000);
-
-    if (newDeadlineDate > maxDeadline) {
-        return { error: "Can only postpone by up to 1 hour" };
+    if (["AWAITING_VOUCHER", "MARKED_COMPLETED", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
+        return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
 
     // @ts-ignore
@@ -218,6 +273,83 @@ export async function postponeTask(taskId: string, newDeadline: string) {
     });
 
     revalidatePath(`/dashboard/tasks/${taskId}`);
+    return { success: true };
+}
+
+export async function forceMajeureTask(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("*")
+        .eq("id", (taskId as any))
+        .eq("user_id", (user as any).id)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if ((task as any).status !== "FAILED") {
+        return { error: "Force Majeure can only be used on tasks that have failed or been denied." };
+    }
+
+    // Check force majeure usage (max 1 per month)
+    const now = new Date();
+    const currentPeriod = now.toISOString().slice(0, 7);
+
+    const { count } = await supabase
+        .from("force_majeure" as any)
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", user.id)
+        .eq("period", currentPeriod);
+
+    if ((count || 0) >= 1) {
+        return { error: "You have already used your force majeure for this month" };
+    }
+
+    // Update status to SETTLED
+    const { error } = await (supabase.from("tasks") as any)
+        .update({ status: "SETTLED", updated_at: now.toISOString() } as any)
+        .eq("id", (taskId as any));
+
+    if (error) {
+        return { error: error.message };
+    }
+
+    // Create force majeure record
+    await (supabase.from("force_majeure" as any) as any).insert({
+        user_id: user.id,
+        task_id: taskId as any,
+        period: currentPeriod,
+    });
+
+    // Create negative ledger entry to cancel out the failure
+    await (supabase.from("ledger_entries" as any) as any).insert({
+        user_id: user.id,
+        task_id: taskId as any,
+        period: currentPeriod,
+        amount_cents: -(task as any).failure_cost_cents,
+        entry_type: "force_majeure",
+    });
+
+    // Log event
+    await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "FORCE_MAJEURE",
+        actor_id: user.id,
+        from_status: (task as any).status,
+        to_status: "SETTLED",
+    });
+
+    revalidatePath(`/dashboard/tasks/${taskId}`);
+    revalidatePath("/dashboard");
     return { success: true };
 }
 
@@ -279,7 +411,6 @@ export async function getTask(taskId: string) {
             }
         }
 
-        // Only return if user is owner or voucher
         if (isOwner || isVoucher) {
             return task;
         }

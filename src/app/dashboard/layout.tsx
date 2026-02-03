@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NavLinks } from "@/components/NavLinks";
+import { RealtimeListener } from "@/components/RealtimeListener";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -35,10 +36,19 @@ export default async function DashboardLayout({
         .eq("id", user.id)
         .single();
 
+    // Fetch vouch requests count
+    // @ts-ignore
+    const { count: vouchCount } = await supabase
+        .from("tasks")
+        .select("*", { count: 'exact', head: true })
+        .eq("voucher_id", user.id)
+        .eq("status", "AWAITING_VOUCHER");
+
     const initials = (profile as any)?.username?.slice(0, 2).toUpperCase() || "??";
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-200">
+            <RealtimeListener userId={user.id} />
             {/* Navigation */}
             <nav className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 pt-safe">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -101,7 +111,7 @@ export default async function DashboardLayout({
                         </div>
 
                         {/* Navigation Links - Horizontal Scroll on Mobile */}
-                        <NavLinks />
+                        <NavLinks vouchCount={vouchCount} />
                     </div>
                 </div>
             </nav>

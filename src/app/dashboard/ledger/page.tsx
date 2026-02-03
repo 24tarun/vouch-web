@@ -1,13 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { LedgerEntry, Task } from "@/lib/types";
+import type { LedgerEntry } from "@/lib/types";
+import { LedgerReportButton } from "@/components/LedgerReportButton";
 
 export default async function LedgerPage() {
     const supabase = await createClient();
@@ -15,22 +9,19 @@ export default async function LedgerPage() {
         data: { user },
     } = await supabase.auth.getUser();
 
-    // Get current month
     const currentPeriod = new Date().toISOString().slice(0, 7);
 
-    // Get ledger entries for current month
     // @ts-ignore
     const { data: entries } = await supabase
         .from("ledger_entries")
         .select(`
-      *,
-      task:tasks(*)
-    `)
+          *,
+          task:tasks(*)
+        `)
         .eq("user_id", user?.id as any)
         .eq("period", currentPeriod)
         .order("created_at", { ascending: false });
 
-    // Get rectify passes used this month
     // @ts-ignore
     const { count: rectifyCount } = await supabase
         .from("rectify_passes")
@@ -38,7 +29,6 @@ export default async function LedgerPage() {
         .eq("user_id", user?.id as any)
         .eq("period", currentPeriod);
 
-    // Get force majeure usage this month
     // @ts-ignore
     const { count: forceCount } = await supabase
         .from("force_majeure")
@@ -54,146 +44,99 @@ export default async function LedgerPage() {
 
     const failedCount =
         entries?.filter((e: LedgerEntry) => e.entry_type === "failure").length || 0;
-    const rectifiedCount =
-        entries?.filter((e: LedgerEntry) => e.entry_type === "rectified").length ||
-        0;
+
+    const now = new Date();
+    const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const settleDateStr = `${nextMonthDate.getDate().toString().padStart(2, '0')}/${(nextMonthDate.getMonth() + 1).toString().padStart(2, '0')}/${nextMonthDate.getFullYear().toString().slice(-2)}`;
 
     return (
-        <div className="space-y-6">
+        <div className="max-w-4xl mx-auto space-y-12 pb-20 mt-12">
             <div>
                 <h1 className="text-3xl font-bold text-white">Ledger</h1>
                 <p className="text-slate-400 mt-1">
-                    Track your accountability and projected donations
+                    Track your accountability and commitment to change.
                 </p>
             </div>
 
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <Card className="bg-slate-800/50 border-slate-700">
-                    <CardHeader className="pb-2">
-                        <CardDescription className="text-slate-400">
-                            Current Period
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-2xl font-bold text-white">{currentPeriod}</p>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-slate-800/50 border-slate-700">
-                    <CardHeader className="pb-2">
-                        <CardDescription className="text-slate-400">
-                            Projected Donation
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-2xl font-bold text-pink-400">
-                            €{(totalAmount / 100).toFixed(2)}
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-slate-800/50 border-slate-700">
-                    <CardHeader className="pb-2">
-                        <CardDescription className="text-slate-400">
-                            Rectify Passes
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-2xl font-bold text-orange-400">
-                            {rectifyCount || 0} / 5
-                        </p>
-                    </CardContent>
-                </Card>
-
-                <Card className="bg-slate-800/50 border-slate-700">
-                    <CardHeader className="pb-2">
-                        <CardDescription className="text-slate-400">
-                            Force Majeure
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <p className="text-2xl font-bold text-yellow-400">
-                            {(forceCount || 0) > 0 ? "Used" : "Available"}
-                        </p>
-                    </CardContent>
-                </Card>
+            {/* High-Contrast Summary Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+                <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Projected Donation</p>
+                    <p className="text-4xl font-light text-pink-500">€{(totalAmount / 100).toFixed(2)}</p>
+                </div>
+                <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Rectify Passes</p>
+                    <p className="text-4xl font-light text-orange-400">{rectifyCount || 0}/5</p>
+                </div>
+                <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Force Majeure</p>
+                    <p className={`text-4xl font-light ${(forceCount || 0) > 0 ? "text-yellow-500" : "text-slate-200"}`}>
+                        {(forceCount || 0) > 0 ? "1/1" : "0/1"}
+                    </p>
+                </div>
+                <div className="space-y-1">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Failures</p>
+                    <p className="text-4xl font-light text-red-500">{failedCount}</p>
+                </div>
             </div>
 
-            {/* Projection Notice */}
-            <Card className="bg-purple-900/30 border-purple-500/50">
-                <CardContent className="py-4">
-                    <p className="text-purple-300 text-center">
-                        💜 If the month ended today, you would donate{" "}
-                        <strong>€{(totalAmount / 100).toFixed(2)}</strong> to charity.
-                    </p>
-                </CardContent>
-            </Card>
+            {/* Donation Message */}
+            <div className="bg-purple-900/10 border border-purple-500/20 rounded-xl p-6 text-center">
+                <p className="text-purple-300/80 text-sm">
+                    💜 Current charitable commitment for <span className="text-purple-200 font-bold">{new Date().toLocaleString('default', { month: 'long' })}</span>: <span className="text-white">€{(totalAmount / 100).toFixed(2)}</span>
+                </p>
+            </div>
 
-            {/* Entries */}
-            <Card className="bg-slate-800/50 border-slate-700">
-                <CardHeader>
-                    <CardTitle className="text-white">Ledger Entries</CardTitle>
-                    <CardDescription className="text-slate-400">
-                        {failedCount} failure(s), {rectifiedCount} rectified
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {(!(entries as any) || (entries as any).length === 0) ? (
-                        <p className="text-slate-400 text-center py-8">
-                            No ledger entries this month. Keep up the good work! 🎉
-                        </p>
-                    ) : (
-                        <div className="space-y-3">
-                            {(entries as any).map((entry: any) => (
-                                <div
-                                    key={entry.id}
-                                    className="flex items-center justify-between p-3 rounded-lg bg-slate-700/30"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <Badge
-                                            className={
-                                                entry.entry_type === "failure"
-                                                    ? "bg-red-500"
-                                                    : "bg-green-500"
-                                            }
-                                        >
-                                            {entry.entry_type === "failure" ? "Failed" : "Rectified"}
+            {/* Ledger List */}
+            <section className="space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                    <h2 className="text-xl font-semibold text-slate-500">
+                        Monthly Activity
+                    </h2>
+                    <LedgerReportButton />
+                </div>
+                {(!(entries as any) || (entries as any).length === 0) ? (
+                    <div className="bg-slate-900/40 border border-slate-800/20 rounded-xl py-12 text-center">
+                        <p className="text-slate-600 text-sm italic">No entries for this period yet.</p>
+                    </div>
+                ) : (
+                    <div className="flex flex-col border-t border-slate-900/50">
+                        {(entries as any).map((entry: any) => (
+                            <div key={entry.id} className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-lg font-medium text-slate-300 group-hover:text-slate-100 transition-colors truncate">
+                                            {entry.task?.title || "Accountability Adjustment"}
+                                        </p>
+                                        <Badge variant="outline" className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${entry.entry_type === "failure" ? "text-red-500" :
+                                            entry.entry_type === "force_majeure" ? "text-yellow-500" : "text-green-500"
+                                            }`}>
+                                            {entry.entry_type === "force_majeure" ? "Force Majeure" :
+                                                entry.entry_type === "failure" ? "Failure" : "Rectified"}
                                         </Badge>
-                                        <div>
-                                            <p className="text-white">
-                                                {entry.task?.title || "Unknown Task"}
-                                            </p>
-                                            <p className="text-xs text-slate-400">
-                                                {new Date(entry.created_at).toLocaleDateString()}
-                                            </p>
-                                        </div>
                                     </div>
-                                    <p
-                                        className={`font-medium ${entry.amount_cents > 0
-                                            ? "text-red-400"
-                                            : "text-green-400"
-                                            }`}
-                                    >
-                                        {entry.amount_cents > 0 ? "+" : ""}€
-                                        {(entry.amount_cents / 100).toFixed(2)}
+                                    <p className="text-xs text-slate-600 mt-1">
+                                        {new Date(entry.created_at).toLocaleDateString()} at {new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                     </p>
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
 
-            {/* Settlement Notice */}
-            <Card className="bg-slate-800/30 border-slate-700/50">
-                <CardContent className="py-4">
-                    <p className="text-sm text-slate-400 text-center">
-                        ℹ️ Ledger settles at the end of each month. Donation flow is coming
-                        soon — for now, we&apos;ll remind you of your commitment.
-                    </p>
-                </CardContent>
-            </Card>
+                                <div className="flex flex-col items-end">
+                                    <span className={`text-xl font-mono ${entry.amount_cents > 0 ? "text-red-500" : "text-green-500"}`}>
+                                        {entry.amount_cents > 0 ? "+" : "-"}€{(Math.abs(entry.amount_cents) / 100).toFixed(2)}
+                                    </span>
+                                    <span className="text-[10px] text-slate-700 uppercase tracking-widest mt-1">
+                                        {entry.entry_type === "force_majeure" ? "Reversal" : "Amount"}
+                                    </span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            <p className="text-[10px] text-slate-700 text-center uppercase tracking-[0.2em] pt-8">
+                settles at the {settleDateStr} • Automatic donation flow coming soon
+            </p>
         </div>
     );
 }

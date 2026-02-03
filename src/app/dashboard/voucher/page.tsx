@@ -1,16 +1,18 @@
-import { getPendingVouchRequests, getFailedTasks, getAssignedTasksForVoucher } from "@/actions/voucher";
+import { getPendingVouchRequests, getFailedTasks, getAssignedTasksForVoucher, getVouchHistory } from "@/actions/voucher";
 import VoucherDashboardClient from "./voucher-dashboard-client";
 
 export default async function VoucherPage() {
     const pendingTasks = await getPendingVouchRequests();
     const failedTasks = await getFailedTasks();
     const assignedTasks = await getAssignedTasksForVoucher();
+    const historyTasks = await getVouchHistory();
 
     return (
         <VoucherDashboardClient
             pendingTasks={pendingTasks}
             failedTasks={failedTasks}
             assignedTasks={assignedTasks}
+            historyTasks={historyTasks}
         />
     );
 }
