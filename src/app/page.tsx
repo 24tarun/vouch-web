@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { Linkedin, Mail, Globe } from "lucide-react";
 
 export default async function HomePage() {
   const supabase = await createClient();
@@ -47,7 +48,13 @@ export default async function HomePage() {
         <div className="max-w-4xl mx-auto text-center">
           <div className="inline-block mb-6 px-4 py-1 rounded bg-slate-900 border border-slate-800">
             <span className="text-xs text-slate-400 uppercase tracking-widest font-medium">
-              Task Accountability System
+              TASK ACCOUNTABILITY SYSTEM by{" "}
+              <a
+                href="#footer"
+                className="hover:text-white transition-colors"
+              >
+                Tarun Hariharan
+              </a>
             </span>
           </div>
           <h1 className="text-5xl md:text-7xl font-bold text-white mb-6 leading-tight tracking-tighter">
@@ -84,25 +91,25 @@ export default async function HomePage() {
                 Create a Task
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">
-                Set your commitment, deadline, and financial stake (€0.01 - €100).
+                Set your commitment, deadline, and failure cost (€0.01 - €100).
               </p>
             </div>
             <div className="text-left">
               <div className="text-slate-500 font-mono text-sm mb-4">02.</div>
               <h3 className="text-lg font-bold text-white mb-3">
-                Assign a Voucher
+                Add friends and assign them as vouchers for any of your tasks
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">
-                A friend verifies completion. You prove it through whatever means, just convince them you have done it. They can either accept or deny.
+                A voucher verifies completion. You prove it through whatever means, just convince them you have done it. They can either accept or deny.
               </p>
             </div>
             <div className="text-left">
               <div className="text-slate-500 font-mono text-sm mb-4">03.</div>
               <h3 className="text-lg font-bold text-white mb-3">
-                Complete or Donate
+                If you fail the deadline or if your vouchers deny your task, failure costs you the failure cost that you set
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">
-                Success is the only option. Failure means an automatic donation to charity from your monthly ledger.
+                At the end of the month, your total failure costs are donated to a charity of your choice.
               </p>
             </div>
           </div>
@@ -126,7 +133,7 @@ export default async function HomePage() {
                 Social Verification
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">
-                Trust but verify. Your vouchers decide the outcome. Pure peer-to-peer accountability.
+                Trust but verify. Your vouchers decide the outcome. Peer-to-peer accountability.
               </p>
             </div>
             <div>
@@ -142,7 +149,7 @@ export default async function HomePage() {
                 Limited Safety Nets
               </h3>
               <p className="text-slate-400 text-sm leading-relaxed">
-                Rectify passes are limited. Force majeure is for emergencies only. Use your credits wisely.
+                5x Rectify passes and 1x Force majeure per month. Use them wisely.
               </p>
             </div>
           </div>
@@ -150,15 +157,39 @@ export default async function HomePage() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 px-4">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4 text-slate-500 text-xs font-mono uppercase tracking-widest">
-          <p>© 2026 TAS / TASK ACCOUNTABILITY SYSTEM</p>
-          <div className="flex gap-6">
-            <Link href="/login" className="hover:text-white transition-colors">Login</Link>
-            <Link href="/login" className="hover:text-white transition-colors">Register</Link>
+      <footer id="footer" className="py-12 px-4 border-t border-slate-900">
+        <div className="max-w-5xl mx-auto flex flex-col items-center justify-center gap-4 text-slate-500">
+          <p className="text-sm text-slate-400 mb-2">Reach out to me via:</p>
+          <div className="flex items-center justify-center gap-6">
+            <a
+              href="mailto:tarun2k01@gmail.com"
+              className="hover:text-white transition-colors"
+              aria-label="Email"
+            >
+              <Mail size={20} />
+            </a>
+            <a
+              href="https://www.linkedin.com/in/tarun2k01"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors"
+              aria-label="LinkedIn"
+            >
+              <Linkedin size={20} />
+            </a>
+            <a
+              href="https://tarunh.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-white transition-colors"
+              aria-label="Personal Website"
+            >
+              <Globe size={20} />
+            </a>
           </div>
         </div>
       </footer>
     </div>
   );
 }
+
