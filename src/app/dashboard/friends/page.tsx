@@ -115,7 +115,7 @@ export default function FriendsPage() {
     }
 
     return (
-        <div className="max-w-2xl mx-auto space-y-10">
+        <div className="max-w-2xl mx-auto space-y-10 px-4 md:px-0">
             <div>
                 <h1 className="text-3xl font-bold text-white tracking-tight">Network</h1>
                 <p className="text-slate-500 mt-2 text-sm leading-relaxed">
@@ -132,8 +132,8 @@ export default function FriendsPage() {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleAddFriend} className="flex gap-4">
-                        <div className="flex-1">
+                    <form onSubmit={handleAddFriend} className="flex flex-col sm:flex-row gap-3">
+                        <div className="flex-1 min-w-0">
                             <Label htmlFor="email" className="sr-only">
                                 Email
                             </Label>
@@ -144,29 +144,29 @@ export default function FriendsPage() {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                className="bg-slate-950 border-slate-800 text-slate-200 placeholder:text-slate-700 h-12 focus:ring-0 focus:border-slate-600 transition-colors"
+                                className="bg-slate-950 border-slate-800 text-slate-200 placeholder:text-slate-700 h-10 focus:ring-0 focus:border-slate-600 transition-colors"
                             />
                         </div>
                         <Button
                             type="submit"
                             disabled={isLoading}
-                            className="bg-slate-200 hover:bg-white text-slate-900 font-bold px-6 h-12 rounded"
+                            className="bg-slate-200 hover:bg-white text-slate-900 font-bold px-6 h-10 rounded w-full sm:w-auto shrink-0"
                         >
                             {isLoading ? "Adding..." : "Add"}
                         </Button>
                     </form>
 
                     {error && (
-                        <p className="mt-4 text-xs font-medium text-red-400 bg-red-400/10 border border-red-400/20 p-2 rounded">{error}</p>
+                        <p className="mt-4 text-xs font-medium text-red-400 bg-red-400/10 border border-red-400/20 p-2 rounded break-words">{error}</p>
                     )}
                     {success && (
-                        <p className="mt-4 text-xs font-medium text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 p-2 rounded">{success}</p>
+                        <p className="mt-4 text-xs font-medium text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 p-2 rounded break-words">{success}</p>
                     )}
                 </CardContent>
             </Card>
 
             {/* Friends List */}
-            <Card className="bg-slate-900 border-slate-800 shadow-xl">
+            <Card className="bg-slate-900 border-slate-800 shadow-xl overflow-hidden">
                 <CardHeader>
                     <CardTitle className="text-lg font-bold text-white">Linked Accounts</CardTitle>
                     <CardDescription className="text-slate-500 text-xs font-mono uppercase tracking-wider">
@@ -179,28 +179,32 @@ export default function FriendsPage() {
                             No connections found. Build your network to start creating tasks.
                         </p>
                     ) : (
-                        <div className="grid gap-4">
+                        <div className="grid gap-3">
                             {friends.map((friend) => (
                                 <div
                                     key={friend.id}
-                                    className="flex items-center justify-between p-4 rounded bg-slate-950 border border-slate-800 hover:border-slate-700 transition-colors"
+                                    className="flex items-center justify-between p-3 sm:p-4 rounded bg-slate-950 border border-slate-800 hover:border-slate-700 transition-colors min-w-0"
                                 >
-                                    <div className="flex items-center gap-4">
-                                        <Avatar className="h-10 w-10 border border-slate-800">
-                                            <AvatarFallback className="bg-slate-900 text-slate-400 text-xs font-mono">
+                                    <div className="flex items-center gap-3 min-w-0 mr-2">
+                                        <Avatar className="h-8 w-8 sm:h-10 sm:w-10 border border-slate-800 shrink-0">
+                                            <AvatarFallback className="bg-slate-900 text-slate-400 text-[10px] sm:text-xs font-mono">
                                                 {friend.username?.slice(0, 2).toUpperCase() || "??"}
                                             </AvatarFallback>
                                         </Avatar>
-                                        <div>
-                                            <p className="text-white font-bold text-sm tracking-tight">{friend.username}</p>
-                                            <p className="text-xs text-slate-500 font-mono">{friend.email}</p>
+                                        <div className="min-w-0">
+                                            <p className="text-white font-bold text-sm tracking-tight truncate">
+                                                {friend.username}
+                                            </p>
+                                            <p className="text-[10px] sm:text-xs text-slate-500 font-mono truncate">
+                                                {friend.email}
+                                            </p>
                                         </div>
                                     </div>
                                     <Button
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => handleRemoveFriend(friend.id)}
-                                        className="text-slate-500 hover:text-red-400 hover:bg-red-400/10 text-xs font-mono uppercase tracking-widest"
+                                        className="text-slate-500 hover:text-red-400 hover:bg-red-400/10 text-[10px] sm:text-xs font-mono uppercase tracking-widest shrink-0"
                                     >
                                         Remove
                                     </Button>

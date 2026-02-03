@@ -124,11 +124,12 @@ export function TaskInput({ friends }: TaskInputProps) {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="buy milk @14 vouch bob"
-                    className="w-full bg-slate-900/50 border border-slate-800/50 focus:border-slate-700/50 rounded-xl py-4 px-5 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:bg-slate-900 transition-all font-medium text-lg shadow-2xl"
+                    className="w-full bg-slate-900/50 border border-slate-800/50 focus:border-slate-700/50 rounded-xl py-4 px-5 md:pr-[480px] text-slate-200 placeholder:text-slate-600 focus:outline-none focus:bg-slate-900 transition-all font-medium text-lg shadow-2xl"
                     disabled={isLoading}
                 />
 
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-3">
+                {/* Desktop: Inline controls */}
+                <div className="hidden md:flex absolute right-4 top-1/2 -translate-y-1/2 items-center gap-3">
                     {isLoading ? (
                         <Loader2 className="h-5 w-5 animate-spin text-slate-500" />
                     ) : (
@@ -203,6 +204,71 @@ export function TaskInput({ friends }: TaskInputProps) {
                         </div>
                     )}
                 </div>
+            </div>
+
+            {/* Mobile: 2x2 Grid controls below input */}
+            <div className="grid md:hidden grid-cols-2 gap-2">
+                {isLoading ? (
+                    <div className="col-span-2 flex justify-center py-2">
+                        <Loader2 className="h-5 w-5 animate-spin text-slate-500" />
+                    </div>
+                ) : (
+                    <>
+                        {/* Cost Input */}
+                        <div className="relative h-11">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-[10px] font-mono pointer-events-none z-10">€</span>
+                            <input
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                value={failureCost}
+                                onChange={(e) => setFailureCost(e.target.value)}
+                                className="h-full w-full pl-6 pr-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 rounded-lg text-slate-300 text-xs font-mono focus:outline-none focus:border-slate-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-center"
+                                placeholder="0.10"
+                            />
+                        </div>
+
+                        {/* Active/Submit Button */}
+                        <button
+                            type="submit"
+                            disabled={isLoading}
+                            className="h-11 w-full bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 text-slate-300 text-xs font-mono rounded-lg transition-all disabled:opacity-50 flex items-center justify-center"
+                        >
+                            {isLoading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                "Active"
+                            )}
+                        </button>
+
+                        {/* Date Picker Button */}
+                        <button
+                            type="button"
+                            onClick={() => dateInputRef.current?.showPicker()}
+                            className="h-11 w-full bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 text-slate-300 text-xs font-mono rounded-lg transition-all flex items-center justify-center"
+                        >
+                            <Calendar className="h-3.5 w-3.5 mr-2" />
+                            {mounted && selectedDate ? selectedDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Date"}
+                        </button>
+
+                        {/* Voucher Select */}
+                        <div className={`h-11 ${showShake ? "animate-shake" : ""}`}>
+                            <Select value={selectedVoucherId} onValueChange={setSelectedVoucherId}>
+                                <SelectTrigger className="h-full w-full bg-slate-800/50 border-slate-700/50 text-slate-300 text-xs font-mono focus:ring-0 rounded-lg justify-center">
+                                    <User className="h-3.5 w-3.5 mr-2 shrink-0" />
+                                    <SelectValue placeholder="Voucher" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-slate-900 border-slate-800 text-slate-300">
+                                    {friends.map((friend) => (
+                                        <SelectItem key={friend.id} value={friend.id}>
+                                            {friend.username || friend.email}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Help text/Hints */}

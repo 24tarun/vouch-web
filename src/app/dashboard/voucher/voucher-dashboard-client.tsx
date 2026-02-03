@@ -56,7 +56,7 @@ export default function VoucherDashboardClient({
     }
 
     return (
-        <div className="max-w-3xl mx-auto space-y-12 pb-20 mt-12">
+        <div className="max-w-3xl mx-auto space-y-12 pb-20 mt-12 px-4 md:px-0">
             <div>
                 <h1 className="text-3xl font-bold text-white">Vouch Requests</h1>
                 <p className="text-slate-400 mt-1">

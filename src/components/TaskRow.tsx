@@ -102,7 +102,7 @@ export function TaskRow({ task }: TaskRowProps) {
                 {/* Deadline */}
                 <div className={cn("flex items-center gap-1.5", isOverdue ? "text-red-400" : "text-slate-500")}>
                     <span>
-                        {mounted ? deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ""}
+                        {mounted ? `${deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${deadline.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}` : ""}
                     </span>
                 </div>
 

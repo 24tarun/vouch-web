@@ -34,7 +34,7 @@ export default async function DashboardPage() {
         ) || [];
 
     return (
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0">
             {/* Header */}
             <div className="flex items-center justify-between mb-8">
                 <h1 className="text-2xl font-bold text-white flex items-center gap-2">
