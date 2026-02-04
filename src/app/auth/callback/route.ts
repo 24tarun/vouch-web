@@ -12,8 +12,10 @@ export async function GET(request: Request) {
         if (!error) {
             return NextResponse.redirect(`${origin}${next}`);
         }
+        console.error("Auth callback error:", error);
+        return NextResponse.redirect(`${origin}/login?error=exchange_failed`);
     }
 
-    // Return the user to an error page with instructions
-    return NextResponse.redirect(`${origin}/login?error=auth`);
+    // No code provided
+    return NextResponse.redirect(`${origin}/login?error=missing_code`);
 }

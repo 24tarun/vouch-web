@@ -39,7 +39,7 @@ export async function addFriend(formData: FormData) {
         return { error: "You cannot add yourself as a friend" };
     }
 
-    // Check if already friends
+    // Check if already friends (either direction)
     // @ts-ignore
     const { data: existing } = await supabase
         .from("friendships" as any)
@@ -52,34 +52,38 @@ export async function addFriend(formData: FormData) {
         return { error: "Already friends with this user" };
     }
 
-    // 1. User -> Friend (Regular client)
+    // Use admin client for both inserts to ensure symmetric creation
+    const supabaseAdmin = createAdminClient();
+
+    // 1. User -> Friend
     // @ts-ignore
-    const { error: error1 } = await supabase.from("friendships" as any).insert({
+    const { error: error1 } = await supabaseAdmin.from("friendships" as any).insert({
         user_id: (user as any).id,
         friend_id: (friend as any).id,
     });
 
-    if (error1) {
-        return { error: error1.message };
+    if (error1 && error1.code !== '23505') {
+        console.error("Failed to create friendship (user->friend):", error1);
+        return { error: "Failed to add friend" };
     }
 
-    // 2. Friend -> User (Admin client to bypass RLS)
-    // We attempt insert always. If it fails due to unique constraint, that's fine (already exists).
-    const supabaseAdmin = createAdminClient();
-
+    // 2. Friend -> User (reciprocal)
     // @ts-ignore
     const { error: error2 } = await supabaseAdmin.from("friendships" as any).insert({
         user_id: (friend as any).id,
         friend_id: (user as any).id,
     });
 
-    if (error2 && error2.code !== '23505') { // 23505 is unique_violation
-        console.error("Failed to create reciprocal friendship:", error2);
-        // We log but don't fail the user request since *their* link was created.
-        // Ideally we might want to rollback, but let's keep it simple for now.
+    if (error2 && error2.code !== '23505') {
+        console.error("Failed to create reciprocal friendship (friend->user):", error2);
+        // Don't fail - the first link was created
     }
 
-    revalidatePath("/dashboard/friends");
+    try {
+        revalidatePath("/dashboard/friends");
+    } catch (e) {
+        // Ignore revalidation errors
+    }
     return { success: true };
 }
 
@@ -114,19 +118,23 @@ export async function removeFriend(friendId: string) {
         };
     }
 
+    // Use admin client for both deletions to ensure symmetric removal
+    const supabaseAdmin = createAdminClient();
+
+    // Delete User -> Friend
     // @ts-ignore
-    const { error: error1 } = await supabase
+    const { error: error1 } = await supabaseAdmin
         .from("friendships")
         .delete()
         .eq("user_id", user.id)
         .eq("friend_id", friendId);
 
     if (error1) {
-        return { error: error1.message };
+        console.error("Failed to delete friendship (user->friend):", error1);
+        return { error: "Failed to remove friend" };
     }
 
-    // Reciprocal deletion (Admin client)
-    const supabaseAdmin = createAdminClient();
+    // Delete Friend -> User (reciprocal)
     // @ts-ignore
     const { error: error2 } = await supabaseAdmin
         .from("friendships")
@@ -136,9 +144,14 @@ export async function removeFriend(friendId: string) {
 
     if (error2) {
         console.error("Failed to delete reciprocal friendship:", error2);
+        // Don't fail - the first deletion was successful
     }
 
-    revalidatePath("/dashboard/friends");
+    try {
+        revalidatePath("/dashboard/friends");
+    } catch (e) {
+        // Ignore revalidation errors
+    }
     return { success: true };
 }
 

@@ -33,6 +33,18 @@ function LoginContent() {
         if (queryMode === "signup" || queryMode === "signin") {
             setMode(queryMode);
         }
+
+        // Handle auth callback errors
+        const errorParam = searchParams.get("error");
+        if (errorParam) {
+            let errorMessage = "Authentication failed. Please try again.";
+            if (errorParam === "exchange_failed") {
+                errorMessage = "Failed to complete sign-in. The confirmation link may have expired. Please try signing in again.";
+            } else if (errorParam === "missing_code") {
+                errorMessage = "Invalid confirmation link. Please request a new one.";
+            }
+            setMessage({ type: "error", text: errorMessage });
+        }
     }, [searchParams]);
 
     async function handleSubmit(e: React.FormEvent) {

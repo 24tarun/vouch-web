@@ -11,7 +11,7 @@ export async function signIn(formData: FormData) {
 
     console.log("Attemping sign in for:", email);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error, data } = await supabase.auth.signInWithPassword({
         email,
         password,
     });
@@ -19,6 +19,25 @@ export async function signIn(formData: FormData) {
     if (error) {
         console.error("Sign in error:", error);
         return { error: error.message };
+    }
+
+    if (!data.user) {
+        return { error: "Authentication failed" };
+    }
+
+    // Strict Profile Check
+    const { data: profile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("id", data.user.id)
+        .single();
+
+    if (!profile) {
+        console.error("No profile found for user:", data.user.id);
+        await supabase.auth.signOut();
+        return {
+            error: "Profile not found. Please contact support or try signing up again."
+        };
     }
 
     revalidatePath("/", "layout");
@@ -37,6 +56,9 @@ export async function signUp(formData: FormData) {
         password,
         options: {
             emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+            data: {
+                username: email.split("@")[0],
+            },
         },
     });
 

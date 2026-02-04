@@ -18,14 +18,12 @@ export default async function SettingsPage() {
         .eq("id", user.id)
         .single();
 
-    // Create a fallback profile object if one doesn't exist
-    // This allows the page to load even if the trigger failed
-    const safeProfile = profile || {
-        id: user.id,
-        username: user.email?.split("@")[0] || "user",
-        email: user.email || "",
-        created_at: new Date().toISOString(),
-    };
+    if (!profile) {
+        // This should theoretically not happen if signIn enforces it, 
+        // but if it does, force a logout or redirect
+        await supabase.auth.signOut();
+        redirect("/login?error=profile_missing");
+    }
 
-    return <SettingsClient profile={safeProfile} />;
+    return <SettingsClient profile={profile} />;
 }
