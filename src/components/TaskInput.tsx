@@ -12,6 +12,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { DEFAULT_FAILURE_COST_EUROS } from "@/lib/constants";
 
 interface TaskInputProps {
     friends: any[];
@@ -22,7 +23,7 @@ export function TaskInput({ friends }: TaskInputProps) {
     const [isLoading, setIsLoading] = useState(false);
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedVoucherId, setSelectedVoucherId] = useState<string>("");
-    const [failureCost, setFailureCost] = useState("0.10");
+    const [failureCost, setFailureCost] = useState(DEFAULT_FAILURE_COST_EUROS);
     const [showShake, setShowShake] = useState(false);
     const [mounted, setMounted] = useState(false);
 
@@ -144,7 +145,7 @@ export function TaskInput({ friends }: TaskInputProps) {
                                     value={failureCost}
                                     onChange={(e) => setFailureCost(e.target.value)}
                                     className="h-9 w-16 pl-5 pr-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 rounded-md text-slate-300 text-xs font-mono focus:outline-none focus:border-slate-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                    placeholder="0.10"
+                                    placeholder={DEFAULT_FAILURE_COST_EUROS}
                                 />
                             </div>
 
@@ -224,7 +225,7 @@ export function TaskInput({ friends }: TaskInputProps) {
                                 value={failureCost}
                                 onChange={(e) => setFailureCost(e.target.value)}
                                 className="h-full w-full pl-6 pr-2 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 rounded-lg text-slate-300 text-xs font-mono focus:outline-none focus:border-slate-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-center"
-                                placeholder="0.10"
+                                placeholder={DEFAULT_FAILURE_COST_EUROS}
                             />
                         </div>
 

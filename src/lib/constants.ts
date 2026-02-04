@@ -1,0 +1,2 @@
+export const DEFAULT_FAILURE_COST_CENTS = 50;
+export const DEFAULT_FAILURE_COST_EUROS = "0.50";

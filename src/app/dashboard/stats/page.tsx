@@ -35,17 +35,19 @@ export default async function OverviewPage() {
     const totalFailureCost =
         (ledgerEntries as any)?.reduce((sum: number, entry: any) => sum + entry.amount_cents, 0) || 0;
 
-    const activeTasksCount =
+    const activeTasks =
         (tasks as Task[])?.filter((t) =>
             ["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(t.status)
-        ).length || 0;
+        ) || [];
 
-    const completedTasks =
+    const activeTasksCount = activeTasks.length;
+
+    const historyTasks =
         (tasks as Task[])?.filter((t) =>
             ["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(t.status)
         ) || [];
 
-    const historyTasksCount = completedTasks.length;
+    const historyTasksCount = historyTasks.length;
 
     return (
         <div className="max-w-4xl mx-auto space-y-12 pb-20 mt-12 px-4 md:px-0">
@@ -76,18 +78,36 @@ export default async function OverviewPage() {
                 </div>
             </div>
 
+            {/* Active Tasks Section */}
+            <section className="space-y-4">
+                <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
+                    Active Tasks
+                </h2>
+                {activeTasks.length === 0 ? (
+                    <div className="bg-slate-900/40 border border-slate-800/20 rounded-xl py-12 text-center">
+                        <p className="text-slate-600 text-sm italic">No active tasks at the moment.</p>
+                    </div>
+                ) : (
+                    <div className="flex flex-col border-t border-slate-900/50">
+                        {activeTasks.map((task: Task) => (
+                            <CompactStatsItem key={task.id} task={task} />
+                        ))}
+                    </div>
+                )}
+            </section>
+
             {/* History Section - Same List Principle as Vouch/Dashboard */}
             <section className="space-y-4">
                 <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
-                    Settled Task History
+                    Task History
                 </h2>
-                {completedTasks.length === 0 ? (
+                {historyTasks.length === 0 ? (
                     <div className="bg-slate-900/40 border border-slate-800/20 rounded-xl py-12 text-center">
                         <p className="text-slate-600 text-sm italic">Nothing in your history yet.</p>
                     </div>
                 ) : (
                     <div className="flex flex-col border-t border-slate-900/50">
-                        {completedTasks.map((task: Task) => (
+                        {historyTasks.map((task: Task) => (
                             <CompactStatsItem key={task.id} task={task} />
                         ))}
                     </div>
@@ -99,6 +119,10 @@ export default async function OverviewPage() {
 
 function CompactStatsItem({ task }: { task: Task }) {
     const statusColors: Record<string, string> = {
+        CREATED: "text-blue-400",
+        POSTPONED: "text-amber-400",
+        MARKED_COMPLETED: "text-yellow-400",
+        AWAITING_VOUCHER: "text-yellow-400",
         COMPLETED: "text-[#859900]",       // Green
         FAILED: "text-[#dc322f]",          // Red
         RECTIFIED: "text-[#cb4b16]",       // Orange
@@ -107,6 +131,10 @@ function CompactStatsItem({ task }: { task: Task }) {
     };
 
     const statusLabels: Record<string, string> = {
+        CREATED: "ACTIVE",
+        POSTPONED: "POSTPONED",
+        MARKED_COMPLETED: "WAITING FOR VOUCHER",
+        AWAITING_VOUCHER: "WAITING FOR VOUCHER",
         COMPLETED: "ACCEPTED",
         FAILED: "FAILED",
         RECTIFIED: "RECTIFIED",
@@ -129,7 +157,9 @@ function CompactStatsItem({ task }: { task: Task }) {
                         </Badge>
                     </div>
                     <p className="text-xs text-slate-600 mt-1">
-                        Settled on {new Date(task.updated_at).toLocaleDateString()} at {new Date(task.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {["CREATED", "POSTPONED"].includes(task.status)
+                            ? `Deadline on ${new Date(task.deadline).toLocaleDateString()} at ${new Date(task.deadline).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                            : `Updated on ${new Date(task.updated_at).toLocaleDateString()} at ${new Date(task.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
                     </p>
                 </div>
 

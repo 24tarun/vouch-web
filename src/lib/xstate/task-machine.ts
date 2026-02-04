@@ -108,8 +108,8 @@ export const taskMachine = setup({
                     actions: ["setMarkedCompletedAt"],
                 },
                 DEADLINE_PASSED: {
-                    target: "AWAITING_VOUCHER",
-                    actions: ["setVoucherResponseDeadline"],
+                    target: "FAILED",
+                    actions: ["updateTimestamp"],
                 },
                 FORCE_MAJEURE: {
                     target: "SETTLED",
@@ -129,8 +129,8 @@ export const taskMachine = setup({
                     actions: ["setMarkedCompletedAt"],
                 },
                 DEADLINE_PASSED: {
-                    target: "AWAITING_VOUCHER",
-                    actions: ["setVoucherResponseDeadline"],
+                    target: "FAILED",
+                    actions: ["updateTimestamp"],
                 },
                 FORCE_MAJEURE: {
                     target: "SETTLED",

@@ -21,6 +21,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { DEFAULT_FAILURE_COST_EUROS } from "@/lib/constants";
 import type { Profile } from "@/lib/types";
 
 export default function NewTaskPage() {
@@ -127,7 +128,8 @@ export default function NewTaskPage() {
                                 min="0.01"
                                 max="100"
                                 step="0.01"
-                                placeholder="5.00"
+                                placeholder={DEFAULT_FAILURE_COST_EUROS}
+                                defaultValue={DEFAULT_FAILURE_COST_EUROS}
                                 required
                                 className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
                             />

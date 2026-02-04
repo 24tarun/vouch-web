@@ -7,6 +7,7 @@ import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
 import { type Database } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { sendNotification } from "@/lib/notifications";
+import { DEFAULT_FAILURE_COST_CENTS } from "@/lib/constants";
 
 // Wrapper for simple task creation (inline)
 export async function createTaskSimple(title: string) {
@@ -41,7 +42,7 @@ export async function createTaskSimple(title: string) {
             voucher_id: defaultVoucherId,
             title,
             description: null,
-            failure_cost_cents: 10, // Default 0.10 EUR
+            failure_cost_cents: DEFAULT_FAILURE_COST_CENTS,
             deadline: deadline.toISOString(),
             status: "CREATED",
         })
