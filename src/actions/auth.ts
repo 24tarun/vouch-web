@@ -55,7 +55,7 @@ export async function signUp(formData: FormData) {
         email,
         password,
         options: {
-            emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback?next=/auth/verified`,
+            emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "")}/auth/callback?next=/auth/verified`,
             data: {
                 username: email.split("@")[0],
             },
