@@ -235,7 +235,6 @@ export async function postponeTask(taskId: string, newDeadline?: string) {
     const currentDeadline = new Date((task as any).deadline);
     let newDeadlineDate = newDeadline ? new Date(newDeadline) : new Date(currentDeadline.getTime() + 60 * 60 * 1000);
 
-    /*
     if (new Date() >= new Date((task as any).deadline)) {
         return { error: "Deadline has passed" };
     }
@@ -245,7 +244,6 @@ export async function postponeTask(taskId: string, newDeadline?: string) {
     if ((task as any).postponed_at) {
         return { error: "Task has already been postponed once" };
     }
-    */
 
     if (["AWAITING_VOUCHER", "MARKED_COMPLETED", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };

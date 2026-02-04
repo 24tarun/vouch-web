@@ -79,6 +79,10 @@ export default function TaskDetailClient({
 
     async function handlePostpone(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
+        if (isOverdue) {
+            setError("Cannot postpone an overdue task.");
+            return;
+        }
         setIsLoading(true);
         setError(null);
         const formData = new FormData(e.currentTarget);

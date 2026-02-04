@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const deadlineFail = schedules.task({
     id: "deadline-fail",
-    cron: "*/15 * * * *", // Run every 15 minutes
+    cron: "*/5 * * * *", // Run every 5 minutes
     run: async (payload, { ctx }) => {
         const supabase = createAdminClient();
         const now = new Date();

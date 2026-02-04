@@ -43,7 +43,7 @@ export function TaskRow({ task }: TaskRowProps) {
     };
 
     const handlePostpone = async () => {
-        if (isActuallyCompleted) return;
+        if (isActuallyCompleted || isOverdue) return;
         try {
             await postponeTask(task.id);
         } catch (error) {
@@ -106,8 +106,8 @@ export function TaskRow({ task }: TaskRowProps) {
                     </span>
                 </div>
 
-                {/* Hover Actions - Only show if not completed */}
-                {!isActuallyCompleted && (
+                {/* Hover Actions - Only show if not completed and not overdue */}
+                {!isActuallyCompleted && !isOverdue && (
                     <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>

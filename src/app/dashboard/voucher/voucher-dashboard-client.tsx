@@ -202,7 +202,7 @@ function CompactHistoryItem({
                     <Badge variant="outline" className={`text-[10px] h-4 py-0 px-1 border-slate-800 ${statusColors[task.status] || "text-slate-400"}`}>
                         {task.status === "FAILED"
                             ? (task.marked_completed_at ? "DENIED" : "FAILED")
-                            : task.status === "COMPLETED" ? "ACCEPTED" : task.status}
+                            : task.status}
                     </Badge>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
