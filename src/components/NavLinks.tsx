@@ -26,7 +26,7 @@ export function NavLinks({ vouchCount = 0 }: NavLinksProps) {
                     <Link
                         key={link.href}
                         href={link.href}
-                        className={`text-[10px] sm:text-xs font-mono uppercase tracking-widest transition-colors shrink-0 flex items-center gap-1.5 ${isActive ? "text-white font-bold" : "text-slate-500 hover:text-white"
+                        className={`text-[10px] sm:text-xs font-mono uppercase tracking-widest transition-colors shrink-0 flex items-center gap-1.5 ${isActive ? "text-white font-bold" : "text-slate-400 hover:text-white"
                             }`}
                     >
                         {link.label}

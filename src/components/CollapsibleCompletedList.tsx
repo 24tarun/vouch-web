@@ -20,7 +20,7 @@ export function CollapsibleCompletedList({ tasks }: CollapsibleCompletedListProp
             <Button
                 variant="ghost"
                 onClick={() => setIsOpen(!isOpen)}
-                className="group flex items-center gap-2 text-slate-500 hover:text-slate-300 px-0 hover:bg-transparent"
+                className="group flex items-center gap-2 text-slate-400 hover:text-white px-0 hover:bg-transparent"
             >
                 {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 <span className="font-medium text-sm">Completed ({tasks.length})</span>

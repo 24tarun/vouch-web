@@ -537,3 +537,267 @@ export async function getTaskEvents(taskId: string) {
 
     return (events as any) || [];
 }
+
+export async function getTaskPomoSummary(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return null;
+
+    // Verify access to task first
+    // @ts-ignore
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, user_id, voucher_id")
+        .eq("id", taskId as any)
+        .single();
+
+    if (!task) return null;
+
+    const canView = task.user_id === user.id || task.voucher_id === user.id;
+    if (!canView) return null;
+
+    // @ts-ignore
+    const { data: sessions } = await (supabase.from("pomo_sessions") as any)
+        .select("elapsed_seconds, status, completed_at")
+        .eq("task_id", taskId as any)
+        .eq("user_id", task.user_id as any)
+        .neq("status", "DELETED")
+        .order("created_at", { ascending: false });
+
+    const rows = (sessions as any[]) || [];
+    const totalSeconds = rows.reduce((sum, s) => sum + (s.elapsed_seconds || 0), 0);
+    const completedSessions = rows.filter((s) => s.status === "COMPLETED").length;
+    const lastCompletedAt = rows.find((s) => s.status === "COMPLETED" && s.completed_at)?.completed_at || null;
+
+    return {
+        totalSeconds,
+        sessionCount: rows.length,
+        completedSessions,
+        lastCompletedAt,
+    };
+}
+
+// ==========================================
+// POMODORO ACTIONS
+// ==========================================
+
+export async function startPomoSession(taskId: string, durationMinutes: number) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    // Check for existing active session
+    // @ts-ignore
+    const { data: existing } = await (supabase
+        .from("pomo_sessions") as any)
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("status", "ACTIVE")
+        .single();
+
+    if (existing) {
+        return { error: "You already have an active session. Please stop it first." };
+    }
+
+    // Create new session
+    // @ts-ignore
+    const { data: session, error } = await (supabase
+        .from("pomo_sessions") as any)
+        .insert({
+            user_id: user.id,
+            task_id: taskId,
+            duration_minutes: durationMinutes,
+            status: "ACTIVE",
+            started_at: new Date().toISOString(),
+            elapsed_seconds: 0,
+        })
+        .select()
+        .single();
+
+    if (error) return { error: error.message };
+
+    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/tasks/${taskId}`);
+    return { success: true, session };
+}
+
+export async function pausePomoSession(sessionId: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    // Get current session to calculate elapsed
+    // @ts-ignore
+    const { data: session } = await (supabase
+        .from("pomo_sessions") as any)
+        .select("*")
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .single();
+
+    if (!session) return { error: "Session not found" };
+    if (session.status !== "ACTIVE") return { error: "Session is not active" };
+
+    const now = new Date();
+    const startTime = new Date(session.started_at);
+    const additionalElapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000);
+    const newElapsed = (session.elapsed_seconds || 0) + additionalElapsed;
+
+    // @ts-ignore
+    const { error } = await (supabase
+        .from("pomo_sessions") as any)
+        .update({
+            status: "PAUSED",
+            elapsed_seconds: newElapsed,
+            paused_at: now.toISOString(),
+        })
+        .eq("id", sessionId);
+
+    if (error) return { error: error.message };
+    revalidatePath("/dashboard");
+    if (session.task_id) {
+        revalidatePath(`/dashboard/tasks/${session.task_id}`);
+    }
+    return { success: true };
+}
+
+export async function resumePomoSession(sessionId: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    // @ts-ignore
+    const { data: resumed, error } = await (supabase
+        .from("pomo_sessions") as any)
+        .update({
+            status: "ACTIVE",
+            started_at: new Date().toISOString(),
+            paused_at: null,
+        })
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .select("task_id")
+        .single();
+
+    if (error) return { error: error.message };
+    revalidatePath("/dashboard");
+    if ((resumed as any)?.task_id) {
+        revalidatePath(`/dashboard/tasks/${(resumed as any).task_id}`);
+    }
+    return { success: true };
+}
+
+export async function endPomoSession(sessionId: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    // Calculate final elapsed if it was active
+    // @ts-ignore
+    const { data: session } = await (supabase
+        .from("pomo_sessions") as any)
+        .select("*")
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .single();
+
+    if (!session) return { error: "Session not found" };
+
+    let finalElapsed = session.elapsed_seconds || 0;
+    if (session.status === "ACTIVE") {
+        const now = new Date();
+        const startTime = new Date(session.started_at);
+        finalElapsed += Math.floor((now.getTime() - startTime.getTime()) / 1000);
+    }
+
+    // @ts-ignore
+    const { error } = await (supabase
+        .from("pomo_sessions") as any)
+        .update({
+            status: "COMPLETED",
+            elapsed_seconds: finalElapsed,
+            completed_at: new Date().toISOString(),
+        })
+        .eq("id", sessionId)
+        .eq("user_id", user.id);
+
+    if (error) return { error: error.message };
+
+    // Log completion in task activity feed
+    if (session.task_id) {
+        // @ts-ignore
+        const { data: task } = await (supabase.from("tasks") as any)
+            .select("status")
+            .eq("id", session.task_id as any)
+            .eq("user_id", user.id)
+            .single();
+
+        if (task?.status) {
+            await (supabase.from("task_events") as any).insert({
+                task_id: session.task_id,
+                event_type: "POMO_COMPLETED",
+                actor_id: user.id,
+                from_status: task.status,
+                to_status: task.status,
+                metadata: {
+                    session_id: session.id,
+                    duration_minutes: session.duration_minutes,
+                    elapsed_seconds: finalElapsed,
+                },
+            });
+        }
+    }
+
+    revalidatePath("/dashboard");
+    if (session.task_id) {
+        revalidatePath(`/dashboard/tasks/${session.task_id}`);
+    }
+    return { success: true };
+}
+
+export async function deletePomoSession(sessionId: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    // @ts-ignore
+    const { error } = await (supabase
+        .from("pomo_sessions") as any)
+        .update({
+            status: "DELETED",
+            completed_at: new Date().toISOString(), // Mark when it was deleted
+        })
+        .eq("id", sessionId)
+        .eq("user_id", user.id);
+
+    if (error) return { error: error.message };
+    revalidatePath("/dashboard");
+    return { success: true };
+}
+
+export async function getActivePomoSession() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return null;
+
+    // @ts-ignore
+    const { data: session } = await (supabase
+        .from("pomo_sessions") as any)
+        .select(`
+            *,
+            task:tasks(id, title)
+        `)
+        .eq("user_id", user.id)
+        .in("status", ["ACTIVE", "PAUSED"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+    return session;
+}

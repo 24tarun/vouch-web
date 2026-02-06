@@ -22,6 +22,7 @@ export const metadata: Metadata = {
 
 import { PlatformProvider } from "@/components/PlatformProvider";
 import { PWARegistration } from "@/components/PWARegistration";
+import { PomodoroProvider } from "@/components/PomodoroProvider";
 
 export default function RootLayout({
   children,
@@ -41,7 +42,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <PlatformProvider>
-          {children}
+          <PomodoroProvider>
+            {children}
+          </PomodoroProvider>
         </PlatformProvider>
         <PWARegistration />
         <Toaster />

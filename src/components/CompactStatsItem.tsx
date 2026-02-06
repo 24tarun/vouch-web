@@ -17,11 +17,11 @@ export function CompactStatsItem({ task }: { task: Task }) {
         POSTPONED: "text-amber-400",
         MARKED_COMPLETED: "text-yellow-400",
         AWAITING_VOUCHER: "text-yellow-400",
-        COMPLETED: "text-[#859900]",       // Green
-        FAILED: "text-[#dc322f]",          // Red
-        RECTIFIED: "text-[#cb4b16]",       // Orange
-        SETTLED: "text-[#2aa198]",         // Cyan
-        DELETED: "text-slate-600",         // Grey
+        COMPLETED: "text-emerald-400",       // Bright Green
+        FAILED: "text-red-500",              // Bright Red
+        RECTIFIED: "text-orange-500",        // Bright Orange
+        SETTLED: "text-cyan-400",            // Bright Cyan
+        DELETED: "text-slate-500",           // Brighter Grey
     };
 
     const statusLabels: Record<string, string> = {
@@ -55,35 +55,33 @@ export function CompactStatsItem({ task }: { task: Task }) {
     }
 
     return (
-        <Link href={`/dashboard/tasks/${task.id}`} className="group block">
-            <div className="flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                        <p className="text-lg font-medium text-slate-300 group-hover:text-slate-100 transition-colors truncate">
-                            {task.title}
-                        </p>
-                        <Badge variant="outline" className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${statusColors[task.status] || "text-slate-500"}`}>
-                            {task.status === "FAILED"
-                                ? (task.marked_completed_at ? "DENIED" : "FAILED")
-                                : (statusLabels[task.status] || task.status)}
-                        </Badge>
-                    </div>
-                    <p className="text-xs text-slate-600 mt-1">
-                        {["CREATED", "POSTPONED"].includes(task.status)
-                            ? `Deadline on ${formatDate(task.deadline)}`
-                            : `Updated on ${formatDate(task.updated_at)}`}
-                    </p>
-                </div>
+        <div className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 -mx-4 px-4 transition-colors hover:bg-slate-900/10 relative">
+            {/* Clickable Area for main content */}
+            <Link href={`/dashboard/tasks/${task.id}`} className="absolute inset-0 z-0" />
 
-                <div className="flex flex-col items-end">
-                    <span className={`text-base font-mono ${task.status === 'FAILED' ? 'text-red-500' : 'text-slate-700'}`}>
-                        {task.status === 'FAILED' ? '-' : ''}€{(task.failure_cost_cents / 100).toFixed(2)}
-                    </span>
-                    <span className="text-[10px] text-slate-700 uppercase tracking-widest mt-1">
-                        Stake
-                    </span>
+            <div className="flex-1 min-w-0 z-10 pointer-events-none">
+                <div className="flex items-center gap-2">
+                    <p className="text-lg font-medium text-white group-hover:text-blue-400 transition-colors truncate">
+                        {task.title}
+                    </p>
+                    <Badge variant="outline" className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${statusColors[task.status] || "text-slate-500"}`}>
+                        {task.status === "FAILED"
+                            ? (task.marked_completed_at ? "DENIED" : "FAILED")
+                            : (statusLabels[task.status] || task.status)}
+                    </Badge>
                 </div>
+                <p className="text-xs text-slate-400 mt-1">
+                    {["CREATED", "POSTPONED"].includes(task.status)
+                        ? `Deadline on ${formatDate(task.deadline)}`
+                        : `Updated on ${formatDate(task.updated_at)}`}
+                </p>
             </div>
-        </Link>
+
+            <div className="flex flex-col items-end z-10 pointer-events-none gap-2">
+                <span className={`text-base font-mono ${task.status === 'FAILED' ? 'text-red-500' : 'text-slate-400'}`}>
+                    {task.status === 'FAILED' ? '-' : ''}€{(task.failure_cost_cents / 100).toFixed(2)}
+                </span>
+            </div>
+        </div>
     );
 }

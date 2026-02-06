@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getTask, getTaskEvents } from "@/actions/tasks";
+import { getTask, getTaskEvents, getTaskPomoSummary } from "@/actions/tasks";
 import TaskDetailClient from "./task-detail-client";
 
 interface TaskPageProps {
@@ -14,7 +14,10 @@ export default async function TaskPage({ params }: TaskPageProps) {
         notFound();
     }
 
-    const events = await getTaskEvents(id);
+    const [events, pomoSummary] = await Promise.all([
+        getTaskEvents(id),
+        getTaskPomoSummary(id),
+    ]);
 
-    return <TaskDetailClient task={task} events={events} />;
+    return <TaskDetailClient task={task} events={events} pomoSummary={pomoSummary} />;
 }

@@ -59,10 +59,10 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.4 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --destructive: oklch(0.6 0.25 25);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -85,10 +85,10 @@
   --background: oklch(0.129 0 0);
   /* Near perfect black/gray */
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.16 0 0);
-  /* Slightly lighter surface for cards */
+  --card: oklch(0.22 0 0);
+  /* Brighter surface for cards to distinguish from background */
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.16 0 0);
+  --popover: oklch(0.22 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
   /* Pure white primary */
@@ -96,15 +96,16 @@
   --secondary: oklch(0.2 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.2 0 0);
-  --muted-foreground: oklch(0.6 0 0);
-  /* Gray muted text */
-  --accent: oklch(0.25 0 0);
+  --muted-foreground: oklch(0.8 0 0);
+  /* Brighter gray for dark mode */
+  --accent: oklch(0.28 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.6 0.15 25);
-  --border: oklch(0.25 0 0);
-  /* Subtle border */
-  --input: oklch(0.25 0 0);
-  --ring: oklch(0.4 0 0);
+  --destructive: oklch(0.65 0.3 25);
+  /* Highly saturated Red */
+  --border: oklch(0.35 0 0);
+  /* More visible border */
+  --input: oklch(0.3 0 0);
+  --ring: oklch(0.45 0 0);
   --chart-1: oklch(0.7 0 0);
   --chart-2: oklch(0.6 0 0);
   --chart-3: oklch(0.5 0 0);
@@ -180,9 +181,19 @@
   }
 
   @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-4px); }
-    75% { transform: translateX(4px); }
+
+    0%,
+    100% {
+      transform: translateX(0);
+    }
+
+    25% {
+      transform: translateX(-4px);
+    }
+
+    75% {
+      transform: translateX(4px);
+    }
   }
 
   .animate-shake {

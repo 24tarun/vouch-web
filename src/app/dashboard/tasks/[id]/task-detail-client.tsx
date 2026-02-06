@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { markTaskComplete, postponeTask, forceMajeureTask, cancelRepetition } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
     Dialog,
     DialogContent,
@@ -27,45 +26,43 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { TaskWithRelations, TaskEvent } from "@/lib/types";
+import { PomoButton } from "@/components/ui/PomoButton";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
     events: TaskEvent[];
+    pomoSummary: {
+        totalSeconds: number;
+        sessionCount: number;
+        completedSessions: number;
+        lastCompletedAt: string | null;
+    } | null;
 }
 
 export default function TaskDetailClient({
     task,
     events,
+    pomoSummary,
 }: TaskDetailClientProps) {
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [postponeOpen, setPostponeOpen] = useState(false);
 
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
-
     const deadline = new Date(task.deadline);
     const isOverdue =
         deadline < new Date() &&
         !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"].includes(task.status);
 
-    if (!mounted) {
-        return <div className="p-10 text-center text-slate-500">Loading task details...</div>;
-    }
-
     const statusColors: Record<string, string> = {
-        CREATED: "bg-blue-500",
-        POSTPONED: "bg-yellow-500",
-        MARKED_COMPLETED: "bg-purple-500",
-        AWAITING_VOUCHER: "bg-purple-500",
-        COMPLETED: "bg-green-500",
-        FAILED: "bg-red-500",
-        RECTIFIED: "bg-orange-500",
-        SETTLED: "bg-slate-600",
+        CREATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
+        POSTPONED: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
+        MARKED_COMPLETED: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
+        AWAITING_VOUCHER: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
+        COMPLETED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+        FAILED: "bg-red-500/20 text-red-300 border border-red-500/30",
+        RECTIFIED: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
+        SETTLED: "bg-slate-600/40 text-slate-300 border border-slate-600/50",
     };
 
     async function handleMarkComplete() {
@@ -122,24 +119,45 @@ export default function TaskDetailClient({
         router.refresh();
     }
 
-
     // Calculate max postpone time (1 hour from current deadline)
     const maxPostpone = new Date(deadline.getTime() + 60 * 60 * 1000);
     const minPostpone = new Date(deadline.getTime() + 60 * 1000);
+    const hasPomoData = (pomoSummary?.sessionCount || 0) > 0;
+
+    const formatFocusTime = (seconds: number) => {
+        if (!seconds || seconds <= 0) return "0m";
+        if (seconds < 60) return `${seconds}s`;
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        if (hours > 0) return `${hours}h ${minutes}m`;
+        return `${minutes}m`;
+    };
+
+    const formatEventLabel = (event: TaskEvent) => {
+        if (event.event_type === "POMO_COMPLETED") {
+            const elapsedRaw = event.metadata?.elapsed_seconds;
+            const elapsedSeconds =
+                typeof elapsedRaw === "number"
+                    ? elapsedRaw
+                    : Number(elapsedRaw ?? 0);
+            return `Focus session completed (${formatFocusTime(elapsedSeconds)})`;
+        }
+        return event.event_type.replace(/_/g, " ");
+    };
 
     return (
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0">
             {/* Header */}
             <div className="flex items-start justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-white flex items-center gap-2">
+                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
                         {task.title}
                         {task.recurrence_rule_id && (
-                            <Repeat className="h-6 w-6 text-slate-500 shrink-0" />
+                            <Repeat className="h-5 w-5 text-slate-500 shrink-0" />
                         )}
                     </h1>
                     <div className="flex items-center gap-3 mt-2">
-                        <Badge className={`${statusColors[task.status]} text-white`}>
+                        <Badge className={statusColors[task.status]}>
                             {task.status === "FAILED"
                                 ? (task.marked_completed_at ? "DENIED" : "FAILED")
                                 : task.status === "SETTLED" ? "FORCE MAJEURE" : task.status.replace("_", " ")}
@@ -159,7 +177,7 @@ export default function TaskDetailClient({
             )}
 
             {/* Task Details */}
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card className="bg-slate-900/40 border-slate-800">
                 <CardHeader>
                     <CardTitle className="text-white">Task Details</CardTitle>
                 </CardHeader>
@@ -171,11 +189,11 @@ export default function TaskDetailClient({
                         </div>
                     )}
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className={`grid grid-cols-1 ${hasPomoData ? "sm:grid-cols-3" : "sm:grid-cols-2"} gap-4`}>
                         <div>
                             <p className="text-sm text-slate-400">Deadline</p>
                             <p className={`text-lg font-medium ${isOverdue ? "text-red-400" : "text-white"}`}>
-                                {deadline.toLocaleDateString()}{" "}
+                                {deadline.toLocaleDateString()} {" "}
                                 {deadline.toLocaleTimeString([], {
                                     hour: "2-digit",
                                     minute: "2-digit",
@@ -185,16 +203,26 @@ export default function TaskDetailClient({
                         <div>
                             <p className="text-sm text-slate-400">Failure Cost</p>
                             <p className="text-lg font-medium text-pink-400">
-                                €{(task.failure_cost_cents / 100).toFixed(2)}
+                                {"\u20ac"}{(task.failure_cost_cents / 100).toFixed(2)}
                             </p>
                         </div>
+                        {hasPomoData && (
+                            <div>
+                                <p className="text-sm text-slate-400">Time Focused</p>
+                                <p className="text-lg font-medium text-cyan-300">
+                                    {formatFocusTime(pomoSummary?.totalSeconds || 0)}
+                                </p>
+                                <p className="text-xs text-slate-500 mt-0.5">
+                                    {(pomoSummary?.sessionCount || 0)} sessions
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {task.postponed_at && (
-                        <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
-                            <p className="text-sm text-yellow-300">
-                                ⚠️ Postponed once on{" "}
-                                {new Date(task.postponed_at).toLocaleString()}
+                        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                            <p className="text-sm text-amber-300">
+                                Postponed once on {new Date(task.postponed_at).toLocaleString()}
                             </p>
                         </div>
                     )}
@@ -202,8 +230,7 @@ export default function TaskDetailClient({
                     {task.voucher_response_deadline && (task.status === "AWAITING_VOUCHER" || task.status === "MARKED_COMPLETED") && (
                         <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
                             <p className="text-sm text-purple-300">
-                                🕐 Voucher must respond by{" "}
-                                {new Date(task.voucher_response_deadline).toLocaleString()}
+                                Voucher must respond by {new Date(task.voucher_response_deadline).toLocaleString()}
                             </p>
                         </div>
                     )}
@@ -211,7 +238,7 @@ export default function TaskDetailClient({
             </Card>
 
             {/* Actions */}
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card className="bg-slate-900/40 border-slate-800">
                 <CardHeader>
                     <CardTitle className="text-white">Actions</CardTitle>
                     <CardDescription className="text-slate-400">
@@ -221,12 +248,13 @@ export default function TaskDetailClient({
                 <CardContent className="flex flex-wrap gap-3">
                     {(task.status === "CREATED" || task.status === "POSTPONED") && (
                         <>
+                            <PomoButton taskId={task.id} variant="full" className="mr-1" />
                             <Button
                                 onClick={handleMarkComplete}
                                 disabled={isLoading || isOverdue}
-                                className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
+                                className="bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300"
                             >
-                                {isLoading ? "Marking..." : "✅ Mark Complete"}
+                                {isLoading ? "Marking..." : "Mark Complete"}
                             </Button>
 
                             {task.status === "CREATED" && !task.postponed_at && !isOverdue && (
@@ -234,12 +262,12 @@ export default function TaskDetailClient({
                                     <DialogTrigger asChild>
                                         <Button
                                             variant="outline"
-                                            className="border-yellow-500/50 text-yellow-300 hover:bg-yellow-500/10"
+                                            className="bg-slate-800/40 border-slate-700 text-slate-200 hover:bg-slate-700/40"
                                         >
-                                            ⏰ Postpone (1x only)
+                                            Postpone (1x only)
                                         </Button>
                                     </DialogTrigger>
-                                    <DialogContent className="bg-slate-800 border-slate-700">
+                                    <DialogContent className="bg-slate-900 border-slate-800">
                                         <DialogHeader>
                                             <DialogTitle className="text-white">
                                                 Postpone Task
@@ -264,7 +292,7 @@ export default function TaskDetailClient({
                                                 <Button
                                                     type="submit"
                                                     disabled={isLoading}
-                                                    className="bg-yellow-600 hover:bg-yellow-700"
+                                                    className="bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300"
                                                 >
                                                     {isLoading ? "Postponing..." : "Confirm Postpone"}
                                                 </Button>
@@ -281,9 +309,9 @@ export default function TaskDetailClient({
                             variant="ghost"
                             onClick={handleForceMajeure}
                             disabled={isLoading}
-                            className="text-slate-500 hover:text-white hover:bg-slate-800"
+                            className="bg-slate-800/40 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/40"
                         >
-                            {isLoading ? "..." : "🆘 Use Force Majeure"}
+                            {isLoading ? "..." : "Use Force Majeure"}
                         </Button>
                     )}
 
@@ -307,7 +335,7 @@ export default function TaskDetailClient({
 
                     {task.status === "COMPLETED" && (
                         <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 w-full">
-                            <p className="text-green-300">🎉 Task completed successfully!</p>
+                            <p className="text-green-300">Task completed successfully.</p>
                         </div>
                     )}
 
@@ -315,8 +343,8 @@ export default function TaskDetailClient({
                         <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 w-full">
                             <p className="text-red-300">
                                 {task.marked_completed_at
-                                    ? `❌ Denied by voucher.`
-                                    : `❌ Deadline missed. Failure cost:`} €{(task.failure_cost_cents / 100).toFixed(2)} added to ledger.
+                                    ? "Denied by voucher."
+                                    : "Deadline missed. Failure cost:"} {"\u20ac"}{(task.failure_cost_cents / 100).toFixed(2)} added to ledger.
                             </p>
                         </div>
                     )}
@@ -324,7 +352,7 @@ export default function TaskDetailClient({
             </Card>
 
             {/* Event Log */}
-            <Card className="bg-slate-800/50 border-slate-700">
+            <Card className="bg-slate-900/40 border-slate-800">
                 <CardHeader>
                     <CardTitle className="text-white">Activity Log</CardTitle>
                 </CardHeader>
@@ -338,7 +366,7 @@ export default function TaskDetailClient({
                                     <div className="h-2 w-2 rounded-full bg-purple-500 mt-2" />
                                     <div>
                                         <p className="text-white text-sm">
-                                            {event.event_type.replace("_", " ")}
+                                            {formatEventLabel(event)}
                                         </p>
                                         <p className="text-xs text-slate-500">
                                             {new Date(event.created_at).toLocaleString()}

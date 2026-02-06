@@ -71,6 +71,20 @@ export interface ForceMajeure {
     created_at: string;
 }
 
+export interface PomoSession {
+    id: string;
+    user_id: string;
+    task_id: string;
+    duration_minutes: number;
+    elapsed_seconds: number;
+    status: "ACTIVE" | "PAUSED" | "COMPLETED" | "DELETED";
+    started_at: string;
+    paused_at: string | null;
+    completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
 export type RecurrenceFrequency = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY" | "WEEKDAYS" | "CUSTOM";
 
 export interface RecurrenceRuleConfig {
@@ -163,6 +177,11 @@ export interface Database {
                 Row: ForceMajeure
                 Insert: Omit<ForceMajeure, "id" | "created_at">
                 Update: Partial<ForceMajeure>
+            }
+            pomo_sessions: {
+                Row: PomoSession
+                Insert: Omit<PomoSession, "id" | "created_at" | "updated_at">
+                Update: Partial<PomoSession>
             }
         }
         Views: {

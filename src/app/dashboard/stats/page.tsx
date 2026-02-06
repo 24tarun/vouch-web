@@ -36,6 +36,21 @@ export default async function OverviewPage() {
     const totalFailureCost =
         (ledgerEntries as any)?.reduce((sum: number, entry: any) => sum + entry.amount_cents, 0) || 0;
 
+    // Get pomo sessions for time focused
+    // @ts-ignore
+    const { data: allSessions } = await supabase
+        .from("pomo_sessions")
+        .select("elapsed_seconds, task:tasks!inner(status)")
+        .eq("user_id", user?.id as any);
+
+    const validSessions = (allSessions as any)?.filter((s: any) =>
+        !["FAILED", "DELETED"].includes(s.task.status)
+    ) || [];
+
+    const totalSeconds = validSessions.reduce((sum: number, s: any) => sum + s.elapsed_seconds, 0);
+    const totalHours = Math.floor(totalSeconds / 3600);
+    const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
+
     const activeTasks =
         (tasks as Task[])?.filter((t) =>
             ["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(t.status)
@@ -66,8 +81,10 @@ export default async function OverviewPage() {
                     <p className="text-4xl font-light text-white">{activeTasksCount}</p>
                 </div>
                 <div className="space-y-1">
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">History</p>
-                    <p className="text-4xl font-light text-white">{historyTasksCount}</p>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Time Focused</p>
+                    <p className="text-4xl font-light text-white">
+                        {totalHours}<span className="text-xl text-slate-500 ml-1">h</span> {totalMinutes}<span className="text-xl text-slate-500 ml-1">m</span>
+                    </p>
                 </div>
                 <div className="space-y-1">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Pending Vouches</p>
