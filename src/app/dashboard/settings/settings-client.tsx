@@ -1,10 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { updateUsername } from "@/actions/auth";
+import { updateUserDefaults, updateUsername } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import {
     Card,
     CardContent,
@@ -13,22 +20,45 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import type { Profile } from "@/lib/types";
+import {
+    DEFAULT_FAILURE_COST_CENTS,
+    DEFAULT_POMO_DURATION_MINUTES,
+} from "@/lib/constants";
 
 interface SettingsClientProps {
     profile: Profile;
+    friends: Profile[];
 }
 
-export default function SettingsClient({ profile }: SettingsClientProps) {
-    const [username, setUsername] = useState(profile.username);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [success, setSuccess] = useState(false);
+const NONE_VOUCHER_VALUE = "__none__";
 
-    async function handleSubmit(e: React.FormEvent) {
+export default function SettingsClient({ profile, friends }: SettingsClientProps) {
+    const [username, setUsername] = useState(profile.username);
+    const [isUsernameLoading, setIsUsernameLoading] = useState(false);
+    const [usernameError, setUsernameError] = useState<string | null>(null);
+    const [usernameSuccess, setUsernameSuccess] = useState(false);
+
+    const [defaultPomoDurationMinutes, setDefaultPomoDurationMinutes] = useState(
+        String(profile.default_pomo_duration_minutes ?? DEFAULT_POMO_DURATION_MINUTES)
+    );
+    const [defaultFailureCostEuros, setDefaultFailureCostEuros] = useState(
+        ((profile.default_failure_cost_cents ?? DEFAULT_FAILURE_COST_CENTS) / 100).toFixed(2)
+    );
+    const [defaultVoucherId, setDefaultVoucherId] = useState<string | null>(
+        profile.default_voucher_id ?? null
+    );
+    const [isDefaultsLoading, setIsDefaultsLoading] = useState(false);
+    const [defaultsError, setDefaultsError] = useState<string | null>(null);
+    const [defaultsSuccess, setDefaultsSuccess] = useState(false);
+    const hasValidDefaultVoucher =
+        !!defaultVoucherId && friends.some((friend) => friend.id === defaultVoucherId);
+    const effectiveDefaultVoucherId = hasValidDefaultVoucher ? defaultVoucherId : null;
+
+    async function handleUsernameSubmit(e: React.FormEvent) {
         e.preventDefault();
-        setIsLoading(true);
-        setError(null);
-        setSuccess(false);
+        setIsUsernameLoading(true);
+        setUsernameError(null);
+        setUsernameSuccess(false);
 
         const formData = new FormData();
         formData.append("username", username);
@@ -36,12 +66,34 @@ export default function SettingsClient({ profile }: SettingsClientProps) {
         const result = await updateUsername(formData);
 
         if (result.error) {
-            setError(result.error);
+            setUsernameError(result.error);
         } else {
-            setSuccess(true);
+            setUsernameSuccess(true);
         }
 
-        setIsLoading(false);
+        setIsUsernameLoading(false);
+    }
+
+    async function handleDefaultsSubmit(e: React.FormEvent) {
+        e.preventDefault();
+        setIsDefaultsLoading(true);
+        setDefaultsError(null);
+        setDefaultsSuccess(false);
+
+        const formData = new FormData();
+        formData.append("defaultPomoDurationMinutes", defaultPomoDurationMinutes);
+        formData.append("defaultFailureCost", defaultFailureCostEuros);
+        formData.append("defaultVoucherId", effectiveDefaultVoucherId ?? "");
+
+        const result = await updateUserDefaults(formData);
+
+        if (result.error) {
+            setDefaultsError(result.error);
+        } else {
+            setDefaultsSuccess(true);
+        }
+
+        setIsDefaultsLoading(false);
     }
 
     return (
@@ -60,7 +112,7 @@ export default function SettingsClient({ profile }: SettingsClientProps) {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleUsernameSubmit} className="space-y-4">
                         <div className="space-y-2">
                             <Label htmlFor="email" className="text-slate-200">
                                 Email
@@ -90,17 +142,101 @@ export default function SettingsClient({ profile }: SettingsClientProps) {
                             </p>
                         </div>
 
-                        {error && <p className="text-sm text-red-400">{error}</p>}
-                        {success && (
+                        {usernameError && <p className="text-sm text-red-400">{usernameError}</p>}
+                        {usernameSuccess && (
                             <p className="text-sm text-green-400">Username updated!</p>
                         )}
 
                         <Button
                             type="submit"
-                            disabled={isLoading || username === profile.username}
+                            disabled={isUsernameLoading || username === profile.username}
                             className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
                         >
-                            {isLoading ? "Saving..." : "Save Changes"}
+                            {isUsernameLoading ? "Saving..." : "Save Changes"}
+                        </Button>
+                    </form>
+                </CardContent>
+            </Card>
+
+            <Card className="bg-slate-800/50 border-slate-700">
+                <CardHeader>
+                    <CardTitle className="text-white">Task Defaults</CardTitle>
+                    <CardDescription className="text-slate-400">
+                        Choose default values for new tasks and Pomodoro sessions
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <form onSubmit={handleDefaultsSubmit} className="space-y-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="defaultPomoDurationMinutes" className="text-slate-200">
+                                Default Pomodoro Duration (minutes)
+                            </Label>
+                            <Input
+                                id="defaultPomoDurationMinutes"
+                                type="number"
+                                min="1"
+                                max="720"
+                                step="1"
+                                value={defaultPomoDurationMinutes}
+                                onChange={(e) => setDefaultPomoDurationMinutes(e.target.value)}
+                                className="bg-slate-700/50 border-slate-600 text-white"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="defaultFailureCost" className="text-slate-200">
+                                Default Failure Cost (€)
+                            </Label>
+                            <Input
+                                id="defaultFailureCost"
+                                type="number"
+                                min="0.01"
+                                max="100"
+                                step="0.01"
+                                value={defaultFailureCostEuros}
+                                onChange={(e) => setDefaultFailureCostEuros(e.target.value)}
+                                className="bg-slate-700/50 border-slate-600 text-white"
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="defaultVoucherId" className="text-slate-200">
+                                Default Voucher
+                            </Label>
+                            <Select
+                                value={effectiveDefaultVoucherId ?? NONE_VOUCHER_VALUE}
+                                onValueChange={(value) =>
+                                    setDefaultVoucherId(value === NONE_VOUCHER_VALUE ? null : value)
+                                }
+                            >
+                                <SelectTrigger
+                                    id="defaultVoucherId"
+                                    className="bg-slate-700/50 border-slate-600 text-white w-full"
+                                >
+                                    <SelectValue placeholder="No default voucher" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-slate-800 border-slate-700 text-white">
+                                    <SelectItem value={NONE_VOUCHER_VALUE}>No default voucher</SelectItem>
+                                    {friends.map((friend) => (
+                                        <SelectItem key={friend.id} value={friend.id}>
+                                            {friend.username} ({friend.email})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+
+                        {defaultsError && <p className="text-sm text-red-400">{defaultsError}</p>}
+                        {defaultsSuccess && (
+                            <p className="text-sm text-green-400">Defaults updated!</p>
+                        )}
+
+                        <Button
+                            type="submit"
+                            disabled={isDefaultsLoading}
+                            className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700"
+                        >
+                            {isDefaultsLoading ? "Saving..." : "Save Defaults"}
                         </Button>
                     </form>
                 </CardContent>

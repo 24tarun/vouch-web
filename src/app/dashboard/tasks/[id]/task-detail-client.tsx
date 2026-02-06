@@ -37,12 +37,14 @@ interface TaskDetailClientProps {
         completedSessions: number;
         lastCompletedAt: string | null;
     } | null;
+    defaultPomoDurationMinutes: number;
 }
 
 export default function TaskDetailClient({
     task,
     events,
     pomoSummary,
+    defaultPomoDurationMinutes,
 }: TaskDetailClientProps) {
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false);
@@ -265,7 +267,12 @@ export default function TaskDetailClient({
                 <CardContent className="flex flex-wrap gap-3">
                     {(task.status === "CREATED" || task.status === "POSTPONED") && (
                         <>
-                            <PomoButton taskId={task.id} variant="full" className="mr-1" />
+                            <PomoButton
+                                taskId={task.id}
+                                variant="full"
+                                className="mr-1"
+                                defaultDurationMinutes={defaultPomoDurationMinutes}
+                            />
                             <Button
                                 onClick={handleMarkComplete}
                                 disabled={isLoading || isOverdue}

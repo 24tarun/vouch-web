@@ -5,8 +5,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/types";
+import {
+    DEFAULT_FAILURE_COST_CENTS,
+    DEFAULT_POMO_DURATION_MINUTES,
+} from "@/lib/constants";
 
 type PomoAutoEndSource = "sign_in_auto_end" | "sign_out_auto_end";
+type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 
 async function autoEndLingeringPomoSession(
     supabase: SupabaseClient<Database>,
@@ -181,7 +186,7 @@ export async function getUser() {
     return user;
 }
 
-export async function getProfile() {
+export async function getProfile(): Promise<ProfileRow | null> {
     const supabase = await createClient();
     const {
         data: { user },
@@ -195,7 +200,79 @@ export async function getProfile() {
         .eq("id", user.id)
         .single();
 
-    return profile;
+    return (profile as ProfileRow | null) ?? null;
+}
+
+export async function updateUserDefaults(formData: FormData) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const defaultPomoDurationRaw = formData.get("defaultPomoDurationMinutes") as string;
+    const defaultFailureCostRaw = formData.get("defaultFailureCost") as string;
+    const defaultVoucherIdRaw = formData.get("defaultVoucherId") as string;
+
+    const defaultPomoDurationMinutes = Number(defaultPomoDurationRaw);
+    if (
+        !Number.isFinite(defaultPomoDurationMinutes) ||
+        !Number.isInteger(defaultPomoDurationMinutes) ||
+        defaultPomoDurationMinutes < 1 ||
+        defaultPomoDurationMinutes > 720
+    ) {
+        return { error: "Default Pomodoro duration must be an integer between 1 and 720." };
+    }
+
+    const defaultFailureCostEuros = Number(defaultFailureCostRaw);
+    if (
+        !Number.isFinite(defaultFailureCostEuros) ||
+        defaultFailureCostEuros < 0.01 ||
+        defaultFailureCostEuros > 100
+    ) {
+        return { error: "Default failure cost must be between €0.01 and €100." };
+    }
+
+    const defaultFailureCostCents = Math.round(defaultFailureCostEuros * 100);
+    if (defaultFailureCostCents < 1 || defaultFailureCostCents > 10000) {
+        return { error: "Default failure cost is invalid." };
+    }
+
+    const defaultVoucherId = defaultVoucherIdRaw?.trim() ? defaultVoucherIdRaw.trim() : null;
+
+    if (defaultVoucherId) {
+        const { data: friendship } = await supabase
+            .from("friendships")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("friend_id", defaultVoucherId)
+            .maybeSingle();
+
+        if (!friendship) {
+            return { error: "Default voucher must be one of your friends." };
+        }
+    }
+
+    // @ts-ignore
+    const { error } = await (supabase.from("profiles" as any) as any)
+        .update({
+            default_pomo_duration_minutes: defaultPomoDurationMinutes ?? DEFAULT_POMO_DURATION_MINUTES,
+            default_failure_cost_cents: defaultFailureCostCents ?? DEFAULT_FAILURE_COST_CENTS,
+            default_voucher_id: defaultVoucherId,
+        })
+        .eq("id", user.id);
+
+    if (error) {
+        return { error: error.message };
+    }
+
+    revalidatePath("/dashboard/settings");
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/tasks/new");
+    return { success: true };
 }
 
 export async function updateUsername(formData: FormData) {

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import SettingsClient from "./settings-client";
+import { getFriends } from "@/actions/friends";
 
 export default async function SettingsPage() {
     const supabase = await createClient();
@@ -25,5 +26,7 @@ export default async function SettingsPage() {
         redirect("/login?error=profile_missing");
     }
 
-    return <SettingsClient profile={profile} />;
+    const friends = await getFriends();
+
+    return <SettingsClient profile={profile} friends={friends} />;
 }

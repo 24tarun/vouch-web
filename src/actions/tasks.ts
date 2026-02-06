@@ -16,16 +16,32 @@ export async function createTaskSimple(title: string) {
 
     if (!user) return { error: "Not authenticated" };
 
+    // Load user defaults.
+    // @ts-ignore
+    const { data: profileDefaults } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
     // Default configuration for simple tasks
-    // Auto-assign first friend as voucher for now
+    // Use default voucher if valid, otherwise fallback to first friend.
     // @ts-ignore
     const { data: friends } = await supabase
         .from("friendships")
-        .select("friend_id") // changed to select friend_id
-        .eq("user_id", user.id)
-        .limit(1);
+        .select("friend_id")
+        .eq("user_id", user.id);
 
-    const defaultVoucherId = (friends as any)?.[0]?.friend_id;
+    const friendIds = new Set(((friends as any[]) || []).map((f) => f.friend_id));
+    const preferredVoucherId = (profileDefaults as any)?.default_voucher_id as string | null | undefined;
+    const defaultVoucherId =
+        preferredVoucherId && friendIds.has(preferredVoucherId)
+            ? preferredVoucherId
+            : (friends as any)?.[0]?.friend_id;
+
+    const defaultFailureCostCents =
+        ((profileDefaults as any)?.default_failure_cost_cents as number | undefined) ??
+        DEFAULT_FAILURE_COST_CENTS;
 
     if (!defaultVoucherId) {
         throw new Error("You need at least one friend to create a task.");
@@ -42,7 +58,7 @@ export async function createTaskSimple(title: string) {
             voucher_id: defaultVoucherId,
             title,
             description: null,
-            failure_cost_cents: DEFAULT_FAILURE_COST_CENTS,
+            failure_cost_cents: defaultFailureCostCents,
             deadline: deadline.toISOString(),
             status: "CREATED",
         })

@@ -19,22 +19,44 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Repeat } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { DEFAULT_FAILURE_COST_EUROS } from "@/lib/constants";
+import type { Profile } from "@/lib/types";
 
 
 
 
 
 interface TaskInputProps {
-    friends: any[];
+    friends: Profile[];
+    defaultFailureCostEuros: string;
+    defaultVoucherId: string | null;
 }
 
-export function TaskInput({ friends }: TaskInputProps) {
+export function TaskInput({
+    friends,
+    defaultFailureCostEuros,
+    defaultVoucherId,
+}: TaskInputProps) {
+    const getDefaultDeadline = () => {
+        const defaultDeadline = new Date();
+        defaultDeadline.setHours(23, 59, 0, 0);
+        return defaultDeadline;
+    };
+
+    const toDateTimeLocalValue = (date: Date | null) => {
+        if (!date) return "";
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hours = String(date.getHours()).padStart(2, "0");
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+    };
+
     const [title, setTitle] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-    const [selectedVoucherId, setSelectedVoucherId] = useState<string>("");
-    const [failureCost, setFailureCost] = useState(DEFAULT_FAILURE_COST_EUROS);
+    const [selectedDate, setSelectedDate] = useState<Date | null>(getDefaultDeadline);
+    const [selectedVoucherId, setSelectedVoucherId] = useState<string>(defaultVoucherId ?? "");
+    const [failureCost, setFailureCost] = useState(defaultFailureCostEuros);
 
 
 
@@ -51,13 +73,23 @@ export function TaskInput({ friends }: TaskInputProps) {
     const [showShake, setShowShake] = useState(false);
 
     const dateInputRef = useRef<HTMLInputElement>(null);
+    const lastCalendarTapRef = useRef(0);
 
-    // Default deadline to end of today
     useEffect(() => {
-        const defaultDeadline = new Date();
-        defaultDeadline.setHours(23, 59, 0, 0);
-        setSelectedDate(defaultDeadline);
-    }, []);
+        setFailureCost(defaultFailureCostEuros);
+    }, [defaultFailureCostEuros]);
+
+    useEffect(() => {
+        setSelectedVoucherId(defaultVoucherId ?? "");
+    }, [defaultVoucherId]);
+
+    useEffect(() => {
+        if (!selectedVoucherId) return;
+        const isStillFriend = friends.some((friend) => friend.id === selectedVoucherId);
+        if (!isStillFriend) {
+            setSelectedVoucherId("");
+        }
+    }, [friends, selectedVoucherId]);
 
     const getSelectedWeekday = () => {
         return selectedDate?.getDay() ?? new Date().getDay();
@@ -77,6 +109,33 @@ export function TaskInput({ friends }: TaskInputProps) {
     const formatCustomDaysLabel = (days: number[]) => {
         const ordered = weekdayOrder.filter((day) => days.includes(day));
         return ordered.map((day) => weekdayShort[day]).join(" ");
+    };
+
+    const formatDeadlineLabel = (date: Date | null) => {
+        if (!date) return "Set date";
+        return date.toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    };
+
+    const resetDeadlineToDefault = () => {
+        setSelectedDate(getDefaultDeadline());
+    };
+
+    const handleCalendarClick = () => {
+        const now = Date.now();
+        const isDoubleTap = now - lastCalendarTapRef.current <= 300;
+        lastCalendarTapRef.current = now;
+
+        if (isDoubleTap) {
+            resetDeadlineToDefault();
+            return;
+        }
+
+        dateInputRef.current?.showPicker();
     };
 
     // NLP Parsing
@@ -103,9 +162,9 @@ export function TaskInput({ friends }: TaskInputProps) {
         const vouchMatch = title.match(/vouch\s+(\w+)/i);
         if (vouchMatch) {
             const name = vouchMatch[1].toLowerCase();
-            const friend = friends.find(f =>
+            const friend = friends.find((f) =>
                 f.username?.toLowerCase().includes(name) ||
-                f.display_name?.toLowerCase().includes(name)
+                f.email?.toLowerCase().includes(name)
             );
             if (friend) {
                 setSelectedVoucherId(friend.id);
@@ -183,7 +242,7 @@ export function TaskInput({ friends }: TaskInputProps) {
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="buy milk @14 vouch bob"
-                    className="w-full bg-transparent border-none py-4 px-5 text-white placeholder:text-slate-400 focus:outline-none transition-all font-medium text-lg"
+                    className="w-full bg-transparent border-none py-4 px-5 text-white placeholder:text-slate-500/70 focus:outline-none transition-all font-medium text-lg"
                     disabled={isLoading}
                 />
 
@@ -198,12 +257,12 @@ export function TaskInput({ friends }: TaskInputProps) {
                             value={failureCost}
                             onChange={(e) => setFailureCost(e.target.value)}
                             className="h-9 w-full pl-4 pr-1 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 rounded-lg text-slate-300 text-[11px] font-mono focus:outline-none focus:border-slate-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-center"
-                            placeholder={DEFAULT_FAILURE_COST_EUROS}
+                            placeholder={defaultFailureCostEuros}
                         />
                     </div>
 
                     {/* Voucher Select */}
-                    <div className={`flex-1 min-w-[100px] shrink ${showShake ? "animate-shake" : ""}`}>
+                    <div className={`flex-1 min-w-[92px] shrink ${showShake ? "animate-shake" : ""}`}>
                         <Select value={selectedVoucherId} onValueChange={setSelectedVoucherId}>
                             <SelectTrigger className="h-9 w-full bg-slate-800/30 border-slate-700/30 text-slate-300 text-[10px] font-mono focus:ring-0 rounded-lg justify-start px-2">
                                 <User className="h-3 w-3 mr-1.5 shrink-0 opacity-70" />
@@ -224,6 +283,7 @@ export function TaskInput({ friends }: TaskInputProps) {
                         type="datetime-local"
                         ref={dateInputRef}
                         className="hidden"
+                        value={toDateTimeLocalValue(selectedDate)}
                         onChange={(e) => {
                             if (e.target.value) {
                                 setSelectedDate(new Date(e.target.value));
@@ -232,14 +292,18 @@ export function TaskInput({ friends }: TaskInputProps) {
                     />
                     <button
                         type="button"
-                        onClick={() => dateInputRef.current?.showPicker()}
+                        onClick={handleCalendarClick}
+                        onDoubleClick={resetDeadlineToDefault}
                         className={cn(
-                            "h-9 w-9 shrink-0 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 text-slate-400 hover:text-slate-200 rounded-lg transition-all flex items-center justify-center",
+                            "h-9 max-w-[180px] shrink-0 px-2.5 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 text-slate-400 hover:text-slate-200 rounded-lg transition-all flex items-center justify-start gap-1.5",
                             selectedDate && "text-blue-400 border-blue-500/30 bg-blue-500/5"
                         )}
                         title={selectedDate ? selectedDate.toLocaleString() : "Set Date"}
                     >
-                        <Calendar className="h-3.5 w-3.5" />
+                        <Calendar className="h-3.5 w-3.5 shrink-0" />
+                        <span className="text-[10px] font-mono truncate">
+                            {formatDeadlineLabel(selectedDate)}
+                        </span>
                     </button>
 
                     {/* Repeat Toggle */}

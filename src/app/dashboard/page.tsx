@@ -6,6 +6,7 @@ import type { Task } from "@/lib/types";
 import { ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFriends } from "@/actions/friends";
+import { DEFAULT_FAILURE_COST_CENTS } from "@/lib/constants";
 
 export default async function DashboardPage() {
     const supabase = await createClient();
@@ -15,6 +16,18 @@ export default async function DashboardPage() {
 
     // Fetch friends for TaskInput
     const friends = await getFriends();
+
+    // @ts-ignore
+    const { data: profileDefaults } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user?.id as any)
+        .maybeSingle();
+
+    const defaultFailureCostEuros = (
+        ((profileDefaults as any)?.default_failure_cost_cents ?? DEFAULT_FAILURE_COST_CENTS) / 100
+    ).toFixed(2);
+    const defaultVoucherId = ((profileDefaults as any)?.default_voucher_id as string | null) ?? null;
 
     // @ts-ignore
     const { data: tasks } = await supabase
@@ -49,7 +62,11 @@ export default async function DashboardPage() {
             </div>
 
             {/* Input */}
-            <TaskInput friends={friends} />
+            <TaskInput
+                friends={friends}
+                defaultFailureCostEuros={defaultFailureCostEuros}
+                defaultVoucherId={defaultVoucherId}
+            />
 
             {/* Active Tasks List */}
             <div className="flex flex-col">

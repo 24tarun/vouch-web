@@ -147,8 +147,22 @@ export async function removeFriend(friendId: string) {
         // Don't fail - the first deletion was successful
     }
 
+    // Clear stale default voucher if it was set to the removed friend.
+    // @ts-ignore
+    const { error: clearDefaultError } = await (supabase.from("profiles" as any) as any)
+        .update({ default_voucher_id: null } as any)
+        .eq("id", user.id as any)
+        .eq("default_voucher_id", friendId as any);
+
+    if (clearDefaultError) {
+        console.error("Failed to clear default voucher after removing friend:", clearDefaultError);
+    }
+
     try {
         revalidatePath("/dashboard/friends");
+        revalidatePath("/dashboard/settings");
+        revalidatePath("/dashboard");
+        revalidatePath("/dashboard/tasks/new");
     } catch (e) {
         // Ignore revalidation errors
     }

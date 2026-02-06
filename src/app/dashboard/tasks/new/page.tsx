@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createTask } from "@/actions/tasks";
 import { getFriends } from "@/actions/friends";
+import { getProfile } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,14 +22,23 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { DEFAULT_FAILURE_COST_EUROS } from "@/lib/constants";
+import {
+    DEFAULT_FAILURE_COST_CENTS,
+    DEFAULT_FAILURE_COST_EUROS,
+} from "@/lib/constants";
 import type { Profile } from "@/lib/types";
 
 export default function NewTaskPage() {
     const router = useRouter();
     const [friends, setFriends] = useState<Profile[]>([]);
+    const [selectedVoucherId, setSelectedVoucherId] = useState("");
+    const [failureCost, setFailureCost] = useState(DEFAULT_FAILURE_COST_EUROS);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const effectiveSelectedVoucherId =
+        selectedVoucherId && friends.some((friend) => friend.id === selectedVoucherId)
+            ? selectedVoucherId
+            : "";
 
     // Set default deadline to tomorrow at noon
     const tomorrow = new Date();
@@ -37,11 +47,26 @@ export default function NewTaskPage() {
     const defaultDeadline = tomorrow.toISOString().slice(0, 16);
 
     useEffect(() => {
-        async function loadFriends() {
-            const friendsList = await getFriends();
-            setFriends(friendsList);
+        async function loadData() {
+            const [friendsList, profile] = await Promise.all([
+                getFriends(),
+                getProfile(),
+            ]);
+            const normalizedFriends = friendsList as Profile[];
+
+            setFriends(normalizedFriends);
+
+            const profileFailureCostCents = profile?.default_failure_cost_cents ?? DEFAULT_FAILURE_COST_CENTS;
+            setFailureCost((profileFailureCostCents / 100).toFixed(2));
+
+            const profileDefaultVoucher = profile?.default_voucher_id ?? null;
+            const hasValidVoucher =
+                !!profileDefaultVoucher &&
+                normalizedFriends.some((friend) => friend.id === profileDefaultVoucher);
+            setSelectedVoucherId(hasValidVoucher ? profileDefaultVoucher : "");
         }
-        loadFriends();
+
+        loadData();
     }, []);
 
     async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -50,6 +75,14 @@ export default function NewTaskPage() {
         setError(null);
 
         const formData = new FormData(e.currentTarget);
+        if (!effectiveSelectedVoucherId) {
+            setError("Please select a voucher.");
+            setIsLoading(false);
+            return;
+        }
+
+        formData.set("voucherId", effectiveSelectedVoucherId);
+        formData.set("failureCost", failureCost);
         const result = await createTask(formData);
 
         if (result?.error) {
@@ -128,8 +161,9 @@ export default function NewTaskPage() {
                                 min="0.01"
                                 max="100"
                                 step="0.01"
+                                value={failureCost}
+                                onChange={(e) => setFailureCost(e.target.value)}
                                 placeholder={DEFAULT_FAILURE_COST_EUROS}
-                                defaultValue={DEFAULT_FAILURE_COST_EUROS}
                                 required
                                 className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
                             />
@@ -154,7 +188,12 @@ export default function NewTaskPage() {
                                     </a>
                                 </div>
                             ) : (
-                                <Select name="voucherId" required>
+                                <Select
+                                    name="voucherId"
+                                    required
+                                    value={effectiveSelectedVoucherId}
+                                    onValueChange={setSelectedVoucherId}
+                                >
                                     <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
                                         <SelectValue placeholder="Choose a friend to vouch" />
                                     </SelectTrigger>

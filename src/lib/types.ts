@@ -5,6 +5,9 @@ export interface Profile {
     id: string;
     email: string;
     username: string;
+    default_pomo_duration_minutes: number;
+    default_failure_cost_cents: number;
+    default_voucher_id: string | null;
     created_at: string;
 }
 
@@ -141,7 +144,7 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Omit<Profile, "id" | "created_at">
+                Insert: Omit<Profile, "id" | "created_at" | "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id"> & Partial<Pick<Profile, "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id">>
                 Update: Partial<Profile>
             }
             friendships: {

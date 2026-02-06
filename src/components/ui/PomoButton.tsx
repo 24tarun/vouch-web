@@ -1,21 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Timer } from "lucide-react";
 import { usePomodoro } from "@/components/PomodoroProvider";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
 
 interface PomoButtonProps {
     taskId: string;
     className?: string;
     variant?: "icon" | "full";
+    defaultDurationMinutes?: number;
 }
 
-export function PomoButton({ taskId, className, variant = "icon" }: PomoButtonProps) {
+export function PomoButton({
+    taskId,
+    className,
+    variant = "icon",
+    defaultDurationMinutes = DEFAULT_POMO_DURATION_MINUTES,
+}: PomoButtonProps) {
     const { startSession, session } = usePomodoro();
-    const [durationInput, setDurationInput] = useState("25");
+    const normalizedDefaultDuration =
+        Number.isInteger(defaultDurationMinutes) &&
+        defaultDurationMinutes >= 1 &&
+        defaultDurationMinutes <= 720
+            ? defaultDurationMinutes
+            : DEFAULT_POMO_DURATION_MINUTES;
+    const [durationInput, setDurationInput] = useState(String(normalizedDefaultDuration));
     const isActive = session?.task_id === taskId && session?.status === "ACTIVE";
+
+    useEffect(() => {
+        setDurationInput(String(normalizedDefaultDuration));
+    }, [normalizedDefaultDuration]);
 
     const handleStart = async () => {
         const minutes = Number(durationInput);
@@ -82,12 +99,12 @@ export function PomoButton({ taskId, className, variant = "icon" }: PomoButtonPr
     return (
         <button
             type="button"
-            onClick={() => startSession(taskId, 25)}
+            onClick={() => startSession(taskId, normalizedDefaultDuration)}
             className={cn(
                 "text-slate-500 hover:text-cyan-400 transition-colors flex items-center gap-2",
                 className
             )}
-            title="Start 25 minute focus session"
+            title={`Start ${normalizedDefaultDuration} minute focus session`}
         >
             <Timer className="w-4 h-4" />
         </button>
