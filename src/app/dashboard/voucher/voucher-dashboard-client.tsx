@@ -200,7 +200,7 @@ function CompactHistoryItem({
     isLoading: boolean;
 }) {
     const statusColors: Record<string, string> = {
-        COMPLETED: "text-[#859900]",       // Green
+        COMPLETED: "text-lime-300",        // Bright neon green (accepted)
         FAILED: "text-[#dc322f]",          // Red
         RECTIFIED: "text-[#cb4b16]",       // Orange
         SETTLED: "text-[#2aa198]",         // Cyan
@@ -218,7 +218,9 @@ function CompactHistoryItem({
                     <Badge variant="outline" className={`text-[10px] h-4 py-0 px-1 border-slate-800 ${statusColors[task.status] || "text-slate-400"}`}>
                         {task.status === "FAILED"
                             ? (task.marked_completed_at ? "DENIED" : "FAILED")
-                            : task.status}
+                            : task.status === "COMPLETED"
+                                ? "ACCEPTED"
+                                : task.status}
                     </Badge>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">

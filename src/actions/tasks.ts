@@ -315,6 +315,8 @@ export async function markTaskComplete(taskId: string) {
         });
     }
 
+    // Mirror accept/deny behavior so voucher list cache is invalidated on new request.
+    revalidatePath("/dashboard/voucher");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
 }

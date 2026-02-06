@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import type { Task } from "@/lib/types";
+import { Timer } from "lucide-react";
 
-export function CompactStatsItem({ task }: { task: Task }) {
+type StatsTask = Task & { pomo_total_seconds?: number };
+
+export function CompactStatsItem({ task }: { task: StatsTask }) {
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -17,7 +20,7 @@ export function CompactStatsItem({ task }: { task: Task }) {
         POSTPONED: "text-amber-400",
         MARKED_COMPLETED: "text-yellow-400",
         AWAITING_VOUCHER: "text-yellow-400",
-        COMPLETED: "text-emerald-400",       // Bright Green
+        COMPLETED: "text-lime-300",          // Brighter neon green
         FAILED: "text-red-500",              // Bright Red
         RECTIFIED: "text-orange-500",        // Bright Orange
         SETTLED: "text-cyan-400",            // Bright Cyan
@@ -46,6 +49,16 @@ export function CompactStatsItem({ task }: { task: Task }) {
         return `${day}/${month}/${year} at ${hours}:${minutes}`;
     };
 
+    const formatPomoBadge = (seconds: number) => {
+        if (seconds < 60) return "<1m";
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+    };
+
+    const pomoTotalSeconds = task.pomo_total_seconds || 0;
+
     if (!mounted) {
         return (
             <div className="flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 -mx-4 px-4 h-[100px]">
@@ -69,6 +82,12 @@ export function CompactStatsItem({ task }: { task: Task }) {
                             ? (task.marked_completed_at ? "DENIED" : "FAILED")
                             : (statusLabels[task.status] || task.status)}
                     </Badge>
+                    {pomoTotalSeconds > 0 && (
+                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-300 border-emerald-500/30 text-[10px]">
+                            <Timer className="h-3 w-3 mr-1" />
+                            {formatPomoBadge(pomoTotalSeconds)}
+                        </Badge>
+                    )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
                     {["CREATED", "POSTPONED"].includes(task.status)

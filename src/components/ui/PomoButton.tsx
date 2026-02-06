@@ -44,33 +44,37 @@ export function PomoButton({ taskId, className, variant = "icon" }: PomoButtonPr
 
     if (variant === "full") {
         return (
-            <div className={cn("flex items-center gap-2", className)}>
-                <div className="relative w-16 shrink-0">
-                    <input
-                        type="number"
-                        min="1"
-                        max="720"
-                        step="1"
-                        value={durationInput}
-                        onChange={(e) => setDurationInput(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleStart();
-                            }
-                        }}
-                        className="h-9 w-full px-2 bg-slate-800/40 hover:bg-slate-700/40 border border-slate-700/40 rounded-lg text-slate-200 text-xs font-mono focus:outline-none focus:border-slate-500 transition-all text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        aria-label="Pomodoro duration in minutes"
-                    />
-                </div>
+            <div
+                className={cn(
+                    "h-9 rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 transition-all flex items-center overflow-hidden",
+                    className
+                )}
+            >
                 <button
                     type="button"
                     onClick={handleStart}
-                    className="h-9 w-9 shrink-0 bg-slate-800/40 hover:bg-slate-700/40 border border-slate-700/40 text-cyan-300 hover:text-cyan-200 rounded-lg transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="h-full px-3 text-cyan-400 hover:text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)] transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Start Focus Session"
                 >
                     <Timer className="w-4 h-4" />
                 </button>
+                <div className="h-5 w-px bg-cyan-500/30" />
+                <input
+                    type="number"
+                    min="1"
+                    max="720"
+                    step="1"
+                    value={durationInput}
+                    onChange={(e) => setDurationInput(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleStart();
+                        }
+                    }}
+                    className="h-full w-16 px-2 bg-transparent text-cyan-300 text-xs font-mono focus:outline-none text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    aria-label="Pomodoro duration in minutes"
+                />
             </div>
         );
     }

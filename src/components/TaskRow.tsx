@@ -26,6 +26,7 @@ export function TaskRow({ task }: TaskRowProps) {
     const [isCompleted, setIsCompleted] = useState(isActuallyCompleted);
     const [isLoading, setIsLoading] = useState(false);
     const [mounted, setMounted] = useState(false);
+    const [isRepetitionStopped, setIsRepetitionStopped] = useState(false);
 
     useEffect(() => {
         setMounted(true);
@@ -56,8 +57,12 @@ export function TaskRow({ task }: TaskRowProps) {
     };
 
     const handleCancelRepetition = async () => {
+        if (isRepetitionStopped) return;
         try {
-            await cancelRepetition(task.id);
+            const result = await cancelRepetition(task.id);
+            if (!result?.error) {
+                setIsRepetitionStopped(true);
+            }
         } catch (error) {
             console.error("Failed to cancel repetition", error);
         }
@@ -150,9 +155,18 @@ export function TaskRow({ task }: TaskRowProps) {
                                     Postpone
                                 </DropdownMenuItem>
                                 {task.recurrence_rule_id && (
-                                    <DropdownMenuItem onClick={handleCancelRepetition} className="text-red-400 focus:bg-slate-800 focus:text-red-300 cursor-pointer text-xs">
+                                    <DropdownMenuItem
+                                        onClick={handleCancelRepetition}
+                                        disabled={isRepetitionStopped}
+                                        className={cn(
+                                            "text-xs",
+                                            isRepetitionStopped
+                                                ? "text-slate-500 cursor-not-allowed focus:bg-slate-900/60 focus:text-slate-500"
+                                                : "text-red-400 focus:bg-slate-800 focus:text-red-300 cursor-pointer"
+                                        )}
+                                    >
                                         <Repeat className="mr-2 h-3.5 w-3.5" />
-                                        Stop Future Repetitions
+                                        {isRepetitionStopped ? "Repetition Stopped" : "Stop Future Repetitions"}
                                     </DropdownMenuItem>
                                 )}
                             </DropdownMenuContent>

@@ -48,6 +48,7 @@ export default function TaskDetailClient({
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [postponeOpen, setPostponeOpen] = useState(false);
+    const [isRepetitionStopped, setIsRepetitionStopped] = useState(task.recurrence_rule?.active === false);
 
     const deadline = new Date(task.deadline);
     const isOverdue =
@@ -108,12 +109,15 @@ export default function TaskDetailClient({
     }
 
     async function handleCancelRepetition() {
+        if (isRepetitionStopped) return;
         if (!confirm("Are you sure you want to stop future repetitions? This task will remain, but no more will be created.")) return;
         setIsLoading(true);
         setError(null);
         const result = await cancelRepetition(task.id);
         if (result.error) {
             setError(result.error);
+        } else {
+            setIsRepetitionStopped(true);
         }
         setIsLoading(false);
         router.refresh();
@@ -275,7 +279,7 @@ export default function TaskDetailClient({
                                     <DialogTrigger asChild>
                                         <Button
                                             variant="outline"
-                                            className="bg-slate-800/40 border-slate-700 text-slate-200 hover:bg-slate-700/40"
+                                            className="bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300"
                                         >
                                             Postpone (1x only)
                                         </Button>
@@ -332,11 +336,13 @@ export default function TaskDetailClient({
                         <Button
                             variant="destructive"
                             onClick={handleCancelRepetition}
-                            disabled={isLoading}
-                            className="bg-red-950/30 text-red-400 border border-red-900/50 hover:bg-red-900/40"
+                            disabled={isLoading || isRepetitionStopped}
+                            className={isRepetitionStopped
+                                ? "bg-slate-800/50 text-slate-500 border border-slate-700/60 cursor-not-allowed"
+                                : "bg-red-950/30 text-red-400 border border-red-900/50 hover:bg-red-900/40"}
                         >
                             <Repeat className="mr-2 h-4 w-4" />
-                            {isLoading ? "Stopping..." : "Stop Future Repetitions"}
+                            {isRepetitionStopped ? "Repetition Stopped" : isLoading ? "Stopping..." : "Stop Future Repetitions"}
                         </Button>
                     )}
 

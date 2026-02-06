@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export function RealtimeListener({ userId }: { userId: string }) {
     const router = useRouter();
-    const supabase = createClient();
+    const supabaseRef = useRef(createClient());
 
     useEffect(() => {
         if (!userId) return;
+        const supabase = supabaseRef.current;
 
         // Subscribe to tasks
         const tasksChannel = supabase
@@ -75,7 +76,7 @@ export function RealtimeListener({ userId }: { userId: string }) {
             supabase.removeChannel(tasksChannel);
             supabase.removeChannel(friendsChannel);
         };
-    }, [userId, router, supabase]);
+    }, [userId, router]);
 
     return null;
 }

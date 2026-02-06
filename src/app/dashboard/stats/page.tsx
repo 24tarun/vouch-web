@@ -1,6 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
-import Link from "next/link";
 import type { Task } from "@/lib/types";
 import { CompactStatsItem } from "@/components/CompactStatsItem";
 
@@ -65,6 +63,35 @@ export default async function OverviewPage() {
 
     const historyTasksCount = historyTasks.length;
 
+    const taskIds = (tasks as Task[])?.map((t) => t.id) || [];
+    let taskPomoTotals = new Map<string, number>();
+
+    if (taskIds.length > 0) {
+        // @ts-ignore
+        const { data: sessionRows } = await supabase
+            .from("pomo_sessions")
+            .select("task_id, elapsed_seconds")
+            .eq("user_id", user?.id as any)
+            .in("task_id", taskIds as any)
+            .neq("status", "DELETED");
+
+        taskPomoTotals = ((sessionRows as any[]) || []).reduce((map, row) => {
+            const current = map.get(row.task_id) || 0;
+            map.set(row.task_id, current + (row.elapsed_seconds || 0));
+            return map;
+        }, new Map<string, number>());
+    }
+
+    const activeTasksWithPomo = activeTasks.map((task) => ({
+        ...task,
+        pomo_total_seconds: taskPomoTotals.get(task.id) || 0,
+    }));
+
+    const historyTasksWithPomo = historyTasks.map((task) => ({
+        ...task,
+        pomo_total_seconds: taskPomoTotals.get(task.id) || 0,
+    }));
+
     return (
         <div className="max-w-4xl mx-auto space-y-12 pb-20 mt-12 px-4 md:px-0">
             <div>
@@ -107,7 +134,7 @@ export default async function OverviewPage() {
                     </div>
                 ) : (
                     <div className="flex flex-col border-t border-slate-900/50">
-                        {activeTasks.map((task: Task) => (
+                        {activeTasksWithPomo.map((task: Task & { pomo_total_seconds?: number }) => (
                             <CompactStatsItem key={task.id} task={task} />
                         ))}
                     </div>
@@ -125,7 +152,7 @@ export default async function OverviewPage() {
                     </div>
                 ) : (
                     <div className="flex flex-col border-t border-slate-900/50">
-                        {historyTasks.map((task: Task) => (
+                        {historyTasksWithPomo.map((task: Task & { pomo_total_seconds?: number }) => (
                             <CompactStatsItem key={task.id} task={task} />
                         ))}
                     </div>
