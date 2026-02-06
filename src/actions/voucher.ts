@@ -6,6 +6,7 @@ import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
 import { sendNotification } from "@/lib/notifications";
 import { type Database } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function voucherAccept(taskId: string) {
     const supabase = await createClient();
@@ -289,7 +290,33 @@ export async function getPendingVouchRequests() {
         .eq("status", "AWAITING_VOUCHER")
         .order("voucher_response_deadline", { ascending: true });
 
-    return (tasks as any) || [];
+    const pendingTasks = (tasks as any[]) || [];
+    if (pendingTasks.length === 0) return [];
+
+    const taskIds = pendingTasks.map((task) => task.id);
+    const ownerIds = [...new Set(pendingTasks.map((task) => task.user_id))];
+
+    // Aggregate focused time per task for voucher visibility.
+    // Use admin client because vouchers cannot read owners' pomo_sessions under RLS.
+    const supabaseAdmin = createAdminClient();
+    // @ts-ignore
+    const { data: sessions } = await (supabaseAdmin.from("pomo_sessions") as any)
+        .select("task_id, elapsed_seconds")
+        .in("task_id", taskIds as any)
+        .in("user_id", ownerIds as any)
+        .neq("status", "DELETED");
+
+    const secondsByTask = new Map<string, number>();
+    for (const row of (sessions as any[]) || []) {
+        const key = row.task_id as string;
+        const total = secondsByTask.get(key) || 0;
+        secondsByTask.set(key, total + (row.elapsed_seconds || 0));
+    }
+
+    return pendingTasks.map((task) => ({
+        ...task,
+        pomo_total_seconds: secondsByTask.get(task.id) || 0,
+    }));
 }
 
 export async function getAssignedTasksForVoucher() {

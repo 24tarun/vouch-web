@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pause, Play, Square, Minimize2, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PomoSession } from "@/lib/types";
@@ -13,6 +13,21 @@ export interface PomodoroTimerProps {
     onPause: () => void;
     onResume: () => void;
     onStop: () => void;
+}
+
+function getSessionTiming(session: PomoSession) {
+    const durationSec = session.duration_minutes * 60;
+    let currentElapsed = session.elapsed_seconds;
+
+    if (session.status === "ACTIVE") {
+        const start = new Date(session.started_at).getTime();
+        const now = new Date().getTime();
+        currentElapsed += Math.floor((now - start) / 1000);
+    }
+
+    const remaining = Math.max(0, durationSec - currentElapsed);
+    const progress = durationSec > 0 ? Math.min(100, (currentElapsed / durationSec) * 100) : 100;
+    return { remaining, progress };
 }
 
 const DIGIT_SEGMENTS: Record<string, [boolean, boolean, boolean, boolean, boolean, boolean, boolean]> = {
@@ -53,9 +68,11 @@ function SevenSegmentColon() {
 }
 
 export function PomodoroTimer({ session, taskTitle, minimized, onMinimize, onPause, onResume, onStop }: PomodoroTimerProps) {
-    const [timeLeft, setTimeLeft] = useState(0);
-    const [progress, setProgress] = useState(0);
+    const initialTiming = getSessionTiming(session);
+    const [timeLeft, setTimeLeft] = useState(initialTiming.remaining);
+    const [progress, setProgress] = useState(initialTiming.progress);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const autoStopTriggeredRef = useRef(false);
 
     // VFD Color Style
     const vfdColor = "text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]";
@@ -63,19 +80,9 @@ export function PomodoroTimer({ session, taskTitle, minimized, onMinimize, onPau
     useEffect(() => {
         const calculateTime = () => {
             if (!session) return;
-
-            const durationSec = session.duration_minutes * 60;
-            let currentElapsed = session.elapsed_seconds;
-
-            if (session.status === "ACTIVE") {
-                const start = new Date(session.started_at).getTime();
-                const now = new Date().getTime();
-                currentElapsed += Math.floor((now - start) / 1000);
-            }
-
-            const remaining = Math.max(0, durationSec - currentElapsed);
-            setTimeLeft(remaining);
-            setProgress(Math.min(100, (currentElapsed / durationSec) * 100));
+            const timing = getSessionTiming(session);
+            setTimeLeft(timing.remaining);
+            setProgress(timing.progress);
         };
 
         calculateTime();
@@ -83,6 +90,20 @@ export function PomodoroTimer({ session, taskTitle, minimized, onMinimize, onPau
 
         return () => clearInterval(interval);
     }, [session]);
+
+    useEffect(() => {
+        autoStopTriggeredRef.current = false;
+    }, [session.id]);
+
+    useEffect(() => {
+        if (session.status !== "ACTIVE") return;
+        if (timeLeft > 0) return;
+        if (progress < 100) return;
+        if (autoStopTriggeredRef.current) return;
+
+        autoStopTriggeredRef.current = true;
+        onStop();
+    }, [session.status, timeLeft, progress, onStop]);
 
     useEffect(() => {
         const onFullscreenChange = () => {

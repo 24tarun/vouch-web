@@ -115,6 +115,7 @@ export interface TaskWithRelations extends Task {
     voucher?: Profile;
     events?: TaskEvent[];
     recurrence_rule?: RecurrenceRule;
+    pomo_total_seconds?: number;
 }
 
 export interface ProfileWithFriends extends Profile {

@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from "react";
 import { createTask } from "@/actions/tasks";
 import { Loader2, Calendar, User, Check } from "lucide-react";
-import { useRouter } from "next/navigation";
 import {
     Select,
     SelectContent,
@@ -18,16 +17,7 @@ import {
     DropdownMenuTrigger,
     DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogFooter,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Repeat } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DEFAULT_FAILURE_COST_EUROS } from "@/lib/constants";
 
@@ -53,22 +43,14 @@ export function TaskInput({ friends }: TaskInputProps) {
     const [recurrenceType, setRecurrenceType] = useState<string>(""); // "" means none
     const [recurrenceLabel, setRecurrenceLabel] = useState<string>("");
 
-    // Custom Recurrence State
-    const [showCustomRecurrence, setShowCustomRecurrence] = useState(false);
-    const [customFreq, setCustomFreq] = useState("DAILY");
-    const [customInterval, setCustomInterval] = useState("1");
+    // Custom recurrence state (inline in dropdown)
+    const [showCustomRecurrenceInline, setShowCustomRecurrenceInline] = useState(false);
     const [customDays, setCustomDays] = useState<number[]>([]); // 0-6
 
 
     const [showShake, setShowShake] = useState(false);
-    const [mounted, setMounted] = useState(false);
 
     const dateInputRef = useRef<HTMLInputElement>(null);
-    const router = useRouter();
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
 
     // Default deadline to end of today
     useEffect(() => {
@@ -76,6 +58,26 @@ export function TaskInput({ friends }: TaskInputProps) {
         defaultDeadline.setHours(23, 59, 0, 0);
         setSelectedDate(defaultDeadline);
     }, []);
+
+    const getSelectedWeekday = () => {
+        return selectedDate?.getDay() ?? new Date().getDay();
+    };
+
+    const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
+    const weekdayShort: Record<number, string> = {
+        1: "M",
+        2: "T",
+        3: "W",
+        4: "T",
+        5: "F",
+        6: "S",
+        0: "S",
+    };
+
+    const formatCustomDaysLabel = (days: number[]) => {
+        const ordered = weekdayOrder.filter((day) => days.includes(day));
+        return ordered.map((day) => weekdayShort[day]).join(" ");
+    };
 
     // NLP Parsing
     useEffect(() => {
@@ -144,21 +146,12 @@ export function TaskInput({ friends }: TaskInputProps) {
             if (recurrenceType) {
                 formData.append("recurrenceType", recurrenceType);
                 formData.append("userTimezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+                formData.append("recurrenceInterval", "1");
 
-                // Defaults for the preset types
-                if (recurrenceType === "DAILY") {
-                    formData.append("recurrenceInterval", "1");
+                if (recurrenceType === "WEEKLY") {
+                    const daysToUse = customDays.length > 0 ? customDays : [getSelectedWeekday()];
+                    formData.append("recurrenceDays", JSON.stringify(daysToUse));
                 }
-                // Custom handling (if type is one of the standards but customized)
-                if (["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(recurrenceType) && recurrenceLabel.startsWith("Every")) {
-                    formData.append("recurrenceInterval", customInterval);
-                    if (recurrenceType === "WEEKLY" && customDays.length > 0) {
-                        formData.append("recurrenceDays", JSON.stringify(customDays));
-                    }
-                }
-
-                // For "WEEKDAYS", frequency is WEEKDAYS.
-                // For now, simple presets.
             }
 
 
@@ -170,6 +163,7 @@ export function TaskInput({ friends }: TaskInputProps) {
                 setTitle("");
                 setRecurrenceType("");
                 setRecurrenceLabel("");
+                setShowCustomRecurrenceInline(false);
 
                 // setSelectedVoucherId(""); // Keep if user wants to create multiple for same person?
 
@@ -263,16 +257,82 @@ export function TaskInput({ friends }: TaskInputProps) {
                             </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800 text-slate-300 min-w-[180px]">
-                            {/* ... existing menu items ... */}
-                            <DropdownMenuItem onClick={() => { setRecurrenceType(""); setRecurrenceLabel(""); }} className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs">
+                            <DropdownMenuItem onClick={() => { setRecurrenceType(""); setRecurrenceLabel(""); setShowCustomRecurrenceInline(false); }} className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs">
                                 None
                             </DropdownMenuItem>
                             <DropdownMenuSeparator className="bg-slate-800" />
-                            <DropdownMenuItem onClick={() => { setRecurrenceType("DAILY"); setRecurrenceLabel("Daily"); }} className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs justify-between">
+                            <DropdownMenuItem onClick={() => { setRecurrenceType("DAILY"); setRecurrenceLabel("Daily"); setShowCustomRecurrenceInline(false); }} className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs justify-between">
                                 Daily
                             </DropdownMenuItem>
-                            {/* ... implicit other items ... */}
-                            {/* We are replacing the whole trigger section actually to adding a new button? No, just appending button after Repeating toggle */}
+                            <DropdownMenuItem
+                                onClick={() => {
+                                    setRecurrenceType("WEEKLY");
+                                    setRecurrenceLabel("Weekly");
+                                    setCustomDays([getSelectedWeekday()]);
+                                    setShowCustomRecurrenceInline(false);
+                                }}
+                                className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
+                            >
+                                Weekly
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onClick={() => {
+                                    setRecurrenceType("MONTHLY");
+                                    setRecurrenceLabel("Monthly");
+                                    setShowCustomRecurrenceInline(false);
+                                }}
+                                className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
+                            >
+                                Monthly
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator className="bg-slate-800" />
+                            <DropdownMenuItem
+                                onSelect={(e) => {
+                                    e.preventDefault();
+                                    const initialDays = customDays.length > 0 ? customDays : [getSelectedWeekday()];
+                                    setCustomDays(initialDays);
+                                    setRecurrenceType("WEEKLY");
+                                    setRecurrenceLabel(`Custom: ${formatCustomDaysLabel(initialDays)}`);
+                                    setShowCustomRecurrenceInline((prev) => !prev);
+                                }}
+                                className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
+                            >
+                                Custom...
+                            </DropdownMenuItem>
+                            {showCustomRecurrenceInline && (
+                                <div className="px-2 pb-2 pt-1 border-t border-slate-800 mt-1 space-y-2">
+                                    <div className="text-[10px] text-slate-400 uppercase tracking-wide">Select days</div>
+                                    <div className="grid grid-cols-7 gap-1">
+                                        {weekdayOrder.map((dayIdx) => {
+                                            const isSelected = customDays.includes(dayIdx);
+                                            return (
+                                                <button
+                                                    key={dayIdx}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const next = customDays.includes(dayIdx)
+                                                            ? customDays.filter((d) => d !== dayIdx)
+                                                            : [...customDays, dayIdx];
+                                                        const normalizedRaw = weekdayOrder.filter((d) => next.includes(d));
+                                                        const normalized = normalizedRaw.length > 0 ? normalizedRaw : [dayIdx];
+                                                        setCustomDays(normalized);
+                                                        setRecurrenceType("WEEKLY");
+                                                        setRecurrenceLabel(`Custom: ${formatCustomDaysLabel(normalized)}`);
+                                                    }}
+                                                    className={cn(
+                                                        "h-7 w-7 rounded-md text-[10px] font-semibold transition-colors",
+                                                        isSelected
+                                                            ? "bg-blue-600 text-white"
+                                                            : "bg-slate-800/60 text-slate-300 hover:bg-slate-700"
+                                                    )}
+                                                >
+                                                    {weekdayShort[dayIdx]}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </DropdownMenuContent>
                     </DropdownMenu>
 
@@ -301,104 +361,6 @@ export function TaskInput({ friends }: TaskInputProps) {
                 </p>
             </div >
 
-            {/* Custom Recurrence Dialog */}
-            < Dialog open={showCustomRecurrence} onOpenChange={setShowCustomRecurrence} >
-                <DialogContent className="bg-[#1a1c1e] border-slate-800 text-slate-200 sm:max-w-[360px] p-6 rounded-3xl">
-                    <div className="space-y-6">
-                        {/* Due Date Dropdown/Button */}
-                        <div className="relative">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => dateInputRef.current?.showPicker()}
-                                className="w-full h-12 bg-transparent border-2 border-blue-500/50 hover:bg-blue-500/10 text-slate-200 rounded-2xl justify-between px-5 text-lg font-medium"
-                            >
-                                {mounted && selectedDate ? selectedDate.toLocaleDateString("en-US", { month: 'short', day: 'numeric', year: 'numeric' }) : "Due Date"}
-                                <span className="text-slate-500 text-xs">▼</span>
-                            </Button>
-                        </div>
-
-                        {/* Interval Row */}
-                        <div className="flex items-center gap-2">
-                            <div className="flex-1 flex items-center bg-[#242629] rounded-2xl px-4 h-12 border border-slate-800">
-                                <span className="text-slate-400 text-lg mr-auto">Every</span>
-                                <input
-                                    type="number"
-                                    min="1"
-                                    value={customInterval}
-                                    onChange={(e) => setCustomInterval(e.target.value)}
-                                    className="w-12 bg-transparent text-blue-500 text-xl font-medium text-center focus:outline-none"
-                                />
-                            </div>
-                            <div className="flex-1">
-                                <Select value={customFreq} onValueChange={setCustomFreq}>
-                                    <SelectTrigger className="w-full bg-[#242629] border-slate-800 h-12 rounded-2xl text-lg font-medium ring-0 focus:ring-0">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="bg-[#242629] border-slate-800 text-slate-200">
-                                        <SelectItem value="DAILY">Day</SelectItem>
-                                        <SelectItem value="WEEKLY">Week</SelectItem>
-                                        <SelectItem value="MONTHLY">Month</SelectItem>
-                                        <SelectItem value="YEARLY">Year</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-
-                        {/* Day Selector */}
-                        <div className="flex justify-between items-center px-1">
-                            {["M", "T", "W", "T", "F", "S", "S"].map((day, idx) => {
-                                // Adjusted index for Mon-Sun: 1, 2, 3, 4, 5, 6, 0
-                                const dayIdx = idx === 6 ? 0 : idx + 1;
-                                const isSelected = customDays.includes(dayIdx);
-                                return (
-                                    <button
-                                        key={idx}
-                                        type="button"
-                                        onClick={() => {
-                                            setCustomDays(prev =>
-                                                prev.includes(dayIdx)
-                                                    ? prev.filter(d => d !== dayIdx)
-                                                    : [...prev, dayIdx].sort()
-                                            );
-                                        }}
-                                        className={cn(
-                                            "w-10 h-10 rounded-full text-lg font-medium transition-all flex items-center justify-center",
-                                            isSelected
-                                                ? "bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]"
-                                                : "text-slate-400 hover:text-slate-200"
-                                        )}
-                                    >
-                                        {day}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex gap-3 pt-2">
-                            <Button
-                                className="flex-1 h-14 bg-blue-600 hover:bg-blue-500 text-white text-xl font-bold rounded-2xl shadow-lg active:scale-[0.98] transition-all"
-                                onClick={() => {
-                                    setRecurrenceType(customFreq);
-                                    const unit = customFreq.toLowerCase().replace("ly", "") + (parseInt(customInterval) > 1 ? "s" : "");
-                                    setRecurrenceLabel(`Every ${customInterval} ${unit}`);
-                                    setShowCustomRecurrence(false);
-                                }}
-                            >
-                                OK
-                            </Button>
-                            <Button
-                                variant="outline"
-                                className="flex-1 h-14 bg-transparent border-slate-700 text-slate-200 text-xl font-medium rounded-2xl hover:bg-slate-800 transition-all"
-                                onClick={() => setShowCustomRecurrence(false)}
-                            >
-                                Cancel
-                            </Button>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog >
         </form >
 
     );

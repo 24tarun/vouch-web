@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { TaskWithRelations } from "@/lib/types";
+import { Timer } from "lucide-react";
 
 interface VoucherDashboardClientProps {
     pendingTasks: TaskWithRelations[];
@@ -131,11 +132,20 @@ function CompactPendingItem({
     onDeny: () => void;
     isLoading: boolean;
 }) {
+    const formatPomoBadge = (seconds: number) => {
+        if (seconds < 60) return "<1m";
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+    };
+
     const deadline = new Date(task.voucher_response_deadline || "");
     const hoursLeft = Math.max(
         0,
         Math.floor((deadline.getTime() - Date.now()) / (1000 * 60 * 60))
     );
+    const pomoTotalSeconds = task.pomo_total_seconds || 0;
 
     return (
         <div className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
@@ -145,6 +155,12 @@ function CompactPendingItem({
                     <Badge variant="outline" className={hoursLeft < 6 ? "bg-red-500/10 text-red-500 border-red-500/30 text-[10px]" : "bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]"}>
                         {hoursLeft}h left
                     </Badge>
+                    {pomoTotalSeconds > 0 && (
+                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-300 border-emerald-500/30 text-[10px]">
+                            <Timer className="h-3 w-3 mr-1" />
+                            {formatPomoBadge(pomoTotalSeconds)}
+                        </Badge>
+                    )}
                 </div>
                 <p className="text-sm text-slate-500 mt-1">
                     Requested by <span className="text-slate-300">{task.user?.username}</span> • Stake: <span className="text-slate-400 font-mono">€{(task.failure_cost_cents / 100).toFixed(2)}</span>
