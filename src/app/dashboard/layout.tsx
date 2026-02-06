@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { signOut } from "@/actions/auth";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { NavLinks } from "@/components/NavLinks";
 import { RealtimeListener } from "@/components/RealtimeListener";
+import { SignOutMenuForm } from "@/components/SignOutMenuForm";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -97,14 +97,7 @@ export default async function DashboardLayout({
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator className="bg-slate-800" />
                                     <DropdownMenuItem asChild>
-                                        <form action={signOut} className="w-full">
-                                            <button
-                                                type="submit"
-                                                className="w-full text-left text-red-500/80 hover:text-red-400 cursor-pointer text-xs uppercase tracking-wider h-10"
-                                            >
-                                                Sign out
-                                            </button>
-                                        </form>
+                                        <SignOutMenuForm />
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>

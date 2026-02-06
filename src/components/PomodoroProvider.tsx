@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -23,6 +23,7 @@ interface PomodoroContextType {
     stopSession: () => Promise<void>;
     minimized: boolean;
     setMinimized: (v: boolean) => void;
+    suppressUnloadWarning: () => void;
 }
 
 const PomodoroContext = createContext<PomodoroContextType | undefined>(undefined);
@@ -41,6 +42,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const [taskTitle, setTaskTitle] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [minimized, setMinimized] = useState(false);
+    const unloadSignalSentRef = useRef(false);
+    const suppressBeforeUnloadRef = useRef(false);
 
     const refreshSession = useCallback(async () => {
         try {
@@ -70,9 +73,40 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         // For now, relies on user actions triggering updates.
     }, [refreshSession]);
 
-    // Warn on close if active
     useEffect(() => {
+        unloadSignalSentRef.current = false;
+        if (session?.status !== "ACTIVE") {
+            suppressBeforeUnloadRef.current = false;
+        }
+    }, [session?.id, session?.status]);
+
+    // Warn on close if active, and auto-end session if user force-leaves.
+    useEffect(() => {
+        const tryAutoEndOnUnload = () => {
+            if (!session || session.status !== "ACTIVE") return;
+            if (unloadSignalSentRef.current) return;
+            unloadSignalSentRef.current = true;
+
+            const payload = JSON.stringify({ sessionId: session.id });
+            const blob = new Blob([payload], { type: "application/json" });
+
+            let queued = false;
+            if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+                queued = navigator.sendBeacon("/api/pomo/auto-end", blob);
+            }
+
+            if (!queued) {
+                void fetch("/api/pomo/auto-end", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: payload,
+                    keepalive: true,
+                });
+            }
+        };
+
         const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (suppressBeforeUnloadRef.current) return;
             if (session && session.status === "ACTIVE") {
                 e.preventDefault();
                 e.returnValue = ""; // Legacy
@@ -80,38 +114,53 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             }
         };
 
+        const handlePageHide = () => {
+            tryAutoEndOnUnload();
+        };
+
+        const handleUnload = () => {
+            tryAutoEndOnUnload();
+        };
+
         window.addEventListener("beforeunload", handleBeforeUnload);
-        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+        window.addEventListener("pagehide", handlePageHide);
+        window.addEventListener("unload", handleUnload);
+        return () => {
+            window.removeEventListener("beforeunload", handleBeforeUnload);
+            window.removeEventListener("pagehide", handlePageHide);
+            window.removeEventListener("unload", handleUnload);
+        };
     }, [session]);
 
     const startSession = async (taskId: string, durationMinutes: number) => {
         setIsLoading(true);
         // Check for ANY active or paused session
         if (session) {
-            toast("Active Session Conflict", {
-                description: `A pomo from "${taskTitle || "another task"}" is active. Please end it before starting another.`,
-                action: {
-                    label: "End & Switch",
-                    onClick: async () => {
-                        await stopSession();
-                        // Wait a tick for state to settle or just force start
-                        const res = await startPomoSession(taskId, durationMinutes);
-                        if (res.error) toast.error(res.error);
-                        else {
-                            await refreshSession();
-                            setMinimized(false);
-                            toast.success("Switched to new session");
-                        }
-                    }
+            if (session.task_id === taskId) {
+                const endRes = await endPomoSession(session.id);
+                if (endRes.error) {
+                    toast.error(endRes.error);
+                    setMinimized(false);
+                    setIsLoading(false);
+                    return;
                 }
-            });
-            setIsLoading(false);
-            return;
+                await refreshSession();
+            } else {
+                setMinimized(false);
+                setIsLoading(false);
+                return;
+            }
         }
 
         const res = await startPomoSession(taskId, durationMinutes);
         if (res.error) {
-            toast.error(res.error);
+            const conflict = res.error.toLowerCase().includes("active session");
+            if (conflict) {
+                await refreshSession();
+                setMinimized(false);
+            } else {
+                toast.error(res.error);
+            }
         } else {
             await refreshSession();
             setMinimized(false); // Open timer
@@ -160,6 +209,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         }
     };
 
+    const suppressUnloadWarning = () => {
+        suppressBeforeUnloadRef.current = true;
+    };
+
     return (
         <PomodoroContext.Provider value={{
             session,
@@ -170,7 +223,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             resumeSession,
             stopSession,
             minimized,
-            setMinimized
+            setMinimized,
+            suppressUnloadWarning
         }}>
             {children}
             {session && (

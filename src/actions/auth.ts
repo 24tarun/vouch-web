@@ -3,6 +3,88 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/types";
+
+type PomoAutoEndSource = "sign_in_auto_end" | "sign_out_auto_end";
+
+async function autoEndLingeringPomoSession(
+    supabase: SupabaseClient<Database>,
+    userId: string,
+    source: PomoAutoEndSource
+) {
+    const { data: session, error: sessionError } = await supabase.from("pomo_sessions")
+        .select("*")
+        .eq("user_id", userId)
+        .in("status", ["ACTIVE", "PAUSED"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (sessionError) {
+        console.error("Failed to fetch active pomo during sign-out:", sessionError);
+        return;
+    }
+
+    if (!session) return;
+
+    const now = new Date();
+    const startedAt = session.started_at ? new Date(session.started_at) : now;
+    const additionalElapsed = session.status === "ACTIVE"
+        ? Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000))
+        : 0;
+    const finalElapsed = (session.elapsed_seconds || 0) + additionalElapsed;
+
+    const { data: updatedSession, error: updateError } = await supabase.from("pomo_sessions")
+        .update({
+            status: "COMPLETED",
+            elapsed_seconds: finalElapsed,
+            completed_at: now.toISOString(),
+        })
+        .eq("id", session.id)
+        .eq("user_id", userId)
+        .in("status", ["ACTIVE", "PAUSED"])
+        .select("id")
+        .maybeSingle();
+
+    if (updateError) {
+        console.error("Failed to auto-end active pomo during sign-out:", updateError);
+        return;
+    }
+
+    if (!updatedSession) return;
+
+    if (!session.task_id) return;
+
+    const { data: task } = await supabase.from("tasks")
+        .select("status")
+        .eq("id", session.task_id)
+        .eq("user_id", userId)
+        .single();
+
+    if (!task?.status) return;
+
+    const { error: eventError } = await supabase.from("task_events").insert({
+        task_id: session.task_id,
+        event_type: "POMO_COMPLETED",
+        actor_id: userId,
+        from_status: task.status,
+        to_status: task.status,
+        metadata: {
+            session_id: session.id,
+            duration_minutes: session.duration_minutes,
+            elapsed_seconds: finalElapsed,
+            source,
+        },
+    });
+
+    if (eventError && eventError.code !== "23505") {
+        console.error("Failed to log auto-ended pomo event:", eventError);
+    }
+
+    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/tasks/${session.task_id}`);
+}
 
 export async function signIn(formData: FormData) {
     const email = formData.get("email") as string;
@@ -40,6 +122,8 @@ export async function signIn(formData: FormData) {
         };
     }
 
+    await autoEndLingeringPomoSession(supabase, data.user.id, "sign_in_auto_end");
+
     revalidatePath("/", "layout");
     redirect("/dashboard");
 }
@@ -74,6 +158,14 @@ export async function signUp(formData: FormData) {
 
 export async function signOut() {
     const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user) {
+        await autoEndLingeringPomoSession(supabase, user.id, "sign_out_auto_end");
+    }
+
     await supabase.auth.signOut();
     revalidatePath("/", "layout");
     redirect("https://tas.tarunh.com");

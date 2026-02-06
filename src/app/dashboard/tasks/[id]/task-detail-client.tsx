@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { markTaskComplete, postponeTask, forceMajeureTask, cancelRepetition } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
@@ -144,6 +144,19 @@ export default function TaskDetailClient({
         }
         return event.event_type.replace(/_/g, " ");
     };
+
+    const visibleEvents = useMemo(() => {
+        const seenSessionIds = new Set<string>();
+        return events.filter((event) => {
+            if (event.event_type !== "POMO_COMPLETED") return true;
+            const sessionIdRaw = event.metadata?.session_id;
+            const sessionId = typeof sessionIdRaw === "string" ? sessionIdRaw : "";
+            if (!sessionId) return true;
+            if (seenSessionIds.has(sessionId)) return false;
+            seenSessionIds.add(sessionId);
+            return true;
+        });
+    }, [events]);
 
     return (
         <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0">
@@ -357,11 +370,11 @@ export default function TaskDetailClient({
                     <CardTitle className="text-white">Activity Log</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    {events.length === 0 ? (
+                    {visibleEvents.length === 0 ? (
                         <p className="text-slate-400">No activity yet</p>
                     ) : (
                         <div className="space-y-3">
-                            {events.map((event) => (
+                            {visibleEvents.map((event) => (
                                 <div key={event.id} className="flex items-start gap-3">
                                     <div className="h-2 w-2 rounded-full bg-purple-500 mt-2" />
                                     <div>
