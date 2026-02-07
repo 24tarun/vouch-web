@@ -1,47 +1,33 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import type { Task } from "@/lib/types";
 import { Check, ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
-import { markTaskCompleted } from "@/actions/tasks";
 import { cn } from "@/lib/utils";
 import { Repeat } from "lucide-react";
 
 
 interface TaskRowProps {
     task: Task;
+    onComplete?: (task: Task) => void;
+    isCompleting?: boolean;
 }
 
-export function TaskRow({ task }: TaskRowProps) {
+export function TaskRow({ task, onComplete, isCompleting = false }: TaskRowProps) {
     const router = useRouter();
-    const isActuallyCompleted = ["AWAITING_VOUCHER", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(task.status);
-    const [isCompleted, setIsCompleted] = useState(isActuallyCompleted);
-    const [isLoading, setIsLoading] = useState(false);
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
-
-    const handleCheck = async () => {
-        if (isLoading || isCompleted || isActuallyCompleted) return;
-        setIsLoading(true);
-        // Optimistic update
-        setIsCompleted(true);
-        try {
-            await markTaskCompleted(task.id);
-        } catch (error) {
-            console.error("Failed to mark completed", error);
-            setIsCompleted(false); // Revert
-        } finally {
-            setIsLoading(false);
-        }
+    const isActuallyCompleted = useMemo(
+        () => ["AWAITING_VOUCHER", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(task.status),
+        [task.status]
+    );
+    const handleCheck = () => {
+        if (!onComplete || isCompleting || isActuallyCompleted) return;
+        onComplete(task);
     };
 
     const deadline = new Date(task.deadline);
-    const isOverdue = deadline < new Date() && !isCompleted && !isActuallyCompleted;
+    const isOverdue = deadline < new Date() && !isActuallyCompleted;
 
     // Solarized-inspired colors for states
     const statusColors: Record<string, string> = {
@@ -79,16 +65,14 @@ export function TaskRow({ task }: TaskRowProps) {
             {/* Checkbox */}
             <button
                 onClick={handleCheck}
-                disabled={isCompleted || isLoading || isActuallyCompleted}
+                disabled={isActuallyCompleted || isCompleting || !onComplete}
                 className={cn(
                     "flex-shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
                     isActuallyCompleted ? (currentStatusColor || "bg-slate-700 border-slate-700 text-slate-400") :
-                        (isCompleted
-                            ? "bg-slate-700 border-slate-700 text-slate-400"
-                            : "border-slate-600 hover:border-slate-500 text-transparent")
+                        ("border-slate-600 hover:border-slate-500 text-transparent")
                 )}
             >
-                {(isCompleted || isActuallyCompleted) && <Check className="h-3 w-3" strokeWidth={3} />}
+                {isActuallyCompleted && <Check className="h-3 w-3" strokeWidth={3} />}
             </button>
 
             {/* Content */}
@@ -96,7 +80,7 @@ export function TaskRow({ task }: TaskRowProps) {
                 <p className={cn(
                     "text-sm font-medium truncate",
                     isActuallyCompleted ? cn("line-through", currentStatusColor || "text-slate-400") :
-                        isCompleted ? "text-slate-400 line-through" : "text-white"
+                        "text-white"
                 )}>
                     {task.title}
                 </p>
@@ -110,8 +94,8 @@ export function TaskRow({ task }: TaskRowProps) {
             <div className="flex items-center gap-2 text-xs">
                 {/* Deadline */}
                 <div className={cn("flex items-center gap-1.5", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
-                    <span>
-                        {mounted ? `${deadline.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${deadline.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })}` : ""}
+                    <span suppressHydrationWarning>
+                        {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
                     </span>
                 </div>
 

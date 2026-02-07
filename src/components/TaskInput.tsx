@@ -40,12 +40,24 @@ interface TaskInputProps {
     friends: Profile[];
     defaultFailureCostEuros: string;
     defaultVoucherId: string | null;
+    onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
+}
+
+export interface TaskInputCreatePayload {
+    title: string;
+    deadlineIso: string;
+    voucherId: string;
+    failureCost: string;
+    recurrenceType: string | null;
+    recurrenceDays: number[];
+    userTimezone: string;
 }
 
 export function TaskInput({
     friends,
     defaultFailureCostEuros,
     defaultVoucherId,
+    onCreateTaskOptimistic,
 }: TaskInputProps) {
     const isIOSDevice = isIOS();
 
@@ -268,22 +280,45 @@ export function TaskInput({
         }
         setDeadlineError(null);
 
+        const recurrenceDaysToUse =
+            recurrenceType === "WEEKLY"
+                ? (customDays.length > 0 ? customDays : [getSelectedWeekday()])
+                : [];
+
+        const payload: TaskInputCreatePayload = {
+            title: cleanTitle,
+            deadlineIso: deadlineToSubmit.toISOString(),
+            voucherId: selectedVoucherId,
+            failureCost,
+            recurrenceType: recurrenceType || null,
+            recurrenceDays: recurrenceDaysToUse,
+            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        };
+
+        if (onCreateTaskOptimistic) {
+            onCreateTaskOptimistic(payload);
+            setTitle("");
+            setRecurrenceType("");
+            setRecurrenceLabel("");
+            setShowCustomRecurrenceInline(false);
+            return;
+        }
+
         setIsLoading(true);
         try {
             const formData = new FormData();
-            formData.append("title", cleanTitle);
-            formData.append("deadline", deadlineToSubmit.toISOString());
-            formData.append("voucherId", selectedVoucherId);
-            formData.append("failureCost", failureCost);
+            formData.append("title", payload.title);
+            formData.append("deadline", payload.deadlineIso);
+            formData.append("voucherId", payload.voucherId);
+            formData.append("failureCost", payload.failureCost);
 
-            if (recurrenceType) {
-                formData.append("recurrenceType", recurrenceType);
-                formData.append("userTimezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+            if (payload.recurrenceType) {
+                formData.append("recurrenceType", payload.recurrenceType);
+                formData.append("userTimezone", payload.userTimezone);
                 formData.append("recurrenceInterval", "1");
 
-                if (recurrenceType === "WEEKLY") {
-                    const daysToUse = customDays.length > 0 ? customDays : [getSelectedWeekday()];
-                    formData.append("recurrenceDays", JSON.stringify(daysToUse));
+                if (payload.recurrenceType === "WEEKLY" && payload.recurrenceDays.length > 0) {
+                    formData.append("recurrenceDays", JSON.stringify(payload.recurrenceDays));
                 }
             }
 

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { markTaskComplete, postponeTask, forceMajeureTask, cancelRepetition } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
 import { Repeat } from "lucide-react";
+import { toast } from "sonner";
 
 import {
     Card,
@@ -36,6 +37,7 @@ import {
     localDateTimeToIso,
     toDateTimeLocalValue,
 } from "@/lib/datetime-local";
+import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -56,16 +58,18 @@ export default function TaskDetailClient({
     defaultPomoDurationMinutes,
 }: TaskDetailClientProps) {
     const router = useRouter();
+    const [, startRefreshTransition] = useTransition();
     const isIOSDevice = isIOS();
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [taskState, setTaskState] = useState<TaskWithRelations>(task);
     const [postponeOpen, setPostponeOpen] = useState(false);
     const [isRepetitionStopped, setIsRepetitionStopped] = useState(task.recurrence_rule?.active === false);
+    const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
 
-    const deadline = new Date(task.deadline);
+    const deadline = new Date(taskState.deadline);
     const isOverdue =
         deadline < new Date() &&
-        !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"].includes(task.status);
+        !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"].includes(taskState.status);
+
     const maxPostpone = new Date(deadline.getTime() + 60 * 60 * 1000);
     const minPostpone = new Date(deadline.getTime() + 60 * 1000);
     const minPostponeLocal = toDateTimeLocalValue(minPostpone);
@@ -76,10 +80,34 @@ export default function TaskDetailClient({
     const [postponeTime, setPostponeTime] = useState(() => getTimePartFromLocalDateTime(maxPostponeLocal));
     const hasPomoData = (pomoSummary?.sessionCount || 0) > 0;
 
+    const refreshInBackground = () => {
+        startRefreshTransition(() => {
+            router.refresh();
+        });
+    };
+
+    const setActionPending = (action: string, pending: boolean) => {
+        setPendingActions((prev) => {
+            const next = new Set(prev);
+            if (pending) {
+                next.add(action);
+            } else {
+                next.delete(action);
+            }
+            return next;
+        });
+    };
+
+    const isActionPending = (action: string) => pendingActions.has(action);
+
     const resetPostponeDraft = () => {
-        setPostponeValue(maxPostponeLocal);
-        setPostponeDate(getDatePartFromLocalDateTime(maxPostponeLocal));
-        setPostponeTime(getTimePartFromLocalDateTime(maxPostponeLocal));
+        const latestDeadline = new Date(taskState.deadline);
+        const latestMaxPostpone = new Date(latestDeadline.getTime() + 60 * 60 * 1000);
+        const latestMaxLocal = toDateTimeLocalValue(latestMaxPostpone);
+
+        setPostponeValue(latestMaxLocal);
+        setPostponeDate(getDatePartFromLocalDateTime(latestMaxLocal));
+        setPostponeTime(getTimePartFromLocalDateTime(latestMaxLocal));
     };
 
     const handlePostponeOpenChange = (open: boolean) => {
@@ -117,86 +145,153 @@ export default function TaskDetailClient({
     };
 
     async function handleMarkComplete() {
-        setIsLoading(true);
-        setError(null);
-        const result = await markTaskComplete(task.id);
-        if (result.error) {
-            setError(result.error);
-        }
-        setIsLoading(false);
-        router.refresh();
+        if (isActionPending("markComplete")) return;
+        setActionPending("markComplete", true);
+
+        const now = new Date();
+        const voucherResponseDeadline = new Date(now);
+        voucherResponseDeadline.setDate(voucherResponseDeadline.getDate() + 7);
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ taskState }),
+            applyOptimistic: () => {
+                setTaskState((prev) => ({
+                    ...prev,
+                    status: "AWAITING_VOUCHER",
+                    marked_completed_at: now.toISOString(),
+                    voucher_response_deadline: voucherResponseDeadline.toISOString(),
+                    updated_at: now.toISOString(),
+                }));
+            },
+            runMutation: () => markTaskComplete(taskState.id),
+            rollback: (snapshot) => {
+                setTaskState(snapshot.taskState);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        setActionPending("markComplete", false);
     }
 
     async function handlePostpone(e: React.FormEvent<HTMLFormElement>) {
         e.preventDefault();
+
+        if (isActionPending("postpone")) return;
         if (isOverdue) {
-            setError("Cannot postpone an overdue task.");
+            toast.error("Cannot postpone an overdue task.");
             return;
         }
-        setIsLoading(true);
-        setError(null);
+
         const formData = new FormData(e.currentTarget);
         const newDeadlineLocal = formData.get("newDeadline");
         if (typeof newDeadlineLocal !== "string" || !newDeadlineLocal) {
-            setError("Please choose a valid deadline.");
-            setIsLoading(false);
+            toast.error("Please choose a valid deadline.");
             return;
         }
 
         const parsedLocal = fromDateTimeLocalValue(newDeadlineLocal);
         if (!parsedLocal) {
-            setError("Please choose a valid deadline.");
-            setIsLoading(false);
+            toast.error("Please choose a valid deadline.");
             return;
         }
 
         if (parsedLocal < minPostpone || parsedLocal > maxPostpone) {
-            setError("Postpone must be within 1 minute to 1 hour from the current deadline.");
-            setIsLoading(false);
+            toast.error("Postpone must be within 1 minute to 1 hour from the current deadline.");
             return;
         }
 
         const newDeadlineIso = localDateTimeToIso(newDeadlineLocal);
         if (!newDeadlineIso) {
-            setError("Please choose a valid deadline.");
-            setIsLoading(false);
+            toast.error("Please choose a valid deadline.");
             return;
         }
 
-        const result = await postponeTask(task.id, newDeadlineIso);
-        if (result.error) {
-            setError(result.error);
-        }
-        setIsLoading(false);
-        setPostponeOpen(false);
-        router.refresh();
+        setActionPending("postpone", true);
+        const optimisticUpdatedAt = new Date().toISOString();
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ taskState, postponeOpen }),
+            applyOptimistic: () => {
+                setPostponeOpen(false);
+                setTaskState((prev) => ({
+                    ...prev,
+                    status: "POSTPONED",
+                    deadline: newDeadlineIso,
+                    postponed_at: optimisticUpdatedAt,
+                    updated_at: optimisticUpdatedAt,
+                }));
+            },
+            runMutation: () => postponeTask(taskState.id, newDeadlineIso),
+            rollback: (snapshot) => {
+                setTaskState(snapshot.taskState);
+                setPostponeOpen(snapshot.postponeOpen);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        setActionPending("postpone", false);
     }
 
     async function handleForceMajeure() {
+        if (isActionPending("forceMajeure")) return;
         if (!confirm("Are you sure? This uses your 1 monthly Force Majeure pass and will settle the task without failure cost.")) return;
-        setIsLoading(true);
-        setError(null);
-        const result = await forceMajeureTask(task.id);
-        if (result.error) {
-            setError(result.error);
-        }
-        setIsLoading(false);
-        router.refresh();
+
+        setActionPending("forceMajeure", true);
+        const optimisticUpdatedAt = new Date().toISOString();
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ taskState }),
+            applyOptimistic: () => {
+                setTaskState((prev) => ({
+                    ...prev,
+                    status: "SETTLED",
+                    updated_at: optimisticUpdatedAt,
+                }));
+            },
+            runMutation: () => forceMajeureTask(taskState.id),
+            rollback: (snapshot) => {
+                setTaskState(snapshot.taskState);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        setActionPending("forceMajeure", false);
     }
 
     async function handleCancelRepetition() {
-        if (isRepetitionStopped) return;
+        if (isRepetitionStopped || isActionPending("cancelRepetition")) return;
         if (!confirm("Are you sure you want to stop future repetitions? This task will remain, but no more will be created.")) return;
-        setIsLoading(true);
-        setError(null);
-        const result = await cancelRepetition(task.id);
-        if (result.error) {
-            setError(result.error);
-        } else {
-            setIsRepetitionStopped(true);
-        }
-        setIsLoading(false);
-        router.refresh();
+
+        setActionPending("cancelRepetition", true);
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ taskState, isRepetitionStopped }),
+            applyOptimistic: () => {
+                setIsRepetitionStopped(true);
+                setTaskState((prev) => ({
+                    ...prev,
+                    recurrence_rule: prev.recurrence_rule
+                        ? { ...prev.recurrence_rule, active: false }
+                        : prev.recurrence_rule,
+                }));
+            },
+            runMutation: () => cancelRepetition(taskState.id),
+            rollback: (snapshot) => {
+                setTaskState(snapshot.taskState);
+                setIsRepetitionStopped(snapshot.isRepetitionStopped);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        setActionPending("cancelRepetition", false);
     }
 
     const formatFocusTime = (seconds: number) => {
@@ -235,45 +330,36 @@ export default function TaskDetailClient({
 
     return (
         <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0">
-            {/* Header */}
             <div className="flex items-start justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                        {task.title}
-                        {task.recurrence_rule_id && (
+                        {taskState.title}
+                        {taskState.recurrence_rule_id && (
                             <Repeat className="h-5 w-5 text-slate-500 shrink-0" />
                         )}
                     </h1>
                     <div className="flex items-center gap-3 mt-2">
-                        <Badge className={statusColors[task.status]}>
-                            {task.status === "FAILED"
-                                ? (task.marked_completed_at ? "DENIED" : "FAILED")
-                                : task.status === "SETTLED" ? "FORCE MAJEURE" : task.status.replace("_", " ")}
+                        <Badge className={statusColors[taskState.status]}>
+                            {taskState.status === "FAILED"
+                                ? (taskState.marked_completed_at ? "DENIED" : "FAILED")
+                                : taskState.status === "SETTLED" ? "FORCE MAJEURE" : taskState.status.replace("_", " ")}
                         </Badge>
                         <span className="text-slate-400">
-                            Voucher: {task.voucher?.username}
+                            Voucher: {taskState.voucher?.username}
                         </span>
                     </div>
                 </div>
             </div>
 
-            {/* Error */}
-            {error && (
-                <div className="p-3 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 text-sm">
-                    {error}
-                </div>
-            )}
-
-            {/* Task Details */}
             <Card className="bg-slate-900/40 border-slate-800">
                 <CardHeader>
                     <CardTitle className="text-white">Task Details</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {task.description && (
+                    {taskState.description && (
                         <div>
                             <p className="text-sm text-slate-400">Description</p>
-                            <p className="text-white">{task.description}</p>
+                            <p className="text-white">{taskState.description}</p>
                         </div>
                     )}
 
@@ -291,7 +377,7 @@ export default function TaskDetailClient({
                         <div>
                             <p className="text-sm text-slate-400">Failure Cost</p>
                             <p className="text-lg font-medium text-pink-400">
-                                {"\u20ac"}{(task.failure_cost_cents / 100).toFixed(2)}
+                                {"\u20ac"}{(taskState.failure_cost_cents / 100).toFixed(2)}
                             </p>
                         </div>
                         {hasPomoData && (
@@ -307,25 +393,24 @@ export default function TaskDetailClient({
                         )}
                     </div>
 
-                    {task.postponed_at && (
+                    {taskState.postponed_at && (
                         <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
                             <p className="text-sm text-amber-300">
-                                Postponed once on {new Date(task.postponed_at).toLocaleString()}
+                                Postponed once on {new Date(taskState.postponed_at).toLocaleString()}
                             </p>
                         </div>
                     )}
 
-                    {task.voucher_response_deadline && (task.status === "AWAITING_VOUCHER" || task.status === "MARKED_COMPLETED") && (
+                    {taskState.voucher_response_deadline && (taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED") && (
                         <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
                             <p className="text-sm text-purple-300">
-                                Voucher must respond by {new Date(task.voucher_response_deadline).toLocaleString()}
+                                Voucher must respond by {new Date(taskState.voucher_response_deadline).toLocaleString()}
                             </p>
                         </div>
                     )}
                 </CardContent>
             </Card>
 
-            {/* Actions */}
             <Card className="bg-slate-900/40 border-slate-800">
                 <CardHeader>
                     <CardTitle className="text-white">Actions</CardTitle>
@@ -334,23 +419,23 @@ export default function TaskDetailClient({
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-wrap gap-3">
-                    {(task.status === "CREATED" || task.status === "POSTPONED") && (
+                    {(taskState.status === "CREATED" || taskState.status === "POSTPONED") && (
                         <>
                             <PomoButton
-                                taskId={task.id}
+                                taskId={taskState.id}
                                 variant="full"
                                 className="mr-1"
                                 defaultDurationMinutes={defaultPomoDurationMinutes}
                             />
                             <Button
                                 onClick={handleMarkComplete}
-                                disabled={isLoading || isOverdue}
+                                disabled={isActionPending("markComplete") || isOverdue}
                                 className="bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300"
                             >
-                                {isLoading ? "Marking..." : "Mark Complete"}
+                                Mark Complete
                             </Button>
 
-                            {task.status === "CREATED" && !task.postponed_at && !isOverdue && (
+                            {taskState.status === "CREATED" && !taskState.postponed_at && !isOverdue && (
                                 <Dialog open={postponeOpen} onOpenChange={handlePostponeOpenChange}>
                                     <DialogTrigger asChild>
                                         <Button
@@ -388,7 +473,7 @@ export default function TaskDetailClient({
                                                                 type="time"
                                                                 value={postponeTime}
                                                                 onChange={(e) => handlePostponeTimeChange(e.target.value)}
-                                                                step="60"
+                                                                step={60}
                                                                 className="bg-slate-700/50 border-slate-600 text-white"
                                                                 required
                                                             />
@@ -411,10 +496,10 @@ export default function TaskDetailClient({
                                             <DialogFooter>
                                                 <Button
                                                     type="submit"
-                                                    disabled={isLoading}
+                                                    disabled={isActionPending("postpone")}
                                                     className="bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300"
                                                 >
-                                                    {isLoading ? "Postponing..." : "Confirm Postpone"}
+                                                    Confirm Postpone
                                                 </Button>
                                             </DialogFooter>
                                         </form>
@@ -424,56 +509,55 @@ export default function TaskDetailClient({
                         </>
                     )}
 
-                    {task.status === "FAILED" && (
+                    {taskState.status === "FAILED" && (
                         <Button
                             variant="ghost"
                             onClick={handleForceMajeure}
-                            disabled={isLoading}
+                            disabled={isActionPending("forceMajeure")}
                             className="bg-slate-800/40 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/40"
                         >
-                            {isLoading ? "..." : "Use Force Majeure"}
+                            Use Force Majeure
                         </Button>
                     )}
 
-                    {task.recurrence_rule_id && (
+                    {taskState.recurrence_rule_id && (
                         <Button
                             variant="destructive"
                             onClick={handleCancelRepetition}
-                            disabled={isLoading || isRepetitionStopped}
+                            disabled={isActionPending("cancelRepetition") || isRepetitionStopped}
                             className={isRepetitionStopped
                                 ? "bg-slate-800/50 text-slate-500 border border-slate-700/60 cursor-not-allowed"
                                 : "bg-red-950/30 text-red-400 border border-red-900/50 hover:bg-red-900/40"}
                         >
                             <Repeat className="mr-2 h-4 w-4" />
-                            {isRepetitionStopped ? "Repetition Stopped" : isLoading ? "Stopping..." : "Stop Future Repetitions"}
+                            {isRepetitionStopped ? "Repetition Stopped" : "Stop Future Repetitions"}
                         </Button>
                     )}
 
-                    {task.status === "AWAITING_VOUCHER" && (
+                    {taskState.status === "AWAITING_VOUCHER" && (
                         <p className="text-slate-400">
                             Waiting for voucher response...
                         </p>
                     )}
 
-                    {task.status === "COMPLETED" && (
+                    {taskState.status === "COMPLETED" && (
                         <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 w-full">
                             <p className="text-green-300">Task completed successfully.</p>
                         </div>
                     )}
 
-                    {task.status === "FAILED" && (
+                    {taskState.status === "FAILED" && (
                         <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 w-full">
                             <p className="text-red-300">
-                                {task.marked_completed_at
+                                {taskState.marked_completed_at
                                     ? "Denied by voucher."
-                                    : "Deadline missed. Failure cost:"} {"\u20ac"}{(task.failure_cost_cents / 100).toFixed(2)} added to ledger.
+                                    : "Deadline missed. Failure cost:"} {"\u20ac"}{(taskState.failure_cost_cents / 100).toFixed(2)} added to ledger.
                             </p>
                         </div>
                     )}
                 </CardContent>
             </Card>
 
-            {/* Event Log */}
             <Card className="bg-slate-900/40 border-slate-800">
                 <CardHeader>
                     <CardTitle className="text-white">Activity Log</CardTitle>

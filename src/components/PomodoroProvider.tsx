@@ -50,12 +50,10 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const refreshSession = useCallback(async () => {
         try {
             const data = await getActivePomoSession();
-            // @ts-ignore
-            if (data) {
-                // @ts-ignore
-                setSession(data);
-                // @ts-ignore
-                setTaskTitle(data.task?.title || "Unknown Task");
+            const sessionData = data as (PomoSession & { task?: { title?: string | null } | null }) | null;
+            if (sessionData) {
+                setSession(sessionData);
+                setTaskTitle(sessionData.task?.title || "Unknown Task");
             } else {
                 setSession(null);
                 setTaskTitle(null);
@@ -135,29 +133,21 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }, [session]);
 
     const startSession = async (taskId: string, durationMinutes: number) => {
-        setIsLoading(true);
-        // Check for ANY active or paused session
-        if (session) {
-            if (session.task_id === taskId) {
-                const endRes = await endPomoSession(session.id, "system");
-                if (endRes.error) {
-                    toast.error(endRes.error);
-                    setMinimized(false);
-                    setIsLoading(false);
-                    return;
-                }
-                await refreshSession();
-            } else {
-                setMinimized(false);
-                setIsLoading(false);
-                return;
+        // Guard invalid concurrent starts locally for snappy feedback.
+        if (session && (session.status === "ACTIVE" || session.status === "PAUSED")) {
+            if (session.task_id !== taskId) {
+                toast.error("One Pomodoro session at a time. Stop the current session first.");
             }
+            setMinimized(false);
+            return;
         }
 
+        setIsLoading(true);
         const res = await startPomoSession(taskId, durationMinutes);
         if (res.error) {
             const conflict = res.error.toLowerCase().includes("active session");
             if (conflict) {
+                toast.error("One Pomodoro session at a time. Stop the current session first.");
                 await refreshSession();
                 setMinimized(false);
             } else {

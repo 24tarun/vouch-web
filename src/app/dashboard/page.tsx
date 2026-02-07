@@ -1,84 +1,47 @@
 import { createClient } from "@/lib/supabase/server";
-import { TaskInput } from "@/components/TaskInput";
-import { TaskRow } from "@/components/TaskRow";
-import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList";
 import type { Task } from "@/lib/types";
 import { getFriends } from "@/actions/friends";
 import { DEFAULT_FAILURE_COST_CENTS } from "@/lib/constants";
-import { DashboardHeaderActions } from "@/components/DashboardHeaderActions";
+import DashboardClient from "@/app/dashboard/dashboard-client";
 
 export default async function DashboardPage() {
     const supabase = await createClient();
     const {
         data: { user },
     } = await supabase.auth.getUser();
+    const userId = user?.id;
 
     // Fetch friends for TaskInput
     const friends = await getFriends();
 
-    // @ts-ignore
-    const { data: profileDefaults } = await supabase
+    const { data: rawProfileDefaults } = await supabase
         .from("profiles")
-        .select("*")
-        .eq("id", user?.id as any)
+        .select("default_failure_cost_cents, default_voucher_id")
+        .eq("id", userId || "")
         .maybeSingle();
+    const profileDefaults = rawProfileDefaults as {
+        default_failure_cost_cents: number | null;
+        default_voucher_id: string | null;
+    } | null;
 
     const defaultFailureCostEuros = (
-        ((profileDefaults as any)?.default_failure_cost_cents ?? DEFAULT_FAILURE_COST_CENTS) / 100
+        ((profileDefaults?.default_failure_cost_cents ?? DEFAULT_FAILURE_COST_CENTS) / 100)
     ).toFixed(2);
-    const defaultVoucherId = ((profileDefaults as any)?.default_voucher_id as string | null) ?? null;
+    const defaultVoucherId = profileDefaults?.default_voucher_id ?? null;
 
-    // @ts-ignore
     const { data: tasks } = await supabase
         .from("tasks")
         .select("*")
-        .eq("user_id", user?.id as any)
+        .eq("user_id", userId || "")
         .order("created_at", { ascending: false });
 
-    const activeTasks =
-        (tasks as Task[])?.filter((t) =>
-            ["CREATED", "POSTPONED"].includes(t.status)
-        ) || [];
-
-    const completedTasks =
-        (tasks as Task[])?.filter((t) =>
-            ["COMPLETED", "AWAITING_VOUCHER", "RECTIFIED", "SETTLED", "FAILED", "DELETED"].includes(t.status)
-        ) || [];
-
     return (
-        <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                    Inbox
-                </h1>
-                <DashboardHeaderActions />
-            </div>
-
-            {/* Input */}
-            <TaskInput
-                friends={friends}
-                defaultFailureCostEuros={defaultFailureCostEuros}
-                defaultVoucherId={defaultVoucherId}
-            />
-
-            {/* Active Tasks List */}
-            <div className="flex flex-col">
-                {activeTasks.length === 0 ? (
-                    <div className="text-center py-12">
-                        <p className="text-slate-500 text-sm">All tasks completed! Relax or add more.</p>
-                    </div>
-                ) : (
-                    activeTasks.map((task) => (
-                        <TaskRow key={task.id} task={task} />
-                    ))
-                )}
-            </div>
-
-            {/* Completed Tasks */}
-            {completedTasks.length > 0 && (
-                <CollapsibleCompletedList tasks={completedTasks} />
-            )}
-        </div>
+        <DashboardClient
+            initialTasks={(tasks as Task[]) || []}
+            friends={friends}
+            defaultFailureCostEuros={defaultFailureCostEuros}
+            defaultVoucherId={defaultVoucherId}
+            userId={userId || ""}
+        />
     );
 }

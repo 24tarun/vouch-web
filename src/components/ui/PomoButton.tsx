@@ -20,7 +20,7 @@ export function PomoButton({
     variant = "icon",
     defaultDurationMinutes = DEFAULT_POMO_DURATION_MINUTES,
 }: PomoButtonProps) {
-    const { startSession, session } = usePomodoro();
+    const { startSession, session, isLoading } = usePomodoro();
     const normalizedDefaultDuration =
         Number.isInteger(defaultDurationMinutes) &&
         defaultDurationMinutes >= 1 &&
@@ -35,6 +35,13 @@ export function PomoButton({
     }, [normalizedDefaultDuration]);
 
     const handleStart = async () => {
+        if (isLoading) return;
+
+        if (session && session.task_id !== taskId) {
+            toast.error("One Pomodoro session at a time. Stop the current session first.");
+            return;
+        }
+
         const minutes = Number(durationInput);
         const isValid =
             Number.isFinite(minutes) &&
@@ -70,6 +77,7 @@ export function PomoButton({
                 <button
                     type="button"
                     onClick={handleStart}
+                    disabled={isLoading}
                     className="h-full px-3 text-cyan-400 hover:text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)] transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Start Focus Session"
                 >
@@ -83,6 +91,7 @@ export function PomoButton({
                     step="1"
                     value={durationInput}
                     onChange={(e) => setDurationInput(e.target.value)}
+                    disabled={isLoading}
                     onKeyDown={(e) => {
                         if (e.key === "Enter") {
                             e.preventDefault();
@@ -99,9 +108,10 @@ export function PomoButton({
     return (
         <button
             type="button"
-            onClick={() => startSession(taskId, normalizedDefaultDuration)}
+            disabled={isLoading}
+            onClick={() => void startSession(taskId, normalizedDefaultDuration)}
             className={cn(
-                "text-slate-500 hover:text-cyan-400 transition-colors flex items-center gap-2",
+                "text-slate-500 hover:text-cyan-400 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed",
                 className
             )}
             title={`Start ${normalizedDefaultDuration} minute focus session`}

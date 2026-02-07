@@ -121,6 +121,7 @@ export default async function HomePage() {
                 <li>2. Realtime polling and publishing tables</li>
                 <li>3. Pomodoro timer with session logging</li>
                 <li>4. NLP Parsing of task titles</li>
+                <li>5. Optimistic UI</li>
               </ol>
             </div>
 

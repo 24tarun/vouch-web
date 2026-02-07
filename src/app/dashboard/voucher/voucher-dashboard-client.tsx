@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { voucherAccept, voucherDeny, authorizeRectify } from "@/actions/voucher";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { TaskWithRelations } from "@/lib/types";
 import { Check, Timer, X } from "lucide-react";
+import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 
 interface VoucherDashboardClientProps {
     pendingTasks: TaskWithRelations[];
@@ -20,40 +21,132 @@ export default function VoucherDashboardClient({
     historyTasks,
 }: VoucherDashboardClientProps) {
     const router = useRouter();
-    const [loadingId, setLoadingId] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [, startRefreshTransition] = useTransition();
+    const [pendingState, setPendingState] = useState<TaskWithRelations[]>(pendingTasks);
+    const [historyState, setHistoryState] = useState<(TaskWithRelations & { rectify_passes_used?: number })[]>(historyTasks);
+    const [inFlightIds, setInFlightIds] = useState<Set<string>>(new Set());
+
+    const refreshInBackground = () => {
+        startRefreshTransition(() => {
+            router.refresh();
+        });
+    };
+
+    const setTaskInFlight = (taskId: string, pending: boolean) => {
+        setInFlightIds((prev) => {
+            const next = new Set(prev);
+            if (pending) {
+                next.add(taskId);
+            } else {
+                next.delete(taskId);
+            }
+            return next;
+        });
+    };
 
     async function handleAccept(taskId: string) {
-        setLoadingId(taskId);
-        setError(null);
-        const result = await voucherAccept(taskId);
-        if (result.error) {
-            setError(result.error);
-        }
-        setLoadingId(null);
-        router.refresh();
+        if (inFlightIds.has(taskId)) return;
+        const currentTask = pendingState.find((task) => task.id === taskId);
+        if (!currentTask) return;
+
+        setTaskInFlight(taskId, true);
+        const nowIso = new Date().toISOString();
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ pendingState, historyState }),
+            applyOptimistic: () => {
+                setPendingState((prev) => prev.filter((task) => task.id !== taskId));
+                setHistoryState((prev) => [
+                    {
+                        ...currentTask,
+                        status: "COMPLETED",
+                        updated_at: nowIso,
+                    },
+                    ...prev.filter((task) => task.id !== taskId),
+                ]);
+            },
+            runMutation: () => voucherAccept(taskId),
+            rollback: (snapshot) => {
+                setPendingState(snapshot.pendingState);
+                setHistoryState(snapshot.historyState);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        setTaskInFlight(taskId, false);
     }
 
     async function handleDeny(taskId: string) {
-        setLoadingId(taskId);
-        setError(null);
-        const result = await voucherDeny(taskId);
-        if (result.error) {
-            setError(result.error);
-        }
-        setLoadingId(null);
-        router.refresh();
+        if (inFlightIds.has(taskId)) return;
+        const currentTask = pendingState.find((task) => task.id === taskId);
+        if (!currentTask) return;
+
+        setTaskInFlight(taskId, true);
+        const nowIso = new Date().toISOString();
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ pendingState, historyState }),
+            applyOptimistic: () => {
+                setPendingState((prev) => prev.filter((task) => task.id !== taskId));
+                setHistoryState((prev) => [
+                    {
+                        ...currentTask,
+                        status: "FAILED",
+                        updated_at: nowIso,
+                    },
+                    ...prev.filter((task) => task.id !== taskId),
+                ]);
+            },
+            runMutation: () => voucherDeny(taskId),
+            rollback: (snapshot) => {
+                setPendingState(snapshot.pendingState);
+                setHistoryState(snapshot.historyState);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        setTaskInFlight(taskId, false);
     }
 
     async function handleRectify(taskId: string) {
-        setLoadingId(taskId);
-        setError(null);
-        const result = await authorizeRectify(taskId);
-        if (result.error) {
-            setError(result.error);
-        }
-        setLoadingId(null);
-        router.refresh();
+        if (inFlightIds.has(taskId)) return;
+        const currentTask = historyState.find((task) => task.id === taskId);
+        if (!currentTask) return;
+
+        setTaskInFlight(taskId, true);
+        const optimisticPassCount = (currentTask.rectify_passes_used ?? 0) + 1;
+        const nowIso = new Date().toISOString();
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ historyState }),
+            applyOptimistic: () => {
+                setHistoryState((prev) =>
+                    prev.map((task) =>
+                        task.id === taskId
+                            ? {
+                                ...task,
+                                status: "RECTIFIED",
+                                rectify_passes_used: optimisticPassCount,
+                                updated_at: nowIso,
+                            }
+                            : task
+                    )
+                );
+            },
+            runMutation: () => authorizeRectify(taskId),
+            rollback: (snapshot) => {
+                setHistoryState(snapshot.historyState);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        setTaskInFlight(taskId, false);
     }
 
     return (
@@ -65,55 +158,47 @@ export default function VoucherDashboardClient({
                 </p>
             </div>
 
-            {error && (
-                <div className="p-3 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 text-sm">
-                    {error}
-                </div>
-            )}
-
-            {/* Pending Section */}
             <section className="space-y-4">
                 <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
                     Pending
                 </h2>
-                {pendingTasks.length === 0 ? (
+                {pendingState.length === 0 ? (
                     <div className="bg-slate-900/40 border border-slate-800/20 rounded-xl py-12 text-center">
                         <p className="text-slate-500 text-sm">No pending vouch requests</p>
                     </div>
                 ) : (
                     <div className="flex flex-col">
-                        {pendingTasks.map((task) => (
+                        {pendingState.map((task) => (
                             <CompactPendingItem
                                 key={task.id}
                                 task={task}
                                 onOpenTask={() => router.push(`/dashboard/tasks/${task.id}`)}
                                 onAccept={() => handleAccept(task.id)}
                                 onDeny={() => handleDeny(task.id)}
-                                isLoading={loadingId === task.id}
+                                isLoading={inFlightIds.has(task.id)}
                             />
                         ))}
                     </div>
                 )}
             </section>
 
-            {/* Vouched Section */}
             <section className="space-y-4">
                 <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
                     Vouched
                 </h2>
-                {historyTasks.length === 0 ? (
+                {historyState.length === 0 ? (
                     <div className="py-8 text-center">
                         <p className="text-slate-600 text-sm">No history yet</p>
                     </div>
                 ) : (
                     <div className="flex flex-col border-t border-slate-900/50">
-                        {historyTasks.map((task) => (
+                        {historyState.map((task) => (
                             <CompactHistoryItem
                                 key={task.id}
                                 task={task}
                                 onOpenTask={() => router.push(`/dashboard/tasks/${task.id}`)}
                                 onRectify={() => handleRectify(task.id)}
-                                isLoading={loadingId === task.id}
+                                isLoading={inFlightIds.has(task.id)}
                             />
                         ))}
                     </div>
@@ -136,6 +221,8 @@ function CompactPendingItem({
     onDeny: () => void;
     isLoading: boolean;
 }) {
+    const [renderTimestamp] = useState(() => Date.now());
+
     const formatPomoBadge = (seconds: number) => {
         if (seconds < 60) return "<1m";
         if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
@@ -147,7 +234,7 @@ function CompactPendingItem({
     const deadline = new Date(task.voucher_response_deadline || "");
     const hoursLeft = Math.max(
         0,
-        Math.floor((deadline.getTime() - Date.now()) / (1000 * 60 * 60))
+        Math.floor((deadline.getTime() - renderTimestamp) / (1000 * 60 * 60))
     );
     const pomoTotalSeconds = task.pomo_total_seconds || 0;
 
@@ -189,7 +276,7 @@ function CompactPendingItem({
                     title="Accept task"
                     className="h-9 w-9 p-0 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30 transition-all"
                 >
-                    {isLoading ? "..." : <Check className="h-4 w-4" strokeWidth={3} />}
+                    <Check className="h-4 w-4" strokeWidth={3} />
                 </Button>
                 <Button
                     size="sm"
@@ -200,7 +287,7 @@ function CompactPendingItem({
                     title="Deny task"
                     className="h-9 w-9 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30"
                 >
-                    {isLoading ? "..." : <X className="h-4 w-4" strokeWidth={3} />}
+                    <X className="h-4 w-4" strokeWidth={3} />
                 </Button>
             </div>
         </div>
@@ -219,11 +306,11 @@ function CompactHistoryItem({
     isLoading: boolean;
 }) {
     const statusColors: Record<string, string> = {
-        COMPLETED: "text-lime-300",        // Bright neon green (accepted)
-        FAILED: "text-[#dc322f]",          // Red
-        RECTIFIED: "text-[#cb4b16]",       // Orange
-        SETTLED: "text-[#2aa198]",         // Cyan
-        DELETED: "text-slate-500",         // Grey
+        COMPLETED: "text-lime-300",
+        FAILED: "text-[#dc322f]",
+        RECTIFIED: "text-[#cb4b16]",
+        SETTLED: "text-[#2aa198]",
+        DELETED: "text-slate-500",
     };
 
     const isRectifiable = task.status === "FAILED";
@@ -267,7 +354,7 @@ function CompactHistoryItem({
                             disabled={isLoading || passLimitReached}
                             className="h-8 text-xs bg-orange-500/5 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 border border-orange-500/10"
                         >
-                            {isLoading ? "..." : passLimitReached ? "Limit" : "Rectify"}
+                            {passLimitReached ? "Limit" : "Rectify"}
                         </Button>
                         <span className={`text-[9px] mt-1 font-mono ${passLimitReached ? "text-red-600" : "text-slate-700"}`}>
                             {task.rectify_passes_used ?? 0}/5 used
