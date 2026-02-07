@@ -1,3 +1,12 @@
+/**
+ * Trigger: deadline-warning
+ * Runs: Every minute (`* * * * *`).
+ * What it does when it runs:
+ * 1) Finds active tasks (CREATED/POSTPONED) due in about 59-60 minutes and sends a 1-hour reminder.
+ * 2) Finds active tasks due in about 1-2 minutes and sends a final reminder.
+ * 3) Prevents duplicate reminders by checking existing task_events for DEADLINE_WARNING_1H and DEADLINE_WARNING_2M.
+ * 4) Logs reminder events after each notification is sent.
+ */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";

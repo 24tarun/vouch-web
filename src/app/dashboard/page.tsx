@@ -19,7 +19,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("default_failure_cost_cents, default_voucher_id")
+            .select("default_failure_cost_cents, default_voucher_id, username")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => result.data),
@@ -36,12 +36,17 @@ export default async function DashboardPage() {
     const profileDefaults = rawProfileDefaults as {
         default_failure_cost_cents: number | null;
         default_voucher_id: string | null;
+        username: string | null;
     } | null;
 
     const defaultFailureCostEuros = (
         ((profileDefaults?.default_failure_cost_cents ?? DEFAULT_FAILURE_COST_CENTS) / 100)
     ).toFixed(2);
     const defaultVoucherId = profileDefaults?.default_voucher_id ?? null;
+    const username =
+        profileDefaults?.username?.trim() ||
+        ((user?.user_metadata as { username?: string } | undefined)?.username?.trim() ?? "") ||
+        (user?.email?.split("@")[0] ?? "there");
 
     const completedTasks = (completedTasksResult.data as Task[] | null) || [];
     const completedTaskIds = new Set(completedTasks.map((task) => task.id));
@@ -58,10 +63,9 @@ export default async function DashboardPage() {
                 defaultFailureCostEuros={defaultFailureCostEuros}
                 defaultVoucherId={defaultVoucherId}
                 userId={userId || ""}
+                username={username}
             />
-            <footer className="max-w-3xl mx-auto px-4 md:px-0 pb-8 pt-4">
-                <BuildStamp />
-            </footer>
+            <BuildStamp className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 -translate-x-1/2 text-[10px] tracking-[0.04em] text-slate-600 font-mono z-40" />
         </>
     );
 }

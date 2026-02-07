@@ -347,7 +347,7 @@ export function TaskInput({
                     onChange={(e) => setTitle(e.target.value)}
                     onKeyDown={handleTitleKeyDown}
                     enterKeyHint="done"
-                    placeholder="buy milk @14 vouch bob"
+                    placeholder="study for exam @16 vouch bob"
                     className="w-full bg-transparent border-none py-4 px-5 text-white placeholder:text-slate-500/70 focus:outline-none transition-all font-medium text-lg"
                     disabled={isLoading}
                 />
@@ -599,12 +599,6 @@ export function TaskInput({
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-
-            <div className="flex gap-4 px-2">
-                <p className="text-[10px] text-slate-400 font-mono uppercase tracking-wider">
-                    Tip: Use <span className="text-slate-300">@time</span> and <span className="text-slate-300">vouch name</span>
-                </p>
-            </div>
             {deadlineError && (
                 <p className="px-2 text-xs text-red-400">{deadlineError}</p>
             )}

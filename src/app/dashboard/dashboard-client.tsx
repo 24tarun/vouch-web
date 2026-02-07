@@ -9,8 +9,10 @@ import { TaskRow } from "@/components/TaskRow";
 import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import type { Profile, Task } from "@/lib/types";
+import { Lightbulb } from "lucide-react";
 
 const MAX_COMPLETED_TASKS = 10;
+const VOUCHER_RESPONSE_WINDOW_HOURS = 48;
 
 interface DashboardClientProps {
     initialTasks: Task[];
@@ -18,6 +20,7 @@ interface DashboardClientProps {
     defaultFailureCostEuros: string;
     defaultVoucherId: string | null;
     userId: string;
+    username: string;
 }
 
 function splitTasks(tasks: Task[]) {
@@ -55,6 +58,7 @@ export default function DashboardClient({
     defaultFailureCostEuros,
     defaultVoucherId,
     userId,
+    username,
 }: DashboardClientProps) {
     const router = useRouter();
     const [, startRefreshTransition] = useTransition();
@@ -135,8 +139,7 @@ export default function DashboardClient({
         setTaskCompleting(task.id, true);
 
         const now = new Date();
-        const voucherResponseDeadline = new Date(now);
-        voucherResponseDeadline.setDate(voucherResponseDeadline.getDate() + 7);
+        const voucherResponseDeadline = new Date(now.getTime() + VOUCHER_RESPONSE_WINDOW_HOURS * 60 * 60 * 1000);
         const nowIso = now.toISOString();
         const optimisticTask: Task = {
             ...task,
@@ -175,9 +178,9 @@ export default function DashboardClient({
     };
 
     return (
-        <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0">
+        <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0 pb-14">
             <div className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2">Inbox</h1>
+                <h1 className="text-2xl font-bold text-white flex items-center gap-2">{`Hi ${username}`}</h1>
                 <DashboardHeaderActions />
             </div>
 
@@ -187,6 +190,10 @@ export default function DashboardClient({
                 defaultVoucherId={defaultVoucherId}
                 onCreateTaskOptimistic={handleCreateTaskOptimistic}
             />
+            <p className="px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1.5">
+                <Lightbulb className="h-3 w-3 shrink-0 text-yellow-400" />
+                Ticking the task off will instantly mark it as completed.
+            </p>
 
             <div className="flex flex-col">
                 {activeTasks.length === 0 ? (

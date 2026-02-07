@@ -1,3 +1,12 @@
+/**
+ * Trigger: voucher-timeout
+ * Runs: Every hour at minute 0 (`0 * * * *`).
+ * What it does when it runs:
+ * 1) Finds tasks still in AWAITING_VOUCHER where voucher_response_deadline has passed.
+ * 2) Atomically flips each matched task to FAILED (only if still AWAITING_VOUCHER).
+ * 3) Adds a failure ledger entry for the task owner and a voucher timeout penalty entry for the voucher.
+ * 4) Logs a VOUCHER_TIMEOUT system event for audit/history.
+ */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 

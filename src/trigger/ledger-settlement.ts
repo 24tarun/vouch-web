@@ -1,3 +1,12 @@
+/**
+ * Trigger: monthly-settlement
+ * Runs: Monthly at 09:00 UTC on day 1 (`0 9 1 * *`).
+ * What it does when it runs:
+ * 1) Computes the previous month period (YYYY-MM).
+ * 2) Loads all users and that month's ledger entries per user.
+ * 3) If user total > 0, sends a settlement email with a detailed breakdown and payment CTA.
+ * 4) If total is 0 but the user had activity, sends a "perfect month" congratulatory email.
+ */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";

@@ -1,3 +1,12 @@
+/**
+ * Trigger: voucher-deadline-warning
+ * Runs: Daily at 09:00, 12:00, 15:00, 18:00, and 21:00 UTC (`0 9,12,15,18,21 * * *`).
+ * What it does when it runs:
+ * 1) Loads tasks in AWAITING_VOUCHER whose voucher_response_deadline is still in the future.
+ * 2) Aggregates pending request counts per voucher.
+ * 3) Sends each voucher a digest notification about pending vouch requests.
+ * 4) Writes/uses voucher_reminder_logs to avoid sending more than one digest per voucher per UTC day.
+ */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";

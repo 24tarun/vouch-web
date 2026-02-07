@@ -1,3 +1,12 @@
+/**
+ * Trigger: recurrence-generator
+ * Runs: Every hour at minute 0 (`0 * * * *`).
+ * What it does when it runs:
+ * 1) Loads all active recurrence_rules.
+ * 2) For each rule, evaluates whether a task should be generated for the current date in the rule's timezone.
+ * 3) If due, creates a new CREATED task using the rule settings (title, voucher, cost, deadline, recurrence_rule_id).
+ * 4) Updates recurrence_rules.last_generated_date so the same date is not generated twice.
+ */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { RecurrenceRule, RecurrenceRuleConfig } from "@/lib/types";

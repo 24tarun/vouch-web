@@ -13,6 +13,7 @@ import { activeTasksTag, pendingVoucherRequestsTag } from "@/lib/cache-tags";
 
 const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
+const VOUCHER_RESPONSE_WINDOW_HOURS = 48;
 
 function invalidateActiveTasksCache(userId: string) {
     revalidateTag(activeTasksTag(userId), "max");
@@ -364,8 +365,7 @@ export async function markTaskComplete(taskId: string) {
         return { error: "Deadline has passed" };
     }
 
-    const voucherResponseDeadline = new Date();
-    voucherResponseDeadline.setDate(voucherResponseDeadline.getDate() + 7);
+    const voucherResponseDeadline = new Date(Date.now() + VOUCHER_RESPONSE_WINDOW_HOURS * 60 * 60 * 1000);
     const nowIso = new Date().toISOString();
 
     // @ts-ignore

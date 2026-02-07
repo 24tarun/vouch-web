@@ -1,3 +1,12 @@
+/**
+ * Trigger: deadline-fail
+ * Runs: Every 5 minutes (configured with a 5-minute cron interval).
+ * What it does when it runs:
+ * 1) Finds tasks in CREATED or POSTPONED whose deadline has already passed.
+ * 2) Marks each matched task as FAILED.
+ * 3) Writes a positive failure ledger entry for the task owner.
+ * 4) Logs a DEADLINE_MISSED system event in task_events.
+ */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 

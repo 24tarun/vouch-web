@@ -51,6 +51,8 @@ interface TaskDetailClientProps {
     defaultPomoDurationMinutes: number;
 }
 
+const VOUCHER_RESPONSE_WINDOW_HOURS = 48;
+
 export default function TaskDetailClient({
     task,
     events,
@@ -149,8 +151,7 @@ export default function TaskDetailClient({
         setActionPending("markComplete", true);
 
         const now = new Date();
-        const voucherResponseDeadline = new Date(now);
-        voucherResponseDeadline.setDate(voucherResponseDeadline.getDate() + 7);
+        const voucherResponseDeadline = new Date(now.getTime() + VOUCHER_RESPONSE_WINDOW_HOURS * 60 * 60 * 1000);
 
         await runOptimisticMutation({
             captureSnapshot: () => ({ taskState }),
