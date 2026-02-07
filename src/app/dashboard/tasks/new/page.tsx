@@ -107,6 +107,11 @@ export default function NewTaskPage() {
             setIsLoading(false);
             return;
         }
+        if (new Date(deadlineIso).getTime() <= Date.now()) {
+            setError("Deadline must be in the future.");
+            setIsLoading(false);
+            return;
+        }
 
         formData.set("voucherId", effectiveSelectedVoucherId);
         formData.set("failureCost", failureCost);

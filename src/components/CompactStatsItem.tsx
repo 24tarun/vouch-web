@@ -68,7 +68,10 @@ export function CompactStatsItem({ task }: { task: StatsTask }) {
     }
 
     return (
-        <div className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 -mx-4 px-4 transition-colors hover:bg-slate-900/10 relative">
+        <div
+            id={`task-${task.id}`}
+            className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 -mx-4 px-4 transition-colors hover:bg-slate-900/10 relative scroll-mt-24"
+        >
             {/* Clickable Area for main content */}
             <Link href={`/dashboard/tasks/${task.id}`} className="absolute inset-0 z-0" />
 

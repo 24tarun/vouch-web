@@ -52,6 +52,9 @@ export function TaskInput({
     const getDefaultDeadline = () => {
         const defaultDeadline = new Date();
         defaultDeadline.setHours(23, 59, 0, 0);
+        if (defaultDeadline.getTime() <= Date.now()) {
+            defaultDeadline.setDate(defaultDeadline.getDate() + 1);
+        }
         return defaultDeadline;
     };
 
@@ -70,6 +73,7 @@ export function TaskInput({
     const [recurrenceLabel, setRecurrenceLabel] = useState<string>("");
     const [showCustomRecurrenceInline, setShowCustomRecurrenceInline] = useState(false);
     const [customDays, setCustomDays] = useState<number[]>([]);
+    const [deadlineError, setDeadlineError] = useState<string | null>(null);
 
     const [showShake, setShowShake] = useState(false);
 
@@ -145,6 +149,7 @@ export function TaskInput({
     };
 
     const resetDeadlineToDefault = () => {
+        setDeadlineError(null);
         setSelectedDate(getDefaultDeadline());
     };
 
@@ -186,6 +191,11 @@ export function TaskInput({
         const localValue = combineDateAndTime(dateDraft, timeDraft);
         const parsed = fromDateTimeLocalValue(localValue);
         if (!parsed) return;
+        if (parsed.getTime() <= Date.now()) {
+            setDeadlineError("Deadline must be in the future.");
+            return;
+        }
+        setDeadlineError(null);
         setSelectedDate(parsed);
         setIsDateSheetOpen(false);
     };
@@ -251,11 +261,18 @@ export function TaskInput({
             return;
         }
 
+        const deadlineToSubmit = selectedDate ?? getDefaultDeadline();
+        if (deadlineToSubmit.getTime() <= Date.now()) {
+            setDeadlineError("Deadline must be in the future.");
+            return;
+        }
+        setDeadlineError(null);
+
         setIsLoading(true);
         try {
             const formData = new FormData();
             formData.append("title", cleanTitle);
-            formData.append("deadline", (selectedDate ?? getDefaultDeadline()).toISOString());
+            formData.append("deadline", deadlineToSubmit.toISOString());
             formData.append("voucherId", selectedVoucherId);
             formData.append("failureCost", failureCost);
 
@@ -339,8 +356,11 @@ export function TaskInput({
                                 value={toDateTimeLocalValue(selectedDate)}
                                 onChange={(e) => {
                                     const parsed = fromDateTimeLocalValue(e.target.value);
-                                    if (parsed) {
+                                    if (parsed && parsed.getTime() > Date.now()) {
+                                        setDeadlineError(null);
                                         setSelectedDate(parsed);
+                                    } else if (parsed) {
+                                        setDeadlineError("Deadline must be in the future.");
                                     }
                                 }}
                                 tabIndex={-1}
@@ -550,6 +570,9 @@ export function TaskInput({
                     Tip: Use <span className="text-slate-300">@time</span> and <span className="text-slate-300">vouch name</span>
                 </p>
             </div>
+            {deadlineError && (
+                <p className="px-2 text-xs text-red-400">{deadlineError}</p>
+            )}
         </form>
     );
 }

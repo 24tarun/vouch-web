@@ -44,7 +44,7 @@ export default async function HomePage() {
       </nav>
 
       {/* Hero */}
-      <section className="pt-32 pb-15 px-4 sm:px-6">
+      <section className="pt-32 pb-6 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto text-center">
           <div className="inline-flex flex-wrap items-center justify-center gap-3 mb-6 px-3 sm:px-4 py-1">
             <span className="text-[10px] sm:text-xs text-slate-400 uppercase tracking-widest font-medium">
@@ -89,80 +89,54 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* How It Works */}
-      <section className="pt-8 pb-20 px-4 sm:px-6">
+      {/* Unified System Section */}
+      <section className="pt-2 pb-20 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
-          <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-12 sm:mb-16 tracking-tight">
-            How It Works
+          <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-6 sm:mb-8 tracking-tight">
+            System Overview
           </h2>
-          <div className="grid md:grid-cols-3 gap-8 sm:gap-12">
-            <div className="text-left">
-              <h3 className="text-base sm:text-lg font-bold text-white mb-3">
-                <span className="text-slate-500 font-mono text-sm mr-2">01.</span>
-                Create a Task
-              </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">
-                Set your deadline, failure cost, repetition.<br></br>
-                Start focusing with the help of the built in Pomodoro timer.
-              </p>
-            </div>
-            <div className="text-left">
-              <h3 className="text-base sm:text-lg font-bold text-white mb-3">
-                <span className="text-slate-500 font-mono text-sm mr-2">02.</span>
-                Add friends and assign them as vouchers
-              </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">
-               voucher verifies completion.  They can either accept or deny.
-              </p>
-            </div>
-            <div className="text-left">
-              <h3 className="text-base sm:text-lg font-bold text-white mb-3">
-                <span className="text-slate-500 font-mono text-sm mr-2">03.</span>
-                If you fail the deadline or voucher denies, failure costs your failure.
-              </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">
-                At the end of the month, your total failure costs are donated to a charity/person of your choice.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Features */}
-      <section className="py-20 px-4 sm:px-6 border-y border-slate-900 bg-slate-950/50">
-        <div className="max-w-5xl mx-auto">
-          <div className="grid md:grid-cols-2 gap-8 sm:gap-12">
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-white mb-2">
-                Irreversible Deadlines
+          <div className="space-y-5 sm:space-y-6">
+            <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 sm:p-6">
+              <h3 className="text-base sm:text-lg font-bold text-white mb-4 tracking-tight">
+                How It Works
               </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">
-                Once activated, deadlines are final. No extensions. No excuses. One 60-minute postponement per task.
-              </p>
+              <ol className="space-y-2 text-sm sm:text-[15px] font-mono text-slate-300">
+                <li>1. Create a task, set deadline,failure_cost,repitions,voucher</li>
+                <li>2. Use the VFD clock inspired pomodoro timer to focus</li>
+                <li>3. submit your task for verification and prove to your voucher that you have done it</li>
+                <li>4. voucher accepts or denies</li>
+                <li>5. if denied you get fined your preset failure cost for that task</li>
+                <li>6. end of month ledger is calculated</li>
+                <li>7. TODO : automatic debit towards a charity of choice.</li>
+              </ol>
             </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-white mb-2">
-                Social Verification
+
+            <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 sm:p-6">
+              <h3 className="text-base sm:text-lg font-bold text-white mb-4 tracking-tight">
+                Feature List
               </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">
-                Trust but verify. Your vouchers decide the outcome. Peer-to-peer accountability.
-              </p>
+              <ol className="space-y-2 text-sm sm:text-[15px] font-mono text-slate-300">
+                <li>1. Symmetric and reflective friendships</li>
+                <li>2. Realtime polling and publishing tables</li>
+                <li>3. Pomodoro timer with session logging</li>
+                <li>4. NLP Parsing of task titles</li>
+              </ol>
             </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-white mb-2">
-                Real Financial Stakes
+
+            <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-5 sm:p-6">
+              <h3 className="text-base sm:text-lg font-bold text-white mb-4 tracking-tight">
+                Engineering Choices
               </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">
-                The sting of loss is a powerful motivator. Stake what you can afford to lose.
-              </p>
-            </div>
-            <div>
-              <h3 className="text-base sm:text-lg font-bold text-white mb-2">
-                Limited Safety Nets
-              </h3>
-              <p className="text-slate-400 text-sm leading-relaxed">
-                5x Rectify passes and 1x Force majeure per month. Use them wisely.
-              </p>
+              <ol className="space-y-2 text-sm sm:text-[15px] font-mono text-slate-300">
+                <li>1. Supabase for auth and Postgres</li>
+                <li>2. Client polls server for real-time updates</li>
+                <li>3. cron jobs for notifications run on trigger.dev</li>
+                <li>4. Email notifications using resend API</li>
+                <li>5. PWA and Web Push notifications</li>
+                <li>6. Deployed on Vercel, thanks to the vercel gods</li>
+                <li>7. Gemini 3 Flash and Codex 5.3 for AI help</li>
+              </ol>
             </div>
           </div>
         </div>

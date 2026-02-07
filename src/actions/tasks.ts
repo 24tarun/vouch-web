@@ -9,6 +9,34 @@ import { type SupabaseClient } from "@supabase/supabase-js";
 import { sendNotification } from "@/lib/notifications";
 import { DEFAULT_FAILURE_COST_CENTS } from "@/lib/constants";
 
+const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
+const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
+
+function parseAndValidateFutureDeadline(rawDeadline: string): { deadline?: Date; error?: string } {
+    const parsedDeadline = new Date(rawDeadline);
+    if (Number.isNaN(parsedDeadline.getTime())) {
+        return { error: INVALID_DEADLINE_ERROR };
+    }
+
+    if (parsedDeadline.getTime() <= Date.now()) {
+        return { error: PAST_DEADLINE_ERROR };
+    }
+
+    return { deadline: parsedDeadline };
+}
+
+function getDefaultTaskDeadline(): Date {
+    const now = new Date();
+    const defaultDeadline = new Date(now);
+    defaultDeadline.setHours(23, 59, 0, 0);
+
+    if (defaultDeadline.getTime() <= now.getTime()) {
+        defaultDeadline.setDate(defaultDeadline.getDate() + 1);
+    }
+
+    return defaultDeadline;
+}
+
 // Wrapper for simple task creation (inline)
 export async function createTaskSimple(title: string) {
     const supabase = await createClient();
@@ -48,8 +76,7 @@ export async function createTaskSimple(title: string) {
     }
 
     // Default params: Deadline = End of today
-    const deadline = new Date();
-    deadline.setHours(23, 59, 0, 0);
+    const deadline = getDefaultTaskDeadline();
 
     // @ts-ignore
     const { data: task, error } = await (supabase.from("tasks") as any)
@@ -104,6 +131,12 @@ export async function createTask(formData: FormData) {
         return { error: "Missing required fields" };
     }
 
+    const deadlineValidation = parseAndValidateFutureDeadline(deadline);
+    if (!deadlineValidation.deadline) {
+        return { error: deadlineValidation.error || INVALID_DEADLINE_ERROR };
+    }
+    const validatedDeadline = deadlineValidation.deadline;
+
     if (failureCostEuros < 0.01 || failureCostEuros > 100) {
         return { error: "Failure cost must be between €0.01 and €100" };
     }
@@ -133,7 +166,7 @@ export async function createTask(formData: FormData) {
 
     if (recurrenceType && userTimezone) {
         // Calculate time_of_day from initial deadline
-        const initialDeadlineDate = new Date(deadline);
+        const initialDeadlineDate = validatedDeadline;
         // We need the time in strict HH:MM format. 
         // Best to use the local time component if we trust the input date was constructed correctly relative to UTC/Local.
         // However, converting to the USER'S timezone to extract HH:MM is safer if we have the timezone.
@@ -192,7 +225,7 @@ export async function createTask(formData: FormData) {
             title,
             description: description || null,
             failure_cost_cents: Math.round(failureCostEuros * 100),
-            deadline: new Date(deadline).toISOString(),
+            deadline: validatedDeadline.toISOString(),
             status: "CREATED",
             recurrence_rule_id: recurrenceRuleId
         })
@@ -213,7 +246,7 @@ export async function createTask(formData: FormData) {
         to_status: "CREATED",
         metadata: {
             title,
-            deadline,
+            deadline: validatedDeadline.toISOString(),
             failure_cost_cents: Math.round(failureCostEuros * 100),
             recurrence_rule_id: recurrenceRuleId
         },

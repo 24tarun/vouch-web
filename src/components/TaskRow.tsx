@@ -3,15 +3,9 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import type { Task } from "@/lib/types";
-import { Check, Clock, MoreHorizontal } from "lucide-react";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Check, ExternalLink } from "lucide-react";
 import { Button } from "./ui/button";
-import { markTaskCompleted, postponeTask, cancelRepetition } from "@/actions/tasks";
+import { markTaskCompleted } from "@/actions/tasks";
 import { cn } from "@/lib/utils";
 import { Repeat } from "lucide-react";
 
@@ -26,7 +20,6 @@ export function TaskRow({ task }: TaskRowProps) {
     const [isCompleted, setIsCompleted] = useState(isActuallyCompleted);
     const [isLoading, setIsLoading] = useState(false);
     const [mounted, setMounted] = useState(false);
-    const [isRepetitionStopped, setIsRepetitionStopped] = useState(false);
 
     useEffect(() => {
         setMounted(true);
@@ -46,28 +39,6 @@ export function TaskRow({ task }: TaskRowProps) {
             setIsLoading(false);
         }
     };
-
-    const handlePostpone = async () => {
-        if (isActuallyCompleted || isOverdue) return;
-        try {
-            await postponeTask(task.id);
-        } catch (error) {
-            console.error("Failed to postpone", error);
-        }
-    };
-
-    const handleCancelRepetition = async () => {
-        if (isRepetitionStopped) return;
-        try {
-            const result = await cancelRepetition(task.id);
-            if (!result?.error) {
-                setIsRepetitionStopped(true);
-            }
-        } catch (error) {
-            console.error("Failed to cancel repetition", error);
-        }
-    };
-
 
     const deadline = new Date(task.deadline);
     const isOverdue = deadline < new Date() && !isCompleted && !isActuallyCompleted;
@@ -90,6 +61,10 @@ export function TaskRow({ task }: TaskRowProps) {
         if (target.closest("button,[role='menuitem'],a,input,select,textarea")) {
             return;
         }
+        router.push(detailPath);
+    };
+
+    const handleOpenTaskDetails = () => {
         router.push(detailPath);
     };
 
@@ -132,7 +107,7 @@ export function TaskRow({ task }: TaskRowProps) {
 
 
             {/* Right Side Actions/Info */}
-            <div className="flex items-center gap-4 text-xs">
+            <div className="flex items-center gap-2 text-xs">
                 {/* Deadline */}
                 <div className={cn("flex items-center gap-1.5", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
                     <span>
@@ -140,40 +115,16 @@ export function TaskRow({ task }: TaskRowProps) {
                     </span>
                 </div>
 
-                {/* Hover Actions - Only show if not completed and not overdue */}
-                {!isActuallyCompleted && !isOverdue && (
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className="h-6 w-6 p-0 hover:bg-slate-800 text-slate-500">
-                                    <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800">
-                                <DropdownMenuItem onClick={handlePostpone} className="text-slate-300 focus:bg-slate-800 focus:text-white cursor-pointer text-xs">
-                                    <Clock className="mr-2 h-3.5 w-3.5" />
-                                    Postpone
-                                </DropdownMenuItem>
-                                {task.recurrence_rule_id && (
-                                    <DropdownMenuItem
-                                        onClick={handleCancelRepetition}
-                                        disabled={isRepetitionStopped}
-                                        className={cn(
-                                            "text-xs",
-                                            isRepetitionStopped
-                                                ? "text-slate-500 cursor-not-allowed focus:bg-slate-900/60 focus:text-slate-500"
-                                                : "text-red-400 focus:bg-slate-800 focus:text-red-300 cursor-pointer"
-                                        )}
-                                    >
-                                        <Repeat className="mr-2 h-3.5 w-3.5" />
-                                        {isRepetitionStopped ? "Repetition Stopped" : "Stop Future Repetitions"}
-                                    </DropdownMenuItem>
-                                )}
-                            </DropdownMenuContent>
-
-                        </DropdownMenu>
-                    </div>
-                )}
+                <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleOpenTaskDetails}
+                    className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800"
+                    aria-label="Open task"
+                    title="Open task"
+                >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
             </div>
         </div>
     );
