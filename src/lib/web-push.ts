@@ -1,12 +1,5 @@
-import { createRequire } from "module";
+import webPush from "web-push";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-const require = createRequire(import.meta.url);
-
-interface WebPushLike {
-    setVapidDetails: (subject: string, publicKey: string, privateKey: string) => void;
-    sendNotification: (subscription: unknown, payload: string) => Promise<unknown>;
-}
 
 export interface PushPayload {
     title: string;
@@ -26,25 +19,8 @@ export interface PushSendResult {
     reason?: string;
 }
 
-let webPushLib: WebPushLike | undefined;
 let vapidConfigured = false;
-
-function getWebPush(): WebPushLike | undefined {
-    if (webPushLib !== undefined) {
-        return webPushLib;
-    }
-
-    try {
-        webPushLib = require("web-push") as WebPushLike;
-        return webPushLib;
-    } catch (error) {
-        console.error("[web-push] Dependency not available. Install `web-push` to enable push delivery.", error);
-        webPushLib = undefined;
-        return undefined;
-    }
-}
-
-function configureVapid(webPush: WebPushLike): { ok: boolean; reason?: string } {
+function configureVapid(): { ok: boolean; reason?: string } {
     if (vapidConfigured) {
         return { ok: true };
     }
@@ -73,20 +49,7 @@ function extractStatusCode(error: unknown): number | null {
 }
 
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<PushSendResult> {
-    const webPush = getWebPush();
-    if (!webPush) {
-        return {
-            success: false,
-            total: 0,
-            delivered: 0,
-            failed: 0,
-            cleaned: 0,
-            skipped: true,
-            reason: "web-push dependency missing",
-        };
-    }
-
-    const vapid = configureVapid(webPush);
+    const vapid = configureVapid();
     if (!vapid.ok) {
         console.warn("[web-push] Skipping push:", vapid.reason);
         return {
