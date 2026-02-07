@@ -146,7 +146,7 @@ export default function DashboardClient({
             updated_at: nowIso,
         };
 
-        await runOptimisticMutation({
+        const result = await runOptimisticMutation({
             captureSnapshot: () => ({
                 activeTasks,
                 completedTasks,
@@ -166,6 +166,10 @@ export default function DashboardClient({
                 refreshInBackground();
             },
         });
+
+        if (!result.ok) {
+            refreshInBackground();
+        }
 
         setTaskCompleting(task.id, false);
     };

@@ -44,7 +44,11 @@ export default async function DashboardPage() {
     const defaultVoucherId = profileDefaults?.default_voucher_id ?? null;
 
     const completedTasks = (completedTasksResult.data as Task[] | null) || [];
-    const initialTasks = [...((activeTasks as Task[]) || []), ...completedTasks];
+    const completedTaskIds = new Set(completedTasks.map((task) => task.id));
+    const dedupedActiveTasks = (((activeTasks as Task[]) || []).filter(
+        (task) => !completedTaskIds.has(task.id)
+    ));
+    const initialTasks = [...dedupedActiveTasks, ...completedTasks];
 
     return (
         <>

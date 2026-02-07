@@ -23,13 +23,13 @@ export function TaskRow({ task, onComplete, isCompleting = false }: TaskRowProps
         () => ["AWAITING_VOUCHER", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(task.status),
         [task.status]
     );
-    const handleCheck = () => {
-        if (!onComplete || isCompleting || isActuallyCompleted) return;
-        onComplete(task);
-    };
-
     const deadline = new Date(task.deadline);
     const isOverdue = deadline < new Date() && !isActuallyCompleted;
+
+    const handleCheck = () => {
+        if (!onComplete || isCompleting || isActuallyCompleted || isOverdue) return;
+        onComplete(task);
+    };
 
     // Solarized-inspired colors for states
     const statusColors: Record<string, string> = {
@@ -73,7 +73,7 @@ export function TaskRow({ task, onComplete, isCompleting = false }: TaskRowProps
             {/* Checkbox */}
             <button
                 onClick={handleCheck}
-                disabled={isActuallyCompleted || isCompleting || !onComplete}
+                disabled={isActuallyCompleted || isCompleting || isOverdue || !onComplete}
                 className={cn(
                     "flex-shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
                     isActuallyCompleted ? (currentStatusColor || "bg-slate-700 border-slate-700 text-slate-400") :

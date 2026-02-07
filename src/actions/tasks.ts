@@ -145,7 +145,7 @@ export async function getCachedActiveTasksForUser(userId: string) {
         ["active-tasks", userId],
         {
             tags: [activeTasksTag(userId)],
-            revalidate: 300,
+            revalidate: 60,
         }
     );
 
@@ -356,28 +356,38 @@ export async function markTaskComplete(taskId: string) {
         return { error: "Task not found" };
     }
 
-    // if (!canTransition((task as any).status as TaskStatus, "MARK_COMPLETE")) {
-    //     return { error: `Cannot mark complete from ${(task as any).status} status` };
-    // }
+    if (!canTransition((task as any).status as TaskStatus, "MARK_COMPLETE")) {
+        return { error: `Cannot mark complete from ${(task as any).status} status` };
+    }
 
-    // if (new Date() >= new Date((task as any).deadline)) {
-    //     return { error: "Deadline has passed" };
-    // }
+    if (new Date() >= new Date((task as any).deadline)) {
+        return { error: "Deadline has passed" };
+    }
 
     const voucherResponseDeadline = new Date();
     voucherResponseDeadline.setDate(voucherResponseDeadline.getDate() + 7);
+    const nowIso = new Date().toISOString();
 
     // @ts-ignore
-    const { error } = await (supabase.from("tasks") as any)
+    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
         .update({
             status: "AWAITING_VOUCHER",
-            marked_completed_at: new Date().toISOString(),
+            marked_completed_at: nowIso,
             voucher_response_deadline: voucherResponseDeadline.toISOString(),
+            updated_at: nowIso,
         } as any)
-        .eq("id", (taskId as any));
+        .eq("id", (taskId as any))
+        .eq("user_id", (user as any).id)
+        .in("status", ["CREATED", "POSTPONED"] as any)
+        .gt("deadline", nowIso)
+        .select("id");
 
     if (error) {
         return { error: error.message };
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task can no longer be marked complete. Please refresh." };
     }
 
     await (supabase.from("task_events") as any).insert({
