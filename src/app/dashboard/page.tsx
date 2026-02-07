@@ -65,7 +65,9 @@ export default async function DashboardPage() {
                 userId={userId || ""}
                 username={username}
             />
-            <BuildStamp className="pointer-events-none fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 -translate-x-1/2 text-[10px] tracking-[0.04em] text-slate-600 font-mono z-40" />
+            <div className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+0.25rem)] z-50 px-2 text-center">
+                <BuildStamp className="inline-block text-[10px] leading-4 tracking-[0.03em] text-slate-400 font-mono" />
+            </div>
         </>
     );
 }
