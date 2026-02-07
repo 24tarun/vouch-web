@@ -305,7 +305,7 @@ export async function markTaskComplete(taskId: string) {
     }
 
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("*, voucher:profiles!tasks_voucher_id_fkey(id, email, username), user:profiles!tasks_user_id_fkey(id, username)")
+        .select("*")
         .eq("id", (taskId as any))
         .eq("user_id", (user as any).id)
         .single();
@@ -323,7 +323,7 @@ export async function markTaskComplete(taskId: string) {
     // }
 
     const voucherResponseDeadline = new Date();
-    voucherResponseDeadline.setHours(voucherResponseDeadline.getHours() + 24);
+    voucherResponseDeadline.setDate(voucherResponseDeadline.getDate() + 7);
 
     // @ts-ignore
     const { error } = await (supabase.from("tasks") as any)
@@ -345,28 +345,6 @@ export async function markTaskComplete(taskId: string) {
         from_status: (task as any).status,
         to_status: "AWAITING_VOUCHER",
     });
-
-    // Notify the voucher (Tandem Email + Push)
-    if ((task as any).voucher?.email) {
-        await sendNotification({
-            to: (task as any).voucher.email,
-            userId: (task as any).voucher.id, // Enable push
-            subject: `new vouch request from ${(task as any).user?.username} for task: ${(task as any).title}`,
-            title: "Task Review Request",
-            text: `You have got a new vouch request from ${(task as any).user?.username} for task: ${(task as any).title}`,
-            html: `
-          <h1>Task Completed!</h1>
-          <p>Hi ${(task as any).voucher.username},</p>
-          <p><strong>${(task as any).user?.username || "The user"}</strong> has marked their task <strong>"${(task as any).title}"</strong> as complete.</p>
-          <p>Please review and verify it before the deadline: <strong>${voucherResponseDeadline.toLocaleString()}</strong></p>
-          <br/>
-          <a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/voucher">Review Task</a>
-        `,
-            url: "/dashboard/voucher",
-            tag: `new-vouch-request-${taskId}`,
-            data: { taskId, kind: "NEW_VOUCH_REQUEST" },
-        });
-    }
 
     // Mirror accept/deny behavior so voucher list cache is invalidated on new request.
     revalidatePath("/dashboard/voucher");

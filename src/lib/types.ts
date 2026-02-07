@@ -53,7 +53,7 @@ export interface LedgerEntry {
     task_id: string;
     period: string; // YYYY-MM
     amount_cents: number;
-    entry_type: "failure" | "rectified";
+    entry_type: "failure" | "rectified" | "force_majeure" | "voucher_timeout_penalty";
     created_at: string;
 }
 
@@ -94,6 +94,14 @@ export interface WebPushSubscription {
     subscription: Json;
     created_at: string;
     updated_at: string;
+}
+
+export interface VoucherReminderLog {
+    id: string;
+    voucher_id: string;
+    reminder_date: string;
+    pending_count: number;
+    created_at: string;
 }
 
 export type RecurrenceFrequency = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY" | "WEEKDAYS" | "CUSTOM";
@@ -199,6 +207,11 @@ export interface Database {
                 Row: WebPushSubscription
                 Insert: Omit<WebPushSubscription, "id" | "created_at" | "updated_at">
                 Update: Partial<WebPushSubscription>
+            }
+            voucher_reminder_logs: {
+                Row: VoucherReminderLog
+                Insert: Omit<VoucherReminderLog, "id" | "created_at">
+                Update: Partial<VoucherReminderLog>
             }
         }
         Views: {

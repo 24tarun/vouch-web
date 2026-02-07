@@ -2,6 +2,14 @@ import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";
 
+function formatLedgerEntryType(entryType: string): string {
+    if (entryType === "voucher_timeout_penalty") return "Voucher Timeout Penalty";
+    if (entryType === "force_majeure") return "Force Majeure";
+    if (entryType === "failure") return "Failure";
+    if (entryType === "rectified") return "Rectified";
+    return entryType;
+}
+
 export const monthlySettlement = schedules.task({
     id: "monthly-settlement",
     cron: "0 9 1 * *", // Run at 9am on the 1st of every month
@@ -37,6 +45,7 @@ export const monthlySettlement = schedules.task({
                 const tableRows = (entries as any[] || []).map(entry => `
                     <tr>
                         <td style="padding: 8px; border-bottom: 1px solid #eee;">${entry.task?.title || 'Adjustment'}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${formatLedgerEntryType(entry.entry_type)}</td>
                         <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; color: ${entry.amount_cents > 0 ? '#dc322f' : '#859900'}; font-family: monospace;">
                             ${entry.amount_cents > 0 ? '+' : ''}${(entry.amount_cents / 100).toFixed(2)} EUR
                         </td>
@@ -60,7 +69,16 @@ export const monthlySettlement = schedules.task({
 
                             <h3 style="margin-top: 32px; font-size: 18px; color: #1e293b; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px;">Detailed Breakdown</h3>
                             <table style="width: 100%; border-collapse: collapse; margin-top: 8px;">
+                                <thead>
+                                    <tr style="background: #f8fafc; text-align: left;">
+                                        <th style="padding: 8px; border-bottom: 2px solid #e2e8f0;">Task</th>
+                                        <th style="padding: 8px; border-bottom: 2px solid #e2e8f0;">Type</th>
+                                        <th style="padding: 8px; border-bottom: 2px solid #e2e8f0; text-align: right;">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
                                 ${tableRows}
+                                </tbody>
                             </table>
 
                             <div style="margin-top: 40px; background: #f8fafc; padding: 24px; border-radius: 8px; text-align: center;">

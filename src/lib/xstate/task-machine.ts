@@ -63,7 +63,7 @@ export const taskMachine = setup({
         setVoucherResponseDeadline: assign({
             voucherResponseDeadline: () => {
                 const deadline = new Date();
-                deadline.setHours(deadline.getHours() + 24);
+                deadline.setDate(deadline.getDate() + 7);
                 return deadline;
             },
             updatedAt: () => new Date(),

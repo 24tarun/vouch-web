@@ -4,6 +4,14 @@ import { createClient } from "@/lib/supabase/server";
 import { sendNotification } from "@/lib/notifications";
 import { revalidatePath } from "next/cache";
 
+function formatLedgerEntryType(entryType: string): string {
+    if (entryType === "voucher_timeout_penalty") return "Voucher Timeout Penalty";
+    if (entryType === "force_majeure") return "Force Majeure";
+    if (entryType === "failure") return "Failure";
+    if (entryType === "rectified") return "Rectified";
+    return entryType;
+}
+
 export async function sendLedgerReportEmail() {
     const supabase = await createClient();
     const {
@@ -39,7 +47,7 @@ export async function sendLedgerReportEmail() {
         <tr>
             <td style="padding: 8px; border-bottom: 1px solid #eee;">${new Date(entry.created_at).toLocaleDateString()}</td>
             <td style="padding: 8px; border-bottom: 1px solid #eee;">${entry.task?.title || "Manual Entry"}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee; text-transform: capitalize;">${entry.entry_type}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${formatLedgerEntryType(entry.entry_type)}</td>
             <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; color: ${entry.amount_cents > 0 ? '#dc322f' : '#859900'}; font-family: monospace;">
                 ${entry.amount_cents > 0 ? '+' : ''}${(entry.amount_cents / 100).toFixed(2)} EUR
             </td>

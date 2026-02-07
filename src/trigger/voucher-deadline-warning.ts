@@ -1,12 +1,9 @@
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";
-import type { TaskStatus } from "@/lib/xstate/task-machine";
 
-interface VoucherDeadlineWarningTask {
-    id: string;
-    title: string;
-    status: TaskStatus;
+interface PendingVoucherTask {
+    voucher_id: string;
     voucher_response_deadline: string;
     voucher: {
         id: string;
@@ -17,85 +14,119 @@ interface VoucherDeadlineWarningTask {
 
 export const voucherDeadlineWarning = schedules.task({
     id: "voucher-deadline-warning",
-    cron: "*/15 * * * *",
+    // 09:00, 12:00, 15:00, 18:00, 21:00 UTC
+    cron: "0 9,12,15,18,21 * * *",
     run: async () => {
         const supabase = createAdminClient();
         const now = new Date();
-        const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000).toISOString();
         const nowIso = now.toISOString();
+        const utcDate = nowIso.slice(0, 10);
 
         const response = await supabase
             .from("tasks")
             .select(`
-                id,
-                title,
-                status,
+                voucher_id,
                 voucher_response_deadline,
                 voucher:profiles!tasks_voucher_id_fkey(id, email, username)
             `)
             .eq("status", "AWAITING_VOUCHER")
-            .gt("voucher_response_deadline", nowIso)
-            .lt("voucher_response_deadline", oneHourFromNow);
+            .gt("voucher_response_deadline", nowIso);
 
         if (response.error) {
-            console.error("Error fetching tasks for voucher deadline warning:", response.error);
+            console.error("Error fetching tasks for voucher digest reminder:", response.error);
             return;
         }
 
-        const rows = (response.data || []) as unknown as VoucherDeadlineWarningTask[];
-        console.log(`Found ${rows.length} tasks near voucher response deadline`);
+        const rows = (response.data || []) as unknown as PendingVoucherTask[];
+
+        const countsByVoucher = new Map<
+            string,
+            { count: number; email?: string; username?: string | null }
+        >();
 
         for (const task of rows) {
-            const existingEventRes = await supabase
-                .from("task_events")
-                .select("id")
-                .eq("task_id", task.id)
-                .eq("event_type", "VOUCHER_DEADLINE_WARNING")
-                .limit(1);
+            const voucherId = task.voucher?.id || task.voucher_id;
+            if (!voucherId) continue;
 
-            if (existingEventRes.data && existingEventRes.data.length > 0) {
+            const existing = countsByVoucher.get(voucherId);
+            if (existing) {
+                existing.count += 1;
                 continue;
             }
 
-            if (task.voucher?.email) {
-                await sendNotification({
-                    to: task.voucher.email,
-                    userId: task.voucher.id,
-                    subject: `Less than 1 hour to approve task: ${task.title}`,
-                    title: "Approval deadline in 1 hour",
-                    text: `You have less than 1 hour to approve task: ${task.title}`,
-                    html: `
-                        <h1>Less than 1 hour to approve</h1>
-                        <p>Hi ${task.voucher.username || "there"},</p>
-                        <p>You have less than 1 hour to approve task: <strong>${task.title}</strong>.</p>
-                        <p>Approval deadline: ${new Date(task.voucher_response_deadline).toLocaleString()}</p>
-                        <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/voucher">Review request</a></p>
-                    `,
-                    url: "/dashboard/voucher",
-                    tag: `voucher-deadline-warning-${task.id}`,
-                    data: { taskId: task.id, kind: "VOUCHER_DEADLINE_WARNING" },
-                });
+            countsByVoucher.set(voucherId, {
+                count: 1,
+                email: task.voucher?.email,
+                username: task.voucher?.username,
+            });
+        }
+
+        console.log(`Found ${countsByVoucher.size} vouchers with pending requests`);
+
+        for (const [voucherId, summary] of countsByVoucher.entries()) {
+            if (summary.count <= 0) continue;
+
+            const existingLog = await supabase
+                .from("voucher_reminder_logs")
+                .select("id")
+                .eq("voucher_id", voucherId)
+                .eq("reminder_date", utcDate)
+                .maybeSingle();
+
+            if (existingLog.error) {
+                console.error(`Failed to check reminder log for voucher ${voucherId}:`, existingLog.error);
+                continue;
             }
 
-            const taskEvents = supabase.from("task_events") as unknown as {
-                insert: (values: {
-                    task_id: string;
-                    event_type: string;
-                    actor_id: string | null;
-                    from_status: TaskStatus;
-                    to_status: TaskStatus;
-                    metadata: Record<string, unknown>;
-                }) => Promise<unknown>;
-            };
+            if (existingLog.data) {
+                continue;
+            }
 
-            await taskEvents.insert({
-                task_id: task.id,
-                event_type: "VOUCHER_DEADLINE_WARNING",
-                actor_id: null,
-                from_status: task.status,
-                to_status: task.status,
-                metadata: { voucher_response_deadline: task.voucher_response_deadline },
-            });
+            const body =
+                summary.count === 1
+                    ? "You have 1 vouch request."
+                    : `You have ${summary.count} vouch requests.`;
+
+            try {
+                await sendNotification({
+                    to: summary.email,
+                    userId: voucherId,
+                    subject: "Vouch Requests",
+                    title: "Vouch Requests",
+                    text: body,
+                    html: `
+                        <h1>Vouch Requests</h1>
+                        <p>Hi ${summary.username || "there"},</p>
+                        <p>${body}</p>
+                        <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/voucher">Open voucher dashboard</a></p>
+                    `,
+                    url: "/dashboard/voucher",
+                    tag: `voucher-digest-${voucherId}-${utcDate}`,
+                    data: {
+                        kind: "VOUCH_REQUEST_DIGEST",
+                        pending_count: summary.count,
+                        reminder_date: utcDate,
+                    },
+                });
+
+                const reminderLogRes = await (supabase
+                    .from("voucher_reminder_logs") as any)
+                    .upsert(
+                        {
+                            voucher_id: voucherId,
+                            reminder_date: utcDate,
+                            pending_count: summary.count,
+                        },
+                        { onConflict: "voucher_id,reminder_date" }
+                    );
+
+                if (reminderLogRes.error) {
+                    console.error(`Failed to insert reminder log for voucher ${voucherId}:`, reminderLogRes.error);
+                }
+            } catch (error) {
+                console.error(`Failed to send digest reminder for voucher ${voucherId}:`, error);
+            }
         }
     },
 });
+

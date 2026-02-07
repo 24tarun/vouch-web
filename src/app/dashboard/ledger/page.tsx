@@ -108,11 +108,21 @@ export default async function LedgerPage() {
                                         <p className="text-lg font-medium text-slate-300 group-hover:text-slate-100 transition-colors truncate">
                                             {entry.task?.title || "Accountability Adjustment"}
                                         </p>
-                                        <Badge variant="outline" className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${entry.entry_type === "failure" ? "text-red-500" :
-                                            entry.entry_type === "force_majeure" ? "text-yellow-500" : "text-green-500"
+                                        <Badge variant="outline" className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${entry.entry_type === "failure"
+                                            ? "text-red-500"
+                                            : entry.entry_type === "voucher_timeout_penalty"
+                                                ? "text-orange-400"
+                                                : entry.entry_type === "force_majeure"
+                                                    ? "text-yellow-500"
+                                                    : "text-green-500"
                                             }`}>
-                                            {entry.entry_type === "force_majeure" ? "Force Majeure" :
-                                                entry.entry_type === "failure" ? "Failure" : "Rectified"}
+                                            {entry.entry_type === "failure"
+                                                ? "Failure"
+                                                : entry.entry_type === "voucher_timeout_penalty"
+                                                    ? "Voucher Timeout Penalty"
+                                                    : entry.entry_type === "force_majeure"
+                                                        ? "Force Majeure"
+                                                        : "Rectified"}
                                         </Badge>
                                     </div>
                                     <p className="text-xs text-slate-600 mt-1">
@@ -125,7 +135,7 @@ export default async function LedgerPage() {
                                         {entry.amount_cents > 0 ? "+" : "-"}€{(Math.abs(entry.amount_cents) / 100).toFixed(2)}
                                     </span>
                                     <span className="text-[10px] text-slate-700 uppercase tracking-widest mt-1">
-                                        {entry.entry_type === "force_majeure" ? "Reversal" : "Amount"}
+                                        {entry.amount_cents < 0 ? "Reversal" : "Amount"}
                                     </span>
                                 </div>
                             </div>
