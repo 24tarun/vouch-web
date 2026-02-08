@@ -7,6 +7,7 @@ export interface PushPayload {
     url?: string;
     tag?: string;
     data?: Record<string, unknown>;
+    sound?: string;
 }
 
 export interface PushSendResult {

@@ -2,6 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import type { Task } from "@/lib/types";
 import { CompactStatsItem } from "@/components/CompactStatsItem";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
+import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
+import { StatsActiveTaskList } from "@/components/StatsActiveTaskList";
+
+const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
 
 export default async function OverviewPage() {
     const supabase = await createClient();
@@ -10,7 +14,7 @@ export default async function OverviewPage() {
     } = await supabase.auth.getUser();
     const userId = user?.id ?? "";
 
-    const [tasksResult, pomoSessionsResult] = await Promise.all([
+    const [tasksResult, pomoSessionsResult, profileResult] = await Promise.all([
         supabase
             .from("tasks")
             .select("*")
@@ -21,9 +25,17 @@ export default async function OverviewPage() {
             .select("task_id, elapsed_seconds")
             .eq("user_id", userId)
             .neq("status", "DELETED"),
+        supabase
+            .from("profiles")
+            .select("default_pomo_duration_minutes")
+            .eq("id", userId)
+            .maybeSingle(),
     ]);
 
     const tasks = (tasksResult.data as Task[] | null) || [];
+    const profile = profileResult.data as { default_pomo_duration_minutes: number | null } | null;
+    const defaultPomoDurationMinutes =
+        profile?.default_pomo_duration_minutes ?? DEFAULT_POMO_DURATION_MINUTES;
     const allSessions = (pomoSessionsResult.data as Array<{
         task_id: string;
         elapsed_seconds: number;
@@ -39,7 +51,7 @@ export default async function OverviewPage() {
     const totalHours = Math.floor(totalSeconds / 3600);
     const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
 
-    const activeTasks = tasks.filter((t) => ["CREATED", "POSTPONED"].includes(t.status));
+    const activeTasks = tasks.filter((t) => ACTIVE_SECTION_STATUSES.has(t.status));
 
     const activeTasksCount = activeTasks.length;
     const pendingVouchCount = tasks.filter((t) =>
@@ -49,11 +61,7 @@ export default async function OverviewPage() {
     const failedCount = tasks.filter((t) => t.status === "FAILED" && !t.marked_completed_at).length;
     const deniedCount = tasks.filter((t) => t.status === "FAILED" && Boolean(t.marked_completed_at)).length;
 
-    const historyTasks = tasks.filter((t) =>
-        ["AWAITING_VOUCHER", "MARKED_COMPLETED", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(
-            t.status
-        )
-    );
+    const historyTasks = tasks.filter((t) => !ACTIVE_SECTION_STATUSES.has(t.status));
 
     const taskPomoTotals = allSessions.reduce((map, row) => {
         if (!row.task_id) return map;
@@ -128,9 +136,10 @@ export default async function OverviewPage() {
                     </div>
                 ) : (
                     <div className="flex flex-col border-t border-slate-900/50">
-                        {activeTasksWithPomo.map((task: Task & { pomo_total_seconds?: number }) => (
-                            <CompactStatsItem key={task.id} task={task} />
-                        ))}
+                        <StatsActiveTaskList
+                            initialTasks={activeTasksWithPomo}
+                            defaultPomoDurationMinutes={defaultPomoDurationMinutes}
+                        />
                     </div>
                 )}
             </section>

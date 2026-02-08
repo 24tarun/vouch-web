@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { sendNotification } from "@/lib/notifications";
 
 export async function POST(req: NextRequest) {
     try {
@@ -87,10 +88,10 @@ export async function POST(req: NextRequest) {
         if (session.task_id) {
             const { data: task } = await (supabase
                 .from("tasks") as any)
-                .select("status")
+                .select("id, title, status")
                 .eq("id", session.task_id)
                 .eq("user_id", user.id)
-                .single();
+                .maybeSingle();
 
             if (task?.status) {
                 const { error: eventError } = await (supabase.from("task_events") as any).insert({
@@ -110,6 +111,27 @@ export async function POST(req: NextRequest) {
                 if (eventError && eventError.code !== "23505") {
                     return NextResponse.json({ error: eventError.message }, { status: 500 });
                 }
+
+                await sendNotification({
+                    userId: user.id,
+                    subject: `Pomodoro auto-ended: ${task.title}`,
+                    title: "Pomodoro auto-ended",
+                    text: `Your Pomodoro ended automatically and was logged for ${task.title}.`,
+                    email: false,
+                    push: true,
+                    pushPayload: {
+                        title: "Pomodoro auto-ended",
+                        body: `Logged for ${task.title}.`,
+                        url: `/dashboard/tasks/${task.id}`,
+                        tag: `pomo-auto-end-${session.id}`,
+                        sound: "pomo-auto-end",
+                        data: {
+                            taskId: task.id,
+                            sessionId: session.id,
+                            kind: "POMO_AUTO_ENDED",
+                        },
+                    },
+                });
             }
         }
 

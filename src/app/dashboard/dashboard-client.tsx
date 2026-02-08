@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createTask, markTaskCompleted } from "@/actions/tasks";
+import { createTask, markTaskCompleted, ownerTempDeleteTask } from "@/actions/tasks";
 import { DashboardHeaderActions } from "@/components/DashboardHeaderActions";
 import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
 import { TaskRow } from "@/components/TaskRow";
@@ -73,11 +73,18 @@ export default function DashboardClient({
     const [activeTasks, setActiveTasks] = useState<Task[]>(split.active);
     const [completedTasks, setCompletedTasks] = useState<Task[]>(split.completed.slice(0, MAX_COMPLETED_TASKS));
     const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
+    const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         setActiveTasks(split.active);
         setCompletedTasks(split.completed.slice(0, MAX_COMPLETED_TASKS));
         setCompletingTaskIds((prev) => {
+            if (prev.size === 0) return prev;
+            const activeIds = new Set(split.active.map((task) => task.id));
+            const next = new Set(Array.from(prev).filter((taskId) => activeIds.has(taskId)));
+            return next.size === prev.size ? prev : next;
+        });
+        setDeletingTaskIds((prev) => {
             if (prev.size === 0) return prev;
             const activeIds = new Set(split.active.map((task) => task.id));
             const next = new Set(Array.from(prev).filter((taskId) => activeIds.has(taskId)));
@@ -95,6 +102,18 @@ export default function DashboardClient({
         setCompletingTaskIds((prev) => {
             const next = new Set(prev);
             if (completing) {
+                next.add(taskId);
+            } else {
+                next.delete(taskId);
+            }
+            return next;
+        });
+    };
+
+    const setTaskDeleting = (taskId: string, deleting: boolean) => {
+        setDeletingTaskIds((prev) => {
+            const next = new Set(prev);
+            if (deleting) {
                 next.add(taskId);
             } else {
                 next.delete(taskId);
@@ -195,6 +214,36 @@ export default function DashboardClient({
         setTaskCompleting(task.id, false);
     };
 
+    const handleDeleteTaskOptimistic = async (task: Task) => {
+        if (deletingTaskIds.has(task.id) || task.id.startsWith("temp-")) return;
+        setTaskDeleting(task.id, true);
+
+        const result = await runOptimisticMutation({
+            captureSnapshot: () => ({
+                activeTasks,
+                completedTasks,
+            }),
+            applyOptimistic: () => {
+                setActiveTasks((prev) => prev.filter((currentTask) => currentTask.id !== task.id));
+                setCompletedTasks((prev) => prev.filter((currentTask) => currentTask.id !== task.id));
+            },
+            runMutation: () => ownerTempDeleteTask(task.id),
+            rollback: (snapshot) => {
+                setActiveTasks(snapshot.activeTasks);
+                setCompletedTasks(snapshot.completedTasks);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        if (!result.ok) {
+            refreshInBackground();
+        }
+
+        setTaskDeleting(task.id, false);
+    };
+
     return (
         <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0 pb-14">
             <div className="flex items-center justify-between mb-8">
@@ -212,6 +261,10 @@ export default function DashboardClient({
                 <Lightbulb className="h-3 w-3 shrink-0 text-yellow-400" />
                 Ticking the task off will instantly mark it as completed.
             </p>
+            <p className="px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1.5">
+                <Lightbulb className="h-3 w-3 shrink-0 text-yellow-400" />
+                a new task can be deleted within 5 mins
+            </p>
 
             <div className="flex flex-col">
                 {activeTasks.length === 0 ? (
@@ -225,6 +278,8 @@ export default function DashboardClient({
                             task={task}
                             onComplete={handleCompleteTaskOptimistic}
                             isCompleting={completingTaskIds.has(task.id)}
+                            onDelete={handleDeleteTaskOptimistic}
+                            isDeleting={deletingTaskIds.has(task.id)}
                         />
                     ))
                 )}

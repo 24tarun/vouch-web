@@ -1,35 +1,66 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Task } from "@/lib/types";
-import { Check, ExternalLink } from "lucide-react";
+import { Check, ExternalLink, Repeat, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
-import { Repeat } from "lucide-react";
+import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 
 
 interface TaskRowProps {
     task: Task;
     onComplete?: (task: Task) => void;
     isCompleting?: boolean;
+    onDelete?: (task: Task) => void;
+    isDeleting?: boolean;
 }
 
-export function TaskRow({ task, onComplete, isCompleting = false }: TaskRowProps) {
+export function TaskRow({
+    task,
+    onComplete,
+    isCompleting = false,
+    onDelete,
+    isDeleting = false,
+}: TaskRowProps) {
     const router = useRouter();
     const hasPrefetchedRef = useRef(false);
+    const [nowMs, setNowMs] = useState(() => Date.now());
     const isActuallyCompleted = useMemo(
         () => ["AWAITING_VOUCHER", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(task.status),
         [task.status]
     );
     const deadline = new Date(task.deadline);
     const isOverdue = deadline < new Date() && !isActuallyCompleted;
+    const isTempTask = task.id.startsWith("temp-");
+    const canDelete = Boolean(
+        onDelete &&
+        !isTempTask &&
+        canOwnerTemporarilyDelete(task, nowMs)
+    );
 
     const handleCheck = () => {
         if (!onComplete || isCompleting || isActuallyCompleted || isOverdue) return;
         onComplete(task);
     };
+
+    const handleDelete = () => {
+        if (!onDelete || isDeleting || !canDelete) return;
+        onDelete(task);
+    };
+
+    useEffect(() => {
+        if (!onDelete) return;
+        const id = window.setInterval(() => {
+            setNowMs(Date.now());
+        }, 15000);
+
+        return () => {
+            window.clearInterval(id);
+        };
+    }, [onDelete]);
 
     // Solarized-inspired colors for states
     const statusColors: Record<string, string> = {
@@ -106,6 +137,23 @@ export function TaskRow({ task, onComplete, isCompleting = false }: TaskRowProps
                         {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
                     </span>
                 </div>
+
+                {canDelete && (
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        className={cn(
+                            "h-7 w-7 p-0 border transition-colors",
+                            "text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/30"
+                        )}
+                        aria-label="Delete task"
+                        title="Delete task (available for 5 minutes after creation)"
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                )}
 
                 <Button
                     asChild

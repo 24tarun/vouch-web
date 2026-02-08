@@ -1,4 +1,4 @@
-const SW_VERSION = 'v3';
+const SW_VERSION = 'v4';
 const STATIC_CACHE = `tas-static-${SW_VERSION}`;
 const PAGE_CACHE = `tas-pages-${SW_VERSION}`;
 const RUNTIME_CACHE = `tas-runtime-${SW_VERSION}`;
@@ -119,6 +119,7 @@ self.addEventListener('push', (event) => {
         body: 'You have a new notification.',
         url: '/dashboard',
         tag: undefined,
+        sound: undefined,
         data: {},
     };
 
@@ -130,6 +131,7 @@ self.addEventListener('push', (event) => {
                 body: json?.body || payload.body,
                 url: json?.url || payload.url,
                 tag: json?.tag,
+                sound: json?.sound,
                 data: json?.data || {},
             };
         } catch {
@@ -138,19 +140,31 @@ self.addEventListener('push', (event) => {
         }
     }
 
-    event.waitUntil(
-        self.registration.showNotification(payload.title, {
-            body: payload.body,
-            tag: payload.tag,
-            renotify: Boolean(payload.tag),
-            requireInteraction: false,
-            vibrate: [20, 40, 20],
-            data: { ...(payload.data || {}), url: payload.url },
-            icon: '/icon-192.png',
-            badge: '/icon-192.png',
-            actions: [{ action: 'open', title: 'Open' }],
+    const notifyPromise = self.registration.showNotification(payload.title, {
+        body: payload.body,
+        tag: payload.tag,
+        renotify: Boolean(payload.tag),
+        requireInteraction: false,
+        silent: false,
+        vibrate: [20, 40, 20],
+        data: { ...(payload.data || {}), url: payload.url },
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        actions: [{ action: 'open', title: 'Open' }],
+    });
+
+    const soundPromise = payload.sound
+        ? clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+            windowClients.forEach((client) => {
+                client.postMessage({
+                    type: 'tas-play-sound',
+                    sound: payload.sound,
+                });
+            });
         })
-    );
+        : Promise.resolve();
+
+    event.waitUntil(Promise.all([notifyPromise, soundPromise]));
 });
 
 self.addEventListener('notificationclick', (event) => {

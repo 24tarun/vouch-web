@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { markTaskComplete, postponeTask, forceMajeureTask, cancelRepetition } from "@/actions/tasks";
+import { markTaskComplete, postponeTask, forceMajeureTask, cancelRepetition, ownerTempDeleteTask } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
-import { Repeat } from "lucide-react";
+import { Repeat, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -39,6 +39,7 @@ import {
 } from "@/lib/datetime-local";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
+import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -72,6 +73,7 @@ export default function TaskDetailClient({
     const [postponeOpen, setPostponeOpen] = useState(false);
     const [isRepetitionStopped, setIsRepetitionStopped] = useState(task.recurrence_rule?.active === false);
     const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
+    const [nowMs, setNowMs] = useState(() => Date.now());
 
     const deadline = new Date(taskState.deadline);
     const isOverdue =
@@ -88,6 +90,7 @@ export default function TaskDetailClient({
     const [postponeTime, setPostponeTime] = useState(() => getTimePartFromLocalDateTime(maxPostponeLocal));
     const hasPomoData = (pomoSummary?.sessionCount || 0) > 0;
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
+    const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
 
     const formatDateDdMmYy = (value: Date | string) =>
         new Date(value).toLocaleDateString("en-GB", {
@@ -137,6 +140,16 @@ export default function TaskDetailClient({
     };
 
     const isActionPending = (action: string) => pendingActions.has(action);
+
+    useEffect(() => {
+        const id = window.setInterval(() => {
+            setNowMs(Date.now());
+        }, 15000);
+
+        return () => {
+            window.clearInterval(id);
+        };
+    }, []);
 
     const resetPostponeDraft = () => {
         const latestDeadline = new Date(taskState.deadline);
@@ -329,6 +342,22 @@ export default function TaskDetailClient({
         });
 
         setActionPending("cancelRepetition", false);
+    }
+
+    async function handleTempDelete() {
+        if (isActionPending("tempDelete") || !canTempDelete) return;
+        setActionPending("tempDelete", true);
+
+        const result = await ownerTempDeleteTask(taskState.id);
+        if (result?.error) {
+            toast.error(result.error);
+            setActionPending("tempDelete", false);
+            return;
+        }
+
+        refreshInBackground();
+        router.push("/dashboard");
+        setActionPending("tempDelete", false);
     }
 
     const formatFocusTime = (seconds: number) => {
@@ -540,6 +569,22 @@ export default function TaskDetailClient({
                                     </DialogContent>
                                 </Dialog>
                             )}
+
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={handleTempDelete}
+                                disabled={isActionPending("tempDelete") || !canTempDelete}
+                                className={canTempDelete
+                                    ? "h-9 w-9 p-0 bg-red-950/30 text-red-400 border border-red-900/50 hover:bg-red-900/40 hover:text-red-300"
+                                    : "h-9 w-9 p-0 bg-slate-800/50 text-slate-500 border border-slate-700/60 cursor-not-allowed"}
+                                title={canTempDelete
+                                    ? "Delete task (available for 5 minutes after creation)"
+                                    : "Delete available only within 5 minutes of creation"}
+                                aria-label="Delete task"
+                            >
+                                <Trash2 className="h-4 w-4" />
+                            </Button>
                         </>
                     )}
 

@@ -10,6 +10,7 @@ import { sendNotification } from "@/lib/notifications";
 import { DEFAULT_FAILURE_COST_CENTS } from "@/lib/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeTasksTag, pendingVoucherRequestsTag } from "@/lib/cache-tags";
+import { getOwnerDeleteRemainingMs, isOwnerTempDeletableStatus } from "@/lib/task-delete-window";
 
 const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
@@ -530,6 +531,57 @@ export async function postponeTask(taskId: string, newDeadline?: string) {
     });
 
     invalidateActiveTasksCache((user as any).id);
+    revalidatePath(`/dashboard/tasks/${taskId}`);
+    return { success: true };
+}
+
+export async function ownerTempDeleteTask(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, user_id, status, created_at")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if (!isOwnerTempDeletableStatus(task.status as TaskStatus)) {
+        return { error: `Cannot delete task in ${(task as any).status} status` };
+    }
+
+    if (getOwnerDeleteRemainingMs((task as any).created_at) <= 0) {
+        return { error: "Delete window expired. Tasks can only be deleted within 5 minutes." };
+    }
+
+    const supabaseAdmin = createAdminClient();
+    const { data: deletedRows, error } = await (supabaseAdmin.from("tasks") as any)
+        .delete()
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .in("status", ["CREATED", "POSTPONED"] as any)
+        .select("id");
+
+    if (error) {
+        return { error: error.message };
+    }
+
+    if (!deletedRows || deletedRows.length === 0) {
+        return { error: "Task can no longer be deleted. Please refresh." };
+    }
+
+    invalidateActiveTasksCache(user.id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
 }
