@@ -198,6 +198,13 @@ export default function TaskDetailClient({
         setSubtasks(task.subtasks || []);
     }, [task.subtasks]);
 
+    useEffect(() => {
+        setTaskState((prev) => ({
+            ...prev,
+            subtasks,
+        }));
+    }, [subtasks]);
+
     const resetPostponeDraft = () => {
         const latestDeadline = new Date(taskState.deadline);
         const latestMaxPostpone = new Date(latestDeadline.getTime() + 60 * 60 * 1000);
@@ -391,7 +398,6 @@ export default function TaskDetailClient({
                         )
                     );
                 }
-                refreshInBackground();
             },
         });
 
@@ -437,7 +443,7 @@ export default function TaskDetailClient({
                 setSubtasks(snapshot.subtasks);
             },
             onSuccess: () => {
-                refreshInBackground();
+                // Local optimistic state is already updated.
             },
         });
 
@@ -464,7 +470,7 @@ export default function TaskDetailClient({
                 setSubtasks(snapshot.subtasks);
             },
             onSuccess: () => {
-                refreshInBackground();
+                // Local optimistic state is already updated.
             },
         });
 
@@ -742,7 +748,7 @@ export default function TaskDetailClient({
                         )}
 
                         {canManageSubtasks && (
-                            <div className="rounded-lg border border-slate-700/70 bg-slate-800/35 p-3">
+                            <>
                                 {!subtaskInputOpen ? (
                                     <button
                                         type="button"
@@ -753,7 +759,7 @@ export default function TaskDetailClient({
                                         Add Child Task
                                     </button>
                                 ) : (
-                                    <form onSubmit={handleAddSubtask} className="space-y-2">
+                                    <form onSubmit={handleAddSubtask}>
                                         <div className="flex items-center gap-2">
                                             <Input
                                                 ref={newSubtaskInputRef}
@@ -774,12 +780,9 @@ export default function TaskDetailClient({
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
-                                        <p className="text-[11px] text-slate-500">
-                                            Add up to {MAX_SUBTASKS_PER_TASK} subtasks per parent task.
-                                        </p>
                                     </form>
                                 )}
-                            </div>
+                            </>
                         )}
 
                         {subtaskError && (

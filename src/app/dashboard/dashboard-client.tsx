@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createTask, markTaskCompleted, ownerTempDeleteTask } from "@/actions/tasks";
+import { hideDashboardTips } from "@/actions/auth";
 import { DashboardHeaderActions } from "@/components/DashboardHeaderActions";
 import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
 import { TaskRow } from "@/components/TaskRow";
@@ -27,6 +28,7 @@ interface DashboardClientProps {
     defaultVoucherId: string | null;
     userId: string;
     username: string;
+    initialHideTips: boolean;
 }
 
 function splitTasks(tasks: Task[]) {
@@ -68,6 +70,7 @@ export default function DashboardClient({
     defaultVoucherId,
     userId,
     username,
+    initialHideTips,
 }: DashboardClientProps) {
     const router = useRouter();
     const [, startRefreshTransition] = useTransition();
@@ -77,6 +80,8 @@ export default function DashboardClient({
     const [completedTasks, setCompletedTasks] = useState<Task[]>(split.completed.slice(0, MAX_COMPLETED_TASKS));
     const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
     const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(new Set());
+    const [tipsHidden, setTipsHidden] = useState(initialHideTips);
+    const [isHidingTips, setIsHidingTips] = useState(false);
 
     useEffect(() => {
         setActiveTasks(split.active);
@@ -94,6 +99,10 @@ export default function DashboardClient({
             return next.size === prev.size ? prev : next;
         });
     }, [split]);
+
+    useEffect(() => {
+        setTipsHidden(initialHideTips);
+    }, [initialHideTips]);
 
     const refreshInBackground = () => {
         startRefreshTransition(() => {
@@ -265,6 +274,31 @@ export default function DashboardClient({
         setTaskDeleting(task.id, false);
     };
 
+    const handleHideTips = async () => {
+        if (tipsHidden || isHidingTips) return;
+        setIsHidingTips(true);
+
+        const result = await runOptimisticMutation({
+            captureSnapshot: () => ({ tipsHidden }),
+            applyOptimistic: () => {
+                setTipsHidden(true);
+            },
+            runMutation: () => hideDashboardTips(),
+            rollback: (snapshot) => {
+                setTipsHidden(snapshot.tipsHidden);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        if (!result.ok) {
+            refreshInBackground();
+        }
+
+        setIsHidingTips(false);
+    };
+
     return (
         <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0 pb-14">
             <div className="flex items-center justify-between mb-8">
@@ -278,14 +312,28 @@ export default function DashboardClient({
                 defaultVoucherId={defaultVoucherId}
                 onCreateTaskOptimistic={handleCreateTaskOptimistic}
             />
-            <p className="px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1.5">
-                <Lightbulb className="h-3 w-3 shrink-0 text-yellow-400" />
-                Ticking the task off will instantly mark it as completed.
-            </p>
-            <p className="px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1.5">
-                <Lightbulb className="h-3 w-3 shrink-0 text-yellow-400" />
-                a new task can be deleted within 5 mins
-            </p>
+            {!tipsHidden && (
+                <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                        <p className="px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1.5">
+                            <Lightbulb className="h-3 w-3 shrink-0 text-yellow-400" />
+                            Ticking the task off will instantly mark it as completed.
+                        </p>
+                        <button
+                            type="button"
+                            disabled={isHidingTips}
+                            onClick={handleHideTips}
+                            className="text-[10px] px-2 py-1 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 disabled:opacity-60"
+                        >
+                            Hide tips
+                        </button>
+                    </div>
+                    <p className="px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider flex items-center gap-1.5">
+                        <Lightbulb className="h-3 w-3 shrink-0 text-yellow-400" />
+                        a new task can be deleted within 5 mins
+                    </p>
+                </div>
+            )}
 
             <div className="flex flex-col">
                 {activeTasks.length === 0 ? (

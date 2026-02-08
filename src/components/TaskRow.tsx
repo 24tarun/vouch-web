@@ -105,13 +105,9 @@ export function TaskRow({
                 setSubtasks(snapshot.subtasks);
             },
             onSuccess: () => {
-                void router.refresh();
+                // Local optimistic state is already updated.
             },
         });
-
-        if (!result.ok) {
-            void router.refresh();
-        }
 
         setSubtaskPending(subtaskId, false);
     };
@@ -131,13 +127,9 @@ export function TaskRow({
                 setSubtasks(snapshot.subtasks);
             },
             onSuccess: () => {
-                void router.refresh();
+                // Local optimistic state is already updated.
             },
         });
-
-        if (!result.ok) {
-            void router.refresh();
-        }
 
         setSubtaskPending(subtaskId, false);
     };

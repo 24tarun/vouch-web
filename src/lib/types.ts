@@ -8,6 +8,7 @@ export interface Profile {
     default_pomo_duration_minutes: number;
     default_failure_cost_cents: number;
     default_voucher_id: string | null;
+    hide_tips: boolean;
     created_at: string;
 }
 
@@ -173,7 +174,7 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Omit<Profile, "id" | "created_at" | "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id"> & Partial<Pick<Profile, "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id">>
+                Insert: Omit<Profile, "id" | "created_at" | "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "hide_tips"> & Partial<Pick<Profile, "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "hide_tips">>
                 Update: Partial<Profile>
             }
             friendships: {

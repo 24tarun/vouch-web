@@ -19,7 +19,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("default_failure_cost_cents, default_voucher_id, username")
+            .select("default_failure_cost_cents, default_voucher_id, username, hide_tips")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => result.data),
@@ -37,6 +37,7 @@ export default async function DashboardPage() {
         default_failure_cost_cents: number | null;
         default_voucher_id: string | null;
         username: string | null;
+        hide_tips: boolean | null;
     } | null;
 
     const defaultFailureCostEuros = (
@@ -47,6 +48,7 @@ export default async function DashboardPage() {
         profileDefaults?.username?.trim() ||
         ((user?.user_metadata as { username?: string } | undefined)?.username?.trim() ?? "") ||
         (user?.email?.split("@")[0] ?? "there");
+    const initialHideTips = profileDefaults?.hide_tips ?? false;
 
     const completedTasks = (completedTasksResult.data as Task[] | null) || [];
     const completedTaskIds = new Set(completedTasks.map((task) => task.id));
@@ -87,6 +89,7 @@ export default async function DashboardPage() {
                     defaultVoucherId={defaultVoucherId}
                     userId={userId || ""}
                     username={username}
+                    initialHideTips={initialHideTips}
                 />
             </div>
             <div className="pt-6 pb-safe">

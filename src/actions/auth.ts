@@ -171,6 +171,15 @@ export async function signOut() {
 
     if (user) {
         await autoEndLingeringPomoSession(supabase, user.id, "sign_out_auto_end");
+        // Reset dashboard tip visibility for the next signed-in session.
+        // @ts-ignore
+        const { error: resetTipsError } = await (supabase.from("profiles" as any) as any)
+            .update({ hide_tips: false } as any)
+            .eq("id", user.id as any);
+
+        if (resetTipsError) {
+            console.error("Failed to reset hide_tips on sign out:", resetTipsError.message);
+        }
     }
 
     await supabase.auth.signOut();
@@ -272,6 +281,30 @@ export async function updateUserDefaults(formData: FormData) {
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/tasks/new");
+    return { success: true };
+}
+
+export async function hideDashboardTips() {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    // @ts-ignore
+    const { error } = await (supabase.from("profiles" as any) as any)
+        .update({ hide_tips: true } as any)
+        .eq("id", user.id as any);
+
+    if (error) {
+        return { error: error.message };
+    }
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/settings");
     return { success: true };
 }
 
