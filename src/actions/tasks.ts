@@ -1082,8 +1082,8 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
         .from("pomo_sessions") as any)
         .select("id")
         .eq("user_id", user.id)
-        .eq("status", "ACTIVE")
-        .single();
+        .in("status", ["ACTIVE", "PAUSED"])
+        .maybeSingle();
 
     if (existing) {
         return { error: "You already have an active session. Please stop it first." };
@@ -1130,7 +1130,7 @@ export async function pausePomoSession(sessionId: string) {
 
     const now = new Date();
     const startTime = new Date(session.started_at);
-    const additionalElapsed = Math.floor((now.getTime() - startTime.getTime()) / 1000);
+    const additionalElapsed = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
     const newElapsed = (session.elapsed_seconds || 0) + additionalElapsed;
 
     // @ts-ignore
@@ -1157,6 +1157,17 @@ export async function resumePomoSession(sessionId: string) {
     if (!user) return { error: "Not authenticated" };
 
     // @ts-ignore
+    const { data: session } = await (supabase
+        .from("pomo_sessions") as any)
+        .select("status")
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .single();
+
+    if (!session) return { error: "Session not found" };
+    if ((session as any).status !== "PAUSED") return { error: "Session is not paused" };
+
+    // @ts-ignore
     const { data: resumed, error } = await (supabase
         .from("pomo_sessions") as any)
         .update({
@@ -1166,6 +1177,7 @@ export async function resumePomoSession(sessionId: string) {
         })
         .eq("id", sessionId)
         .eq("user_id", user.id)
+        .eq("status", "PAUSED")
         .select("task_id")
         .single();
 
@@ -1195,12 +1207,15 @@ export async function endPomoSession(
         .single();
 
     if (!session) return { error: "Session not found" };
+    if (session.status === "COMPLETED" || session.status === "DELETED") {
+        return { success: true };
+    }
 
     let finalElapsed = session.elapsed_seconds || 0;
     if (session.status === "ACTIVE") {
         const now = new Date();
         const startTime = new Date(session.started_at);
-        finalElapsed += Math.floor((now.getTime() - startTime.getTime()) / 1000);
+        finalElapsed += Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
     }
 
     // @ts-ignore
@@ -1292,7 +1307,8 @@ export async function getActivePomoSession() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    if (!user) return null;
+    const serverNow = new Date().toISOString();
+    if (!user) return { session: null, serverNow };
 
     // @ts-ignore
     const { data: session } = await (supabase
@@ -1305,7 +1321,7 @@ export async function getActivePomoSession() {
         .in("status", ["ACTIVE", "PAUSED"])
         .order("created_at", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
-    return session;
+    return { session: session || null, serverNow };
 }

@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
     startPomoSession,
     pausePomoSession,
@@ -12,8 +13,14 @@ import {
 } from "@/actions/tasks";
 import { PomoSession } from "@/lib/types";
 import { PomodoroTimer } from "@/components/PomodoroTimer";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 
 type PomoEndSource = "manual_stop" | "timer_completed" | "system";
+type PomoSessionWithTask = PomoSession & { task?: { title?: string | null } | null };
+type ActivePomoSessionResponse = {
+    session: PomoSessionWithTask | null;
+    serverNow: string;
+};
 
 interface PomodoroContextType {
     session: PomoSession | null;
@@ -44,13 +51,33 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const [taskTitle, setTaskTitle] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [minimized, setMinimized] = useState(false);
+    const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
     const unloadSignalSentRef = useRef(false);
     const suppressBeforeUnloadRef = useRef(false);
+    const supabaseRef = useRef(createSupabaseClient());
+    const pomoChannelRef = useRef<RealtimeChannel | null>(null);
+
+    const clearPomoChannel = useCallback(() => {
+        const channel = pomoChannelRef.current;
+        if (!channel) return;
+        void supabaseRef.current.removeChannel(channel);
+        pomoChannelRef.current = null;
+    }, []);
 
     const refreshSession = useCallback(async () => {
+        const requestStartedAtMs = Date.now();
         try {
-            const data = await getActivePomoSession();
-            const sessionData = data as (PomoSession & { task?: { title?: string | null } | null }) | null;
+            const data = await getActivePomoSession() as ActivePomoSessionResponse;
+            const responseReceivedAtMs = Date.now();
+
+            const serverNowMs = new Date(data.serverNow).getTime();
+            if (!Number.isNaN(serverNowMs)) {
+                const roundTripMs = responseReceivedAtMs - requestStartedAtMs;
+                const midpointClientMs = requestStartedAtMs + Math.floor(roundTripMs / 2);
+                setServerClockOffsetMs(serverNowMs - midpointClientMs);
+            }
+
+            const sessionData = data.session;
             if (sessionData) {
                 setSession(sessionData);
                 setTaskTitle(sessionData.task?.title || "Unknown Task");
@@ -66,12 +93,93 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     }, []);
 
     useEffect(() => {
-        refreshSession();
+        let mounted = true;
+        const supabase = supabaseRef.current;
 
-        // Poll every minute just to sync status in case of external changes? 
-        // Or refrain to save resources. 
-        // For now, relies on user actions triggering updates.
+        const subscribeToPomoSessions = (userId: string) => {
+            clearPomoChannel();
+            const channel = supabase
+                .channel(`realtime:pomo_sessions:${userId}`)
+                .on(
+                    "postgres_changes",
+                    {
+                        event: "*",
+                        schema: "public",
+                        table: "pomo_sessions",
+                        filter: `user_id=eq.${userId}`,
+                    },
+                    () => {
+                        void refreshSession();
+                    }
+                )
+                .subscribe((status) => {
+                    if (status === "SUBSCRIBED") {
+                        void refreshSession();
+                    }
+                });
+            pomoChannelRef.current = channel;
+        };
+
+        const initialize = async () => {
+            await refreshSession();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (!mounted) return;
+            if (user?.id) {
+                subscribeToPomoSessions(user.id);
+            }
+        };
+
+        void initialize();
+
+        const {
+            data: { subscription: authSubscription },
+        } = supabase.auth.onAuthStateChange((_event, authSession) => {
+            if (authSession?.user?.id) {
+                subscribeToPomoSessions(authSession.user.id);
+                void refreshSession();
+            } else {
+                clearPomoChannel();
+                setSession(null);
+                setTaskTitle(null);
+            }
+        });
+
+        return () => {
+            mounted = false;
+            authSubscription.unsubscribe();
+            clearPomoChannel();
+        };
+    }, [clearPomoChannel, refreshSession]);
+
+    useEffect(() => {
+        const handleFocus = () => {
+            void refreshSession();
+        };
+        const handleVisibility = () => {
+            if (document.visibilityState === "visible") {
+                void refreshSession();
+            }
+        };
+
+        window.addEventListener("focus", handleFocus);
+        document.addEventListener("visibilitychange", handleVisibility);
+        return () => {
+            window.removeEventListener("focus", handleFocus);
+            document.removeEventListener("visibilitychange", handleVisibility);
+        };
     }, [refreshSession]);
+
+    useEffect(() => {
+        if (!session) return;
+
+        const interval = window.setInterval(() => {
+            void refreshSession();
+        }, 15_000);
+
+        return () => window.clearInterval(interval);
+    }, [session, refreshSession]);
 
     useEffect(() => {
         unloadSignalSentRef.current = false;
@@ -156,30 +264,21 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
     const pauseSession = async () => {
         if (!session) return;
-        // Optimistic
-        const prev = session;
-        setSession({ ...prev, status: "PAUSED", paused_at: new Date().toISOString() });
-
         const res = await pausePomoSession(session.id);
         if (res.error) {
             toast.error(res.error);
-            setSession(prev); // Revert
         } else {
-            refreshSession();
+            await refreshSession();
         }
     };
 
     const resumeSession = async () => {
         if (!session) return;
-        const prev = session;
-        setSession({ ...prev, status: "ACTIVE", paused_at: null, started_at: new Date().toISOString() });
-
         const res = await resumePomoSession(session.id);
         if (res.error) {
             toast.error(res.error);
-            setSession(prev);
         } else {
-            refreshSession();
+            await refreshSession();
         }
     };
 
@@ -218,6 +317,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
                     session={session}
                     taskTitle={taskTitle || "Focus"}
                     minimized={minimized}
+                    serverClockOffsetMs={serverClockOffsetMs}
                     onMinimize={() => setMinimized(!minimized)}
                     onPause={pauseSession}
                     onResume={resumeSession}

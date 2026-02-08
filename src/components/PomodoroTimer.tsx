@@ -9,20 +9,20 @@ export interface PomodoroTimerProps {
     session: PomoSession;
     taskTitle: string;
     minimized: boolean;
+    serverClockOffsetMs: number;
     onMinimize: () => void;
     onPause: () => void;
     onResume: () => void;
     onStop: (source?: "manual_stop" | "timer_completed" | "system") => void;
 }
 
-function getSessionTiming(session: PomoSession) {
+function getSessionTiming(session: PomoSession, nowMs: number) {
     const durationSec = session.duration_minutes * 60;
     let currentElapsed = session.elapsed_seconds;
 
     if (session.status === "ACTIVE") {
         const start = new Date(session.started_at).getTime();
-        const now = new Date().getTime();
-        currentElapsed += Math.floor((now - start) / 1000);
+        currentElapsed += Math.max(0, Math.floor((nowMs - start) / 1000));
     }
 
     const remaining = Math.max(0, durationSec - currentElapsed);
@@ -67,10 +67,12 @@ function SevenSegmentColon() {
     );
 }
 
-export function PomodoroTimer({ session, taskTitle, minimized, onMinimize, onPause, onResume, onStop }: PomodoroTimerProps) {
-    const initialTiming = getSessionTiming(session);
-    const [timeLeft, setTimeLeft] = useState(initialTiming.remaining);
-    const [progress, setProgress] = useState(initialTiming.progress);
+export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffsetMs, onMinimize, onPause, onResume, onStop }: PomodoroTimerProps) {
+    const durationSec = session.duration_minutes * 60;
+    const initialRemaining = Math.max(0, durationSec - session.elapsed_seconds);
+    const initialProgress = durationSec > 0 ? Math.min(100, (session.elapsed_seconds / durationSec) * 100) : 100;
+    const [timeLeft, setTimeLeft] = useState(initialRemaining);
+    const [progress, setProgress] = useState(initialProgress);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const autoStopTriggeredRef = useRef(false);
 
@@ -80,7 +82,7 @@ export function PomodoroTimer({ session, taskTitle, minimized, onMinimize, onPau
     useEffect(() => {
         const calculateTime = () => {
             if (!session) return;
-            const timing = getSessionTiming(session);
+            const timing = getSessionTiming(session, Date.now() + serverClockOffsetMs);
             setTimeLeft(timing.remaining);
             setProgress(timing.progress);
         };
@@ -89,7 +91,7 @@ export function PomodoroTimer({ session, taskTitle, minimized, onMinimize, onPau
         const interval = setInterval(calculateTime, 1000);
 
         return () => clearInterval(interval);
-    }, [session]);
+    }, [session, serverClockOffsetMs]);
 
     useEffect(() => {
         autoStopTriggeredRef.current = false;
