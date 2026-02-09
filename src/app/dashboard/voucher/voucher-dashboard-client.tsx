@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny } from "@/actions/voucher";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ type HistoryTask = TaskWithRelations & { rectify_passes_used?: number };
 const HISTORY_PAGE_SIZE = 10;
 const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const VOUCH_HISTORY_OPEN_SESSION_KEY = "voucher.history.open";
+const PENDING_FALLBACK_POLL_MS = 3000;
 
 function mergeTasksById(
     existing: HistoryTask[],
@@ -52,6 +53,7 @@ export default function VoucherDashboardClient({
     const [pendingState, setPendingState] = useState<VoucherPendingTask[]>(pendingTasks);
     const [historyState, setHistoryState] = useState<HistoryTask[]>([]);
     const [inFlightIds, setInFlightIds] = useState<Set<string>>(new Set());
+    const inFlightIdsRef = useRef<Set<string>>(new Set());
 
     const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(() => {
         if (typeof window === "undefined") return false;
@@ -110,6 +112,24 @@ export default function VoucherDashboardClient({
     useEffect(() => {
         setPendingState(pendingTasks);
     }, [pendingTasks]);
+
+    useEffect(() => {
+        inFlightIdsRef.current = inFlightIds;
+    }, [inFlightIds]);
+
+    useEffect(() => {
+        const intervalId = window.setInterval(() => {
+            if (document.visibilityState !== "visible") return;
+            if (inFlightIdsRef.current.size > 0) return;
+            startRefreshTransition(() => {
+                router.refresh();
+            });
+        }, PENDING_FALLBACK_POLL_MS);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [router, startRefreshTransition]);
 
     const handleHistoryToggle = () => {
         setIsHistoryOpen((prev) => {

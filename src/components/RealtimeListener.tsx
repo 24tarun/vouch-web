@@ -4,15 +4,32 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+const ENABLE_REALTIME_DEBUG_LOGS = process.env.NODE_ENV !== "production";
+
 export function RealtimeListener({ userId }: { userId: string }) {
     const router = useRouter();
     const supabaseRef = useRef(createClient());
+    const refreshTimeoutRef = useRef<number | null>(null);
+    const lastRefreshAtRef = useRef(0);
+    const REFRESH_THROTTLE_MS = 300;
 
     useEffect(() => {
         if (!userId) return;
         const supabase = supabaseRef.current;
+        const scheduleRefresh = () => {
+            const now = Date.now();
+            const elapsed = now - lastRefreshAtRef.current;
+            const remaining = Math.max(0, REFRESH_THROTTLE_MS - elapsed);
+            if (refreshTimeoutRef.current) return;
 
-        // Subscribe to tasks
+            refreshTimeoutRef.current = window.setTimeout(() => {
+                lastRefreshAtRef.current = Date.now();
+                refreshTimeoutRef.current = null;
+                router.refresh();
+            }, remaining);
+        };
+
+        // Subscribe to tasks relevant to the current user as owner or voucher.
         const tasksChannel = supabase
             .channel('realtime:tasks')
             .on(
@@ -21,27 +38,34 @@ export function RealtimeListener({ userId }: { userId: string }) {
                     event: '*',
                     schema: 'public',
                     table: 'tasks',
+                    filter: `voucher_id=eq.${userId}`,
                 },
                 (payload) => {
-                    console.log("Realtime task event:", payload.eventType, payload.new, payload.old);
-                    const newTask = payload.new as any;
-                    const oldTask = payload.old as any;
-
-                    // Check if user is owner or voucher of the task (new or old)
-                    const isRelevant =
-                        (newTask && (newTask.user_id === userId || newTask.voucher_id === userId)) ||
-                        (oldTask && (oldTask.user_id === userId || oldTask.voucher_id === userId));
-
-                    if (isRelevant) {
-                        console.log("Relevant change! Refreshing dashboard...");
-                        router.refresh();
-                    } else {
-                        console.log("Irrelevant change for user:", userId);
+                    if (ENABLE_REALTIME_DEBUG_LOGS) {
+                        console.log("[Realtime][tasks][voucher]", payload.eventType, payload.new, payload.old);
                     }
+                    scheduleRefresh();
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'tasks',
+                    filter: `user_id=eq.${userId}`,
+                },
+                (payload) => {
+                    if (ENABLE_REALTIME_DEBUG_LOGS) {
+                        console.log("[Realtime][tasks][owner]", payload.eventType, payload.new, payload.old);
+                    }
+                    scheduleRefresh();
                 }
             )
             .subscribe((status) => {
-                console.log("Tasks subscription status:", status);
+                if (ENABLE_REALTIME_DEBUG_LOGS) {
+                    console.log("[Realtime][tasks] subscription:", status);
+                }
             });
 
         // Subscribe to friendships
@@ -55,24 +79,32 @@ export function RealtimeListener({ userId }: { userId: string }) {
                     table: 'friendships',
                 },
                 (payload) => {
-                    const newFriendship = payload.new as any;
-                    const oldFriendship = payload.old as any;
+                    const newFriendship = payload.new as { user_id?: string; friend_id?: string } | null;
+                    const oldFriendship = payload.old as { user_id?: string; friend_id?: string } | null;
 
                     const isRelevant =
                         (newFriendship && (newFriendship.user_id === userId || newFriendship.friend_id === userId)) ||
                         (oldFriendship && (oldFriendship.user_id === userId || oldFriendship.friend_id === userId));
 
                     if (isRelevant) {
-                        console.log("Realtime friendship update detected, refreshing...");
-                        router.refresh();
+                        if (ENABLE_REALTIME_DEBUG_LOGS) {
+                            console.log("[Realtime][friendships] relevant update:", payload.eventType);
+                        }
+                        scheduleRefresh();
                     }
                 }
             )
             .subscribe((status) => {
-                console.log("Friendships subscription status:", status);
+                if (ENABLE_REALTIME_DEBUG_LOGS) {
+                    console.log("[Realtime][friendships] subscription:", status);
+                }
             });
 
         return () => {
+            if (refreshTimeoutRef.current) {
+                window.clearTimeout(refreshTimeoutRef.current);
+                refreshTimeoutRef.current = null;
+            }
             supabase.removeChannel(tasksChannel);
             supabase.removeChannel(friendsChannel);
         };
