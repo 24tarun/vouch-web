@@ -5,14 +5,14 @@ import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny } fro
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { TaskWithRelations } from "@/lib/types";
+import type { TaskWithRelations, VoucherPendingTask } from "@/lib/types";
 import { Check, ChevronDown, ChevronRight, Loader2, Timer, X } from "lucide-react";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { toast } from "sonner";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
 
 interface VoucherDashboardClientProps {
-    pendingTasks: TaskWithRelations[];
+    pendingTasks: VoucherPendingTask[];
 }
 
 type HistoryTask = TaskWithRelations & { rectify_passes_used?: number };
@@ -49,7 +49,7 @@ export default function VoucherDashboardClient({
     const router = useRouter();
     const [, startRefreshTransition] = useTransition();
 
-    const [pendingState, setPendingState] = useState<TaskWithRelations[]>(pendingTasks);
+    const [pendingState, setPendingState] = useState<VoucherPendingTask[]>(pendingTasks);
     const [historyState, setHistoryState] = useState<HistoryTask[]>([]);
     const [inFlightIds, setInFlightIds] = useState<Set<string>>(new Set());
 
@@ -340,7 +340,7 @@ function CompactPendingItem({
     onDeny,
     isLoading,
 }: {
-    task: TaskWithRelations;
+    task: VoucherPendingTask;
     onOpenTask: () => void;
     onAccept: () => void;
     onDeny: () => void;
@@ -357,14 +357,21 @@ function CompactPendingItem({
     };
 
     const deadline = (() => {
+        if (task.pending_deadline_at) {
+            return new Date(task.pending_deadline_at);
+        }
         if (task.marked_completed_at) {
             const derived = new Date(task.marked_completed_at);
             derived.setDate(derived.getDate() + 2);
             derived.setHours(23, 59, 59, 999);
             return derived;
         }
-        return new Date(task.voucher_response_deadline || "");
+        if (task.voucher_response_deadline) {
+            return new Date(task.voucher_response_deadline);
+        }
+        return new Date(task.deadline || "");
     })();
+    const hasValidDeadline = !Number.isNaN(deadline.getTime());
     const deadlineLabel = Number.isNaN(deadline.getTime())
         ? "No deadline"
         : deadline.toLocaleString("en-GB", {
@@ -375,11 +382,19 @@ function CompactPendingItem({
             minute: "2-digit",
             hour12: false,
         });
-    const hoursLeft = Math.max(
-        0,
-        Math.floor((deadline.getTime() - renderTimestamp) / (1000 * 60 * 60))
-    );
+    const hoursLeft = hasValidDeadline
+        ? Math.max(0, Math.floor((deadline.getTime() - renderTimestamp) / (1000 * 60 * 60)))
+        : Number.POSITIVE_INFINITY;
     const pomoTotalSeconds = task.pomo_total_seconds || 0;
+    const statusLabel = task.pending_display_type === "ACTIVE" ? "ACTIVE" : "AWAITING VOUCHER";
+    const statusClass = task.pending_display_type === "ACTIVE"
+        ? "bg-blue-500/10 text-blue-300 border-blue-500/30 text-[10px]"
+        : "bg-purple-500/10 text-purple-300 border-purple-500/30 text-[10px]";
+    const deadlineClass = !hasValidDeadline
+        ? "bg-slate-500/10 text-slate-400 border-slate-500/20 text-[10px]"
+        : (hoursLeft < 6
+            ? "bg-red-500/10 text-red-500 border-red-500/30 text-[10px]"
+            : "bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]");
 
     return (
         <div className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
@@ -394,7 +409,10 @@ function CompactPendingItem({
                     >
                         {task.title}
                     </button>
-                    <Badge variant="outline" className={hoursLeft < 6 ? "bg-red-500/10 text-red-500 border-red-500/30 text-[10px]" : "bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]"}>
+                    <Badge variant="outline" className={statusClass}>
+                        {statusLabel}
+                    </Badge>
+                    <Badge variant="outline" className={deadlineClass}>
                         {deadlineLabel}
                     </Badge>
                     {pomoTotalSeconds > 0 && (
@@ -411,27 +429,31 @@ function CompactPendingItem({
             </div>
 
             <div className="flex items-center gap-3">
-                <Button
-                    size="sm"
-                    onClick={onAccept}
-                    disabled={isLoading}
-                    aria-label={`Accept task ${task.title}`}
-                    title="Accept task"
-                    className="h-9 w-9 p-0 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30 transition-all"
-                >
-                    <Check className="h-4 w-4" strokeWidth={3} />
-                </Button>
-                <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={onDeny}
-                    disabled={isLoading}
-                    aria-label={`Deny task ${task.title}`}
-                    title="Deny task"
-                    className="h-9 w-9 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30"
-                >
-                    <X className="h-4 w-4" strokeWidth={3} />
-                </Button>
+                {task.pending_actionable && (
+                    <>
+                        <Button
+                            size="sm"
+                            onClick={onAccept}
+                            disabled={isLoading}
+                            aria-label={`Accept task ${task.title}`}
+                            title="Accept task"
+                            className="h-9 w-9 p-0 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30 transition-all"
+                        >
+                            <Check className="h-4 w-4" strokeWidth={3} />
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={onDeny}
+                            disabled={isLoading}
+                            aria-label={`Deny task ${task.title}`}
+                            title="Deny task"
+                            className="h-9 w-9 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30"
+                        >
+                            <X className="h-4 w-4" strokeWidth={3} />
+                        </Button>
+                    </>
+                )}
             </div>
         </div>
     );

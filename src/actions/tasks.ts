@@ -292,6 +292,8 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
         metadata: { title, type: "simple" },
     });
 
+    invalidatePendingVoucherRequestsCache(defaultVoucherId);
+    revalidatePath("/dashboard/voucher");
     revalidateTaskSurfaces((task as any).id, user.id);
     return { success: true, taskId: (task as any).id };
 }
@@ -483,6 +485,8 @@ export async function createTask(formData: FormData) {
         },
     });
 
+    invalidatePendingVoucherRequestsCache(voucherId);
+    revalidatePath("/dashboard/voucher");
     revalidateTaskSurfaces((task as any).id, (user as any).id);
     return { success: true, taskId: (task as any).id };
 }
@@ -869,6 +873,8 @@ export async function postponeTask(taskId: string, newDeadline?: string) {
         metadata: { new_deadline: newDeadlineDate.toISOString() },
     });
 
+    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/dashboard/voucher");
     revalidateTaskSurfaces(taskId, user.id);
     return { success: true };
 }
@@ -884,7 +890,7 @@ export async function ownerTempDeleteTask(taskId: string) {
     }
 
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, status, created_at")
+        .select("id, user_id, voucher_id, status, created_at")
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .single();
@@ -918,7 +924,9 @@ export async function ownerTempDeleteTask(taskId: string) {
     }
 
     invalidateActiveTasksCache(user.id);
+    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/voucher");
     revalidatePath("/dashboard/stats");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };

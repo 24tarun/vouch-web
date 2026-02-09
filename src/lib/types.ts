@@ -151,6 +151,14 @@ export interface TaskWithRelations extends Task {
     subtasks?: TaskSubtask[];
 }
 
+export type VoucherPendingDisplayType = "ACTIVE" | "AWAITING_VOUCHER";
+
+export interface VoucherPendingTask extends TaskWithRelations {
+    pending_display_type: VoucherPendingDisplayType;
+    pending_deadline_at: string | null;
+    pending_actionable: boolean;
+}
+
 export interface ProfileWithFriends extends Profile {
     friends?: Profile[];
 }

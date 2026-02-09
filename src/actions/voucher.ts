@@ -4,7 +4,7 @@ import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
 import { sendNotification } from "@/lib/notifications";
-import { type Database } from "@/lib/types";
+import { type Database, type VoucherPendingTask } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { pendingVoucherRequestsTag } from "@/lib/cache-tags";
@@ -14,6 +14,65 @@ function invalidatePendingVoucherRequestsCache(voucherId: string) {
 }
 
 const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const ACTIVE_PENDING_STATUSES: TaskStatus[] = ["CREATED", "POSTPONED"];
+const AWAITING_PENDING_STATUSES: TaskStatus[] = ["AWAITING_VOUCHER", "MARKED_COMPLETED"];
+const PENDING_VOUCH_REQUEST_STATUSES: TaskStatus[] = [
+    ...ACTIVE_PENDING_STATUSES,
+    ...AWAITING_PENDING_STATUSES,
+];
+const ACTIVE_PENDING_STATUS_SET = new Set<TaskStatus>(ACTIVE_PENDING_STATUSES);
+
+function parseTimestamp(value: string | null | undefined): number | null {
+    if (!value) return null;
+    const ts = new Date(value).getTime();
+    return Number.isNaN(ts) ? null : ts;
+}
+
+function deriveAwaitingDeadline(task: { voucher_response_deadline: string | null; marked_completed_at: string | null }): string | null {
+    if (task.voucher_response_deadline) return task.voucher_response_deadline;
+    if (!task.marked_completed_at) return null;
+
+    const derived = new Date(task.marked_completed_at);
+    if (Number.isNaN(derived.getTime())) return null;
+    derived.setDate(derived.getDate() + 2);
+    derived.setHours(23, 59, 59, 999);
+    return derived.toISOString();
+}
+
+function getPendingDisplayType(status: TaskStatus): VoucherPendingTask["pending_display_type"] {
+    return ACTIVE_PENDING_STATUS_SET.has(status) ? "ACTIVE" : "AWAITING_VOUCHER";
+}
+
+function getPendingDeadline(task: {
+    status: TaskStatus;
+    deadline: string;
+    voucher_response_deadline: string | null;
+    marked_completed_at: string | null;
+}): string | null {
+    return ACTIVE_PENDING_STATUS_SET.has(task.status)
+        ? (task.deadline || null)
+        : deriveAwaitingDeadline(task);
+}
+
+function sortPendingTasks(tasks: VoucherPendingTask[]): VoucherPendingTask[] {
+    return [...tasks].sort((a, b) => {
+        const aDeadlineTs = parseTimestamp(a.pending_deadline_at);
+        const bDeadlineTs = parseTimestamp(b.pending_deadline_at);
+
+        if (aDeadlineTs === null && bDeadlineTs === null) {
+            const aUpdatedTs = parseTimestamp(a.updated_at) || 0;
+            const bUpdatedTs = parseTimestamp(b.updated_at) || 0;
+            return bUpdatedTs - aUpdatedTs;
+        }
+        if (aDeadlineTs === null) return 1;
+        if (bDeadlineTs === null) return -1;
+        if (aDeadlineTs !== bDeadlineTs) return aDeadlineTs - bDeadlineTs;
+
+        const aUpdatedTs = parseTimestamp(a.updated_at) || 0;
+        const bUpdatedTs = parseTimestamp(b.updated_at) || 0;
+        return bUpdatedTs - aUpdatedTs;
+    });
+}
 
 export async function voucherAccept(taskId: string) {
     const supabase = await createClient();
@@ -312,7 +371,7 @@ export async function authorizeRectify(taskId: string) {
     return { success: true };
 }
 
-export async function getCachedPendingVouchRequestsForVoucher(voucherId: string) {
+export async function getCachedPendingVouchRequestsForVoucher(voucherId: string): Promise<VoucherPendingTask[]> {
     if (!voucherId) return [];
 
     const loadPendingRequests = unstable_cache(
@@ -325,8 +384,8 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
                     user:profiles!tasks_user_id_fkey(*)
                 `)
                 .eq("voucher_id", voucherId as any)
-                .eq("status", "AWAITING_VOUCHER")
-                .order("voucher_response_deadline", { ascending: true });
+                .in("status", PENDING_VOUCH_REQUEST_STATUSES as any)
+                .order("updated_at", { ascending: false });
 
             const pendingTasks = (tasks as any[]) || [];
             if (pendingTasks.length === 0) return [];
@@ -348,10 +407,20 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
                 secondsByTask.set(key, total + (row.elapsed_seconds || 0));
             }
 
-            return pendingTasks.map((task) => ({
+            const normalizedTasks = pendingTasks.map((task) => ({
                 ...task,
                 pomo_total_seconds: secondsByTask.get(task.id) || 0,
-            }));
+                pending_display_type: getPendingDisplayType(task.status as TaskStatus),
+                pending_deadline_at: getPendingDeadline({
+                    status: task.status as TaskStatus,
+                    deadline: task.deadline,
+                    voucher_response_deadline: task.voucher_response_deadline,
+                    marked_completed_at: task.marked_completed_at,
+                }),
+                pending_actionable: (task.status as TaskStatus) === "AWAITING_VOUCHER",
+            })) as VoucherPendingTask[];
+
+            return sortPendingTasks(normalizedTasks);
         },
         ["pending-vouch-requests", voucherId],
         {
@@ -373,7 +442,7 @@ export async function getCachedPendingVouchCountForVoucher(voucherId: string) {
             const { count, error } = await (supabaseAdmin.from("tasks") as any)
                 .select("*", { count: "exact", head: true })
                 .eq("voucher_id", voucherId as any)
-                .eq("status", "AWAITING_VOUCHER");
+                .in("status", AWAITING_PENDING_STATUSES as any);
 
             if (error) {
                 console.error("Failed to load pending vouch count:", error.message);
@@ -392,7 +461,7 @@ export async function getCachedPendingVouchCountForVoucher(voucherId: string) {
     return loadPendingCount();
 }
 
-export async function getPendingVouchRequests() {
+export async function getPendingVouchRequests(): Promise<VoucherPendingTask[]> {
     const supabase = await createClient();
     const {
         data: { user },

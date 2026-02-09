@@ -77,6 +77,7 @@ export function TaskInput({
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedVoucherId, setSelectedVoucherId] = useState<string>(defaultVoucherId ?? "");
     const [failureCost, setFailureCost] = useState(defaultFailureCostEuros);
+    const [isDeadlineManuallyPicked, setIsDeadlineManuallyPicked] = useState(false);
 
     const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
     const [dateDraft, setDateDraft] = useState("");
@@ -163,6 +164,7 @@ export function TaskInput({
 
     const resetDeadlineToDefault = () => {
         setDeadlineError(null);
+        setIsDeadlineManuallyPicked(false);
         setSelectedDate(getDefaultDeadline());
     };
 
@@ -209,6 +211,7 @@ export function TaskInput({
             return;
         }
         setDeadlineError(null);
+        setIsDeadlineManuallyPicked(true);
         setSelectedDate(parsed);
         setIsDateSheetOpen(false);
     };
@@ -222,7 +225,7 @@ export function TaskInput({
 
     useEffect(() => {
         const timeMatch = title.match(/@(\d{1,2})(?::(\d{2}))?/);
-        if (timeMatch) {
+        if (timeMatch && !isDeadlineManuallyPicked) {
             const hours = parseInt(timeMatch[1]);
             const minutes = parseInt(timeMatch[2] || "0");
 
@@ -252,7 +255,7 @@ export function TaskInput({
                 setSelectedVoucherId(friend.id);
             }
         }
-    }, [title, friends]);
+    }, [title, friends, isDeadlineManuallyPicked]);
 
     const stripMetadata = (text: string) => {
         return text
@@ -409,6 +412,7 @@ export function TaskInput({
                                     const parsed = fromDateTimeLocalValue(e.target.value);
                                     if (parsed && parsed.getTime() > Date.now()) {
                                         setDeadlineError(null);
+                                        setIsDeadlineManuallyPicked(true);
                                         setSelectedDate(parsed);
                                     } else if (parsed) {
                                         setDeadlineError("Deadline must be in the future.");
