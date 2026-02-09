@@ -3,20 +3,19 @@
  * Runs: Every hour at minute 0 (`0 * * * *`).
  * What it does when it runs:
  * 1) Finds tasks still in AWAITING_VOUCHER where voucher_response_deadline has passed.
- * 2) Atomically flips each matched task to FAILED (only if still AWAITING_VOUCHER).
- * 3) Adds a failure ledger entry for the task owner and a voucher timeout penalty entry for the voucher.
- * 4) Logs a VOUCHER_TIMEOUT system event for audit/history.
+ * 2) Atomically flips each matched task to COMPLETED (auto-accept).
+ * 3) Adds only a voucher timeout penalty ledger entry for the voucher.
+ * 4) Deletes volatile proof media and logs a VOUCHER_TIMEOUT system event.
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { deleteTaskProof } from "@/lib/task-proof";
 
 const VOUCHER_TIMEOUT_PENALTY_CENTS = 30;
 
 interface TimeoutTask {
     id: string;
-    user_id: string;
     voucher_id: string;
-    failure_cost_cents: number;
 }
 
 export const voucherTimeout = schedules.task({
@@ -28,7 +27,7 @@ export const voucherTimeout = schedules.task({
 
         const { data, error } = await (supabase
             .from("tasks")
-            .select("id, user_id, voucher_id, failure_cost_cents")
+            .select("id, voucher_id")
             .eq("status", "AWAITING_VOUCHER")
             .lt("voucher_response_deadline", now) as any);
 
@@ -44,33 +43,26 @@ export const voucherTimeout = schedules.task({
             try {
                 const { data: updatedTask, error: updateError } = await (supabase
                     .from("tasks") as any)
-                    .update({ status: "FAILED" })
+                    .update({ status: "COMPLETED", updated_at: now })
                     .eq("id", task.id)
                     .eq("status", "AWAITING_VOUCHER")
                     .select("id")
                     .maybeSingle();
 
                 if (updateError) {
-                    console.error(`Failed to mark task ${task.id} as FAILED:`, updateError);
+                    console.error(`Failed to auto-accept task ${task.id}:`, updateError);
                     continue;
                 }
                 if (!updatedTask) {
                     continue;
                 }
 
-                const currentPeriod = new Date().toISOString().slice(0, 7);
-
-                const { error: ownerLedgerError } = await (supabase.from("ledger_entries") as any).insert({
-                    user_id: task.user_id,
-                    task_id: task.id,
-                    period: currentPeriod,
-                    amount_cents: task.failure_cost_cents,
-                    entry_type: "failure",
-                });
-
-                if (ownerLedgerError) {
-                    console.error(`Failed to add owner failure ledger entry for task ${task.id}:`, ownerLedgerError);
+                const cleanup = await deleteTaskProof(task.id, "voucher_timeout_auto_accept");
+                if (!cleanup.success) {
+                    console.error(`Failed to cleanup proof for timed-out task ${task.id}:`, cleanup.error);
                 }
+
+                const currentPeriod = new Date().toISOString().slice(0, 7);
 
                 const { error: voucherPenaltyError } = await (supabase.from("ledger_entries") as any).insert({
                     user_id: task.voucher_id,
@@ -89,10 +81,11 @@ export const voucherTimeout = schedules.task({
                     event_type: "VOUCHER_TIMEOUT",
                     actor_id: null,
                     from_status: "AWAITING_VOUCHER",
-                    to_status: "FAILED",
+                    to_status: "COMPLETED",
                     metadata: {
-                        reason: "Voucher did not respond in time",
+                        reason: "Voucher did not respond in time; task auto-accepted",
                         voucher_penalty_cents: VOUCHER_TIMEOUT_PENALTY_CENTS,
+                        auto_accepted: true,
                     },
                 });
 
@@ -100,7 +93,7 @@ export const voucherTimeout = schedules.task({
                     console.error(`Failed to insert VOUCHER_TIMEOUT event for task ${task.id}:`, eventError);
                 }
 
-                console.log(`Failed task ${task.id} due to voucher timeout`);
+                console.log(`Auto-accepted task ${task.id} due to voucher timeout`);
             } catch (taskError) {
                 console.error(`Unexpected error while processing task ${task.id}:`, taskError);
             }

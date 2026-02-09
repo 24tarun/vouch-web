@@ -15,6 +15,7 @@ export type FriendshipRow = TableRow<"friendships">;
 export type TaskEventRow = TableRow<"task_events">;
 export type TaskSubtaskRow = TableRow<"task_subtasks">;
 export type TaskReminderRow = TableRow<"task_reminders">;
+export type TaskCompletionProofRow = TableRow<"task_completion_proofs">;
 export type LedgerEntryRow = TableRow<"ledger_entries">;
 export type RectifyPassRow = TableRow<"rectify_passes">;
 export type ForceMajeureRow = TableRow<"force_majeure">;

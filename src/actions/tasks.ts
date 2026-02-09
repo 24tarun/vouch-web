@@ -11,6 +11,15 @@ import { DEFAULT_FAILURE_COST_CENTS, MAX_SUBTASKS_PER_TASK } from "@/lib/constan
 import { createAdminClient } from "@/lib/supabase/admin";
 import { activeTasksTag, pendingVoucherRequestsTag } from "@/lib/cache-tags";
 import { getOwnerDeleteRemainingMs, isOwnerTempDeletableStatus } from "@/lib/task-delete-window";
+import {
+    buildTaskProofObjectPath,
+    deleteTaskProof,
+    MAX_TASK_PROOF_BYTES,
+    MAX_TASK_PROOF_VIDEO_DURATION_MS,
+    TASK_PROOFS_BUCKET,
+    type TaskProofIntent,
+    type TaskProofMetadata,
+} from "@/lib/task-proof";
 
 const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
@@ -20,6 +29,9 @@ const INCOMPLETE_SUBTASKS_ERROR = "Complete all subtasks before marking this tas
 const INVALID_REMINDERS_ERROR = "Invalid reminders payload.";
 const PAST_REMINDER_ERROR = "All reminders must be in the future.";
 const REMINDER_AFTER_DEADLINE_ERROR = "Reminders must be before or at the deadline.";
+const INVALID_TASK_PROOF_ERROR = "Invalid proof payload.";
+const TASK_PROOF_TOO_LARGE_ERROR = "Proof must be 5MB or less.";
+const TASK_PROOF_VIDEO_TOO_LONG_ERROR = "Video proof must be 15 seconds or less.";
 
 function isValidTimeZone(timeZone: string): boolean {
     try {
@@ -222,6 +234,57 @@ function normalizeRemindersFromFormData(
     } catch {
         return { reminderDates: [], error: INVALID_REMINDERS_ERROR };
     }
+}
+
+function validateProofIntent(rawProofIntent?: TaskProofIntent | null): { proofIntent?: TaskProofIntent; error?: string } {
+    if (!rawProofIntent) return {};
+
+    const mediaKind = rawProofIntent.mediaKind;
+    if (mediaKind !== "image" && mediaKind !== "video") {
+        return { error: INVALID_TASK_PROOF_ERROR };
+    }
+
+    if (!rawProofIntent.mimeType || typeof rawProofIntent.mimeType !== "string") {
+        return { error: INVALID_TASK_PROOF_ERROR };
+    }
+
+    const sizeBytes = Number(rawProofIntent.sizeBytes || 0);
+    if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+        return { error: INVALID_TASK_PROOF_ERROR };
+    }
+
+    if (sizeBytes > MAX_TASK_PROOF_BYTES) {
+        return { error: TASK_PROOF_TOO_LARGE_ERROR };
+    }
+
+    const durationMs = rawProofIntent.durationMs ?? null;
+    if (mediaKind === "video") {
+        if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) {
+            return { error: INVALID_TASK_PROOF_ERROR };
+        }
+        if (durationMs > MAX_TASK_PROOF_VIDEO_DURATION_MS) {
+            return { error: TASK_PROOF_VIDEO_TOO_LONG_ERROR };
+        }
+    }
+
+    return {
+        proofIntent: {
+            mediaKind,
+            mimeType: rawProofIntent.mimeType,
+            sizeBytes,
+            durationMs: mediaKind === "video" ? Number(durationMs) : null,
+        },
+    };
+}
+
+export interface MarkTaskCompleteWithProofResult {
+    success?: boolean;
+    error?: string;
+    proofUploadTarget?: {
+        bucket: string;
+        objectPath: string;
+        uploadToken?: string;
+    };
 }
 
 async function insertTaskSubtasks(
@@ -632,6 +695,14 @@ export async function cancelRepetition(taskId: string) {
 
 
 export async function markTaskComplete(taskId: string, userTimeZone?: string) {
+    return markTaskCompleteWithProofIntent(taskId, userTimeZone);
+}
+
+export async function markTaskCompleteWithProofIntent(
+    taskId: string,
+    userTimeZone?: string,
+    rawProofIntent?: TaskProofIntent | null
+): Promise<MarkTaskCompleteWithProofResult> {
     const supabase = await createClient();
     const {
         data: { user },
@@ -669,6 +740,12 @@ export async function markTaskComplete(taskId: string, userTimeZone?: string) {
         return { error: INCOMPLETE_SUBTASKS_ERROR };
     }
 
+    const proofValidation = validateProofIntent(rawProofIntent);
+    if (proofValidation.error) {
+        return { error: proofValidation.error };
+    }
+
+    const proofIntent = proofValidation.proofIntent;
     const voucherResponseDeadline = getVoucherResponseDeadlineUtc(new Date(), userTimeZone);
     const nowIso = new Date().toISOString();
 
@@ -694,12 +771,104 @@ export async function markTaskComplete(taskId: string, userTimeZone?: string) {
         return { error: "Task can no longer be marked complete. Please refresh." };
     }
 
+    let proofUploadTarget: { bucket: string; objectPath: string; uploadToken?: string } | undefined;
+
+    if (proofIntent) {
+        const objectPath = buildTaskProofObjectPath({
+            ownerId: user.id,
+            taskId,
+            mimeType: proofIntent.mimeType,
+        });
+
+        const { data: existingProof } = await (supabase.from("task_completion_proofs") as any)
+            .select("bucket, object_path")
+            .eq("task_id", taskId as any)
+            .maybeSingle();
+
+        if (existingProof?.object_path) {
+            await (supabase.storage.from((existingProof.bucket as string) || TASK_PROOFS_BUCKET) as any)
+                .remove([(existingProof.object_path as string)]);
+        }
+
+        const { error: proofError } = await (supabase.from("task_completion_proofs") as any)
+            .upsert(
+                {
+                    task_id: taskId,
+                    owner_id: user.id,
+                    voucher_id: (task as any).voucher_id,
+                    bucket: TASK_PROOFS_BUCKET,
+                    object_path: objectPath,
+                    media_kind: proofIntent.mediaKind,
+                    mime_type: proofIntent.mimeType,
+                    size_bytes: proofIntent.sizeBytes,
+                    duration_ms: proofIntent.durationMs ?? null,
+                    upload_state: "PENDING",
+                },
+                { onConflict: "task_id" }
+            );
+
+        if (proofError) {
+            // Roll back to active state if we cannot initialize volatile proof upload.
+            await (supabase.from("tasks") as any)
+                .update({
+                    status: (task as any).postponed_at ? "POSTPONED" : "CREATED",
+                    marked_completed_at: null,
+                    voucher_response_deadline: null,
+                    updated_at: new Date().toISOString(),
+                } as any)
+                .eq("id", taskId as any)
+                .eq("user_id", user.id as any)
+                .eq("status", "AWAITING_VOUCHER");
+
+            return { error: proofError.message };
+        }
+
+        const supabaseAdmin = createAdminClient();
+        const { data: signedUpload, error: signedUploadError } = await supabaseAdmin.storage
+            .from(TASK_PROOFS_BUCKET)
+            .createSignedUploadUrl(objectPath);
+
+        if (signedUploadError || !signedUpload?.token) {
+            // Revert task + cleanup proof row/object if upload token creation failed.
+            await (supabase.from("tasks") as any)
+                .update({
+                    status: (task as any).postponed_at ? "POSTPONED" : "CREATED",
+                    marked_completed_at: null,
+                    voucher_response_deadline: null,
+                    updated_at: new Date().toISOString(),
+                } as any)
+                .eq("id", taskId as any)
+                .eq("user_id", user.id as any)
+                .eq("status", "AWAITING_VOUCHER");
+
+            await deleteTaskProof(taskId, "signed_upload_url_failure");
+            return { error: signedUploadError?.message || "Could not create proof upload session." };
+        }
+
+        proofUploadTarget = {
+            bucket: TASK_PROOFS_BUCKET,
+            objectPath,
+            uploadToken: signedUpload.token,
+        };
+    } else {
+        const cleanup = await deleteTaskProof(taskId, "mark_complete_without_proof");
+        if (!cleanup.success) {
+            return { error: cleanup.error || "Could not clear previous proof media." };
+        }
+    }
+
     await (supabase.from("task_events") as any).insert({
         task_id: (taskId as any),
         event_type: "MARK_COMPLETE",
         actor_id: (user as any).id,
         from_status: (task as any).status,
         to_status: "AWAITING_VOUCHER",
+        metadata: proofIntent
+            ? {
+                has_proof: true,
+                media_kind: proofIntent.mediaKind,
+            }
+            : null,
     });
 
     invalidateActiveTasksCache((user as any).id);
@@ -707,7 +876,155 @@ export async function markTaskComplete(taskId: string, userTimeZone?: string) {
     // Mirror accept/deny behavior so voucher list cache is invalidated on new request.
     revalidatePath("/dashboard/voucher");
     revalidatePath(`/dashboard/tasks/${taskId}`);
+    return { success: true, proofUploadTarget };
+}
+
+export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskProofMetadata) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const proofValidation = validateProofIntent({
+        mediaKind: proofMeta.mediaKind,
+        mimeType: proofMeta.mimeType,
+        sizeBytes: proofMeta.sizeBytes,
+        durationMs: proofMeta.durationMs ?? null,
+    });
+    if (proofValidation.error) {
+        return { error: proofValidation.error };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, user_id, voucher_id, status")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if ((task as any).status !== "AWAITING_VOUCHER") {
+        return { error: "Task is no longer awaiting voucher response." };
+    }
+
+    const { data: proofRow, error: proofFetchError } = await (supabase.from("task_completion_proofs") as any)
+        .select("id, object_path, bucket, owner_id")
+        .eq("task_id", taskId as any)
+        .eq("owner_id", user.id as any)
+        .maybeSingle();
+
+    if (proofFetchError) {
+        return { error: proofFetchError.message };
+    }
+
+    if (!proofRow) {
+        return { error: "Proof record not found." };
+    }
+
+    if (proofRow.bucket !== proofMeta.bucket || proofRow.object_path !== proofMeta.objectPath) {
+        return { error: "Proof upload target mismatch." };
+    }
+
+    const { error: updateError } = await (supabase.from("task_completion_proofs") as any)
+        .update({
+            media_kind: proofMeta.mediaKind,
+            mime_type: proofMeta.mimeType,
+            size_bytes: proofMeta.sizeBytes,
+            duration_ms: proofMeta.durationMs ?? null,
+            upload_state: "UPLOADED",
+            updated_at: new Date().toISOString(),
+        } as any)
+        .eq("id", proofRow.id as any)
+        .eq("owner_id", user.id as any);
+
+    if (updateError) {
+        return { error: updateError.message };
+    }
+
+    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/dashboard/voucher");
+    revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
+}
+
+export async function revertTaskCompletionAfterProofFailure(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, status, deadline, postponed_at, voucher_id")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if ((task as any).status !== "AWAITING_VOUCHER") {
+        return { error: `Cannot revert completion from ${(task as any).status} status` };
+    }
+
+    const cleanup = await deleteTaskProof(taskId, "proof_upload_failure_revert");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not remove proof media." };
+    }
+
+    const nowIso = new Date().toISOString();
+    if (new Date(nowIso) >= new Date((task as any).deadline)) {
+        return { error: "Deadline has passed" };
+    }
+
+    const restoredStatus: "CREATED" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "CREATED";
+
+    const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
+        .update({
+            status: restoredStatus,
+            marked_completed_at: null,
+            voucher_response_deadline: null,
+            updated_at: nowIso,
+        } as any)
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .eq("status", "AWAITING_VOUCHER")
+        .gt("deadline", nowIso)
+        .select("id");
+
+    if (updateError) {
+        return { error: updateError.message };
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task can no longer be reverted. Please refresh." };
+    }
+
+    await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "PROOF_UPLOAD_FAILED_REVERT",
+        actor_id: user.id,
+        from_status: "AWAITING_VOUCHER",
+        to_status: restoredStatus,
+    });
+
+    invalidateActiveTasksCache(user.id);
+    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/voucher");
+    revalidatePath(`/dashboard/tasks/${taskId}`);
+
+    return { success: true, status: restoredStatus };
 }
 
 export async function undoTaskComplete(taskId: string) {
@@ -737,6 +1054,11 @@ export async function undoTaskComplete(taskId: string) {
     const nowIso = new Date().toISOString();
     if (new Date(nowIso) >= new Date((task as any).deadline)) {
         return { error: "Deadline has passed" };
+    }
+
+    const cleanup = await deleteTaskProof(taskId, "undo_complete");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not remove proof media." };
     }
 
     const restoredStatus: "CREATED" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "CREATED";
@@ -1278,6 +1600,15 @@ export async function getTask(taskId: string) {
 
             (task as any).subtasks = (subtasks as any[]) || [];
             (task as any).reminders = (reminders as any[]) || [];
+        }
+
+        if (isOwner || isVoucher) {
+            const { data: proof } = await (supabase.from("task_completion_proofs") as any)
+                .select("*")
+                .eq("task_id", taskId as any)
+                .maybeSingle();
+
+            (task as any).completion_proof = proof || null;
         }
 
         if (isOwner || isVoucher) {

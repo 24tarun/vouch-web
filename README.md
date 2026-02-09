@@ -110,7 +110,7 @@ npx trigger.dev@latest deploy
 **Scheduled Tasks:**
 - `deadline-warning`: Runs every 15 minutes (checks tasks with <1 hour until deadline)
 - `voucher-deadline-warning`: Runs at 09:00, 12:00, 15:00, 18:00, 21:00 UTC (daily digest of pending vouch requests, max once per voucher per UTC day)
-- `voucher-timeout`: Runs every hour (fails overdue awaiting-voucher tasks and adds €0.30 voucher timeout penalty to voucher ledger)
+- `voucher-timeout`: Runs every hour (auto-accepts overdue awaiting-voucher tasks, adds €0.30 voucher timeout penalty, and cleans proof media)
 - `monthly-settlement`: Runs on 1st of each month at 9am (sends ledger settlement emails)
 
 Voucher review window:

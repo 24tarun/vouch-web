@@ -35,6 +35,7 @@ export interface Task {
     created_at: string;
     updated_at: string;
     subtasks?: TaskSubtask[];
+    completion_proof?: TaskCompletionProof | null;
 }
 
 export interface TaskSubtask {
@@ -54,6 +55,22 @@ export interface TaskReminder {
     user_id: string;
     reminder_at: string;
     notified_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface TaskCompletionProof {
+    id: string;
+    task_id: string;
+    owner_id: string;
+    voucher_id: string;
+    bucket: string;
+    object_path: string;
+    media_kind: "image" | "video";
+    mime_type: string;
+    size_bytes: number;
+    duration_ms: number | null;
+    upload_state: "PENDING" | "UPLOADED" | "FAILED";
     created_at: string;
     updated_at: string;
 }
@@ -160,6 +177,7 @@ export interface TaskWithRelations extends Task {
     pomo_total_seconds?: number;
     subtasks?: TaskSubtask[];
     reminders?: TaskReminder[];
+    completion_proof?: TaskCompletionProof | null;
 }
 
 export type VoucherPendingDisplayType = "ACTIVE" | "AWAITING_VOUCHER";
@@ -220,6 +238,11 @@ export interface Database {
                 Row: TaskReminder
                 Insert: Omit<TaskReminder, "id" | "created_at" | "updated_at">
                 Update: Partial<TaskReminder>
+            }
+            task_completion_proofs: {
+                Row: TaskCompletionProof
+                Insert: Omit<TaskCompletionProof, "id" | "created_at" | "updated_at">
+                Update: Partial<TaskCompletionProof>
             }
             task_events: {
                 Row: TaskEvent

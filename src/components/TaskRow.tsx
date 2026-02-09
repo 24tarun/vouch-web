@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { deleteTaskSubtask, toggleTaskSubtask } from "@/actions/tasks";
 import type { Task } from "@/lib/types";
-import { Check, ChevronDown, ChevronRight, ExternalLink, Repeat, Trash2 } from "lucide-react";
+import { Camera, Check, ChevronDown, ChevronRight, ExternalLink, Repeat, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "@/lib/utils";
 import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
@@ -15,6 +15,9 @@ interface TaskRowProps {
     task: Task;
     onComplete?: (task: Task) => void;
     isCompleting?: boolean;
+    onAttachProof?: (task: Task) => void;
+    hasProofAttached?: boolean;
+    proofUploadError?: string | null;
     onDelete?: (task: Task) => void;
     isDeleting?: boolean;
 }
@@ -23,6 +26,9 @@ export function TaskRow({
     task,
     onComplete,
     isCompleting = false,
+    onAttachProof,
+    hasProofAttached = false,
+    proofUploadError = null,
     onDelete,
     isDeleting = false,
 }: TaskRowProps) {
@@ -50,6 +56,7 @@ export function TaskRow({
         !isTempTask &&
         canOwnerTemporarilyDelete(task, nowMs)
     );
+    const canAttachProof = Boolean(onAttachProof && !isActuallyCompleted && !isOverdue);
 
     const subtaskExpandStorageKey = `task-subtasks-expanded:${task.id}`;
 
@@ -280,6 +287,24 @@ export function TaskRow({
                         </Button>
                     )}
 
+                    {canAttachProof && (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => onAttachProof?.(task)}
+                            className={cn(
+                                "h-7 w-7 p-0 border",
+                                hasProofAttached
+                                    ? "text-blue-300 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20"
+                                    : "text-slate-300 border-slate-700/80 hover:text-white hover:bg-slate-800"
+                            )}
+                            aria-label="Attach proof"
+                            title={hasProofAttached ? "Proof attached" : "Attach proof (optional)"}
+                        >
+                            <Camera className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
+
                     {canDelete && (
                         <Button
                             type="button"
@@ -310,6 +335,12 @@ export function TaskRow({
                     </Button>
                 </div>
             </div>
+
+            {proofUploadError && (
+                <div className="ml-8 mr-3 mb-2 mt-0.5 rounded border border-red-900/60 bg-red-950/30 px-2 py-1">
+                    <p className="text-[11px] text-red-300">{proofUploadError}</p>
+                </div>
+            )}
 
             {hasSubtasks && isExpanded && (
                 <div className="ml-8 mr-3 mb-3 mt-1 border-l border-slate-800/70 pl-3 space-y-1.5">

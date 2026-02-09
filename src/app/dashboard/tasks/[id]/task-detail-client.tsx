@@ -6,16 +6,18 @@ import {
     addTaskSubtask,
     cancelRepetition,
     deleteTaskSubtask,
+    finalizeTaskProofUpload,
     forceMajeureTask,
-    markTaskComplete,
+    markTaskCompleteWithProofIntent,
     ownerTempDeleteTask,
     postponeTask,
     replaceTaskReminders,
+    revertTaskCompletionAfterProofFailure,
     undoTaskComplete,
     toggleTaskSubtask,
 } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
-import { Check, PenLine, Plus, Repeat, Trash2 } from "lucide-react";
+import { Camera, Check, PenLine, Plus, Repeat, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -53,6 +55,13 @@ import { HardRefreshButton } from "@/components/HardRefreshButton";
 import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 import { MAX_SUBTASKS_PER_TASK } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
+import {
+    getProofIntentFromPreparedProof,
+    prepareTaskProof,
+    type PreparedTaskProof,
+} from "@/lib/task-proof-client";
+import { pickProofFileFromNativeUi } from "@/lib/native-proof-picker";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -65,6 +74,11 @@ interface TaskDetailClientProps {
     } | null;
     defaultPomoDurationMinutes: number;
     viewerId: string;
+}
+
+interface TaskProofDraft {
+    proof: PreparedTaskProof;
+    previewUrl: string;
 }
 
 function getVoucherResponseDeadlineLocal(baseDate: Date = new Date()): Date {
@@ -101,7 +115,11 @@ export default function TaskDetailClient({
     const [subtaskError, setSubtaskError] = useState<string | null>(null);
     const [pendingSubtaskIds, setPendingSubtaskIds] = useState<Set<string>>(new Set());
     const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+    const [proofDraft, setProofDraft] = useState<TaskProofDraft | null>(null);
+    const [proofUploadError, setProofUploadError] = useState<string | null>(null);
     const newSubtaskInputRef = useRef<HTMLInputElement>(null);
+    const proofInputRef = useRef<HTMLInputElement>(null);
+    const proofPreviewUrlRef = useRef<string | null>(null);
     const shouldRestoreSubtaskInputFocusRef = useRef(false);
 
     const deadline = new Date(taskState.deadline);
@@ -187,6 +205,15 @@ export default function TaskDetailClient({
         });
     };
 
+    const setTaskProofDraft = (nextDraft: TaskProofDraft | null) => {
+        setProofDraft((prev) => {
+            if (prev?.previewUrl && (!nextDraft || prev.previewUrl !== nextDraft.previewUrl)) {
+                URL.revokeObjectURL(prev.previewUrl);
+            }
+            return nextDraft;
+        });
+    };
+
     const focusNewSubtaskInput = () => {
         window.requestAnimationFrame(() => {
             const input = newSubtaskInputRef.current;
@@ -241,6 +268,18 @@ export default function TaskDetailClient({
             focusNewSubtaskInput();
         }
     }, [isAddingSubtask]);
+
+    useEffect(() => {
+        proofPreviewUrlRef.current = proofDraft?.previewUrl || null;
+    }, [proofDraft]);
+
+    useEffect(() => {
+        return () => {
+            if (proofPreviewUrlRef.current) {
+                URL.revokeObjectURL(proofPreviewUrlRef.current);
+            }
+        };
+    }, []);
 
     const resetPostponeDraft = () => {
         const latestDeadline = new Date(taskState.deadline);
@@ -385,6 +424,127 @@ export default function TaskDetailClient({
         setActionPending("saveReminders", false);
     }
 
+    const processPickedProofFile = async (selectedFile: File) => {
+        try {
+            const prepared = await prepareTaskProof(selectedFile);
+            const previewUrl = URL.createObjectURL(prepared.file);
+            setTaskProofDraft({ proof: prepared, previewUrl });
+            setProofUploadError(null);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Could not process proof file.";
+            toast.error(message);
+        }
+    };
+
+    const openProofPicker = async () => {
+        if (!isOwner || !isActiveParentTask || isActionPending("markComplete")) return;
+        if (proofDraft) {
+            const shouldReplace = window.confirm(
+                "A proof file is already attached. Press OK to replace it, or Cancel to remove it."
+            );
+            if (!shouldReplace) {
+                setTaskProofDraft(null);
+                setProofUploadError(null);
+                return;
+            }
+        }
+
+        const nativeFile = await pickProofFileFromNativeUi();
+        if (nativeFile) {
+            await processPickedProofFile(nativeFile);
+            return;
+        }
+
+        proofInputRef.current?.click();
+    };
+
+    const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const selectedFile = event.target.files?.[0];
+        event.target.value = "";
+        if (!selectedFile) return;
+        await processPickedProofFile(selectedFile);
+    };
+
+    const uploadProofInBackground = async (
+        taskId: string,
+        draft: TaskProofDraft,
+        uploadTarget: { bucket: string; objectPath: string; uploadToken?: string }
+    ) => {
+        const supabase = createBrowserSupabaseClient();
+        const uploadResponse = uploadTarget.uploadToken
+            ? await supabase.storage
+                .from(uploadTarget.bucket)
+                .uploadToSignedUrl(uploadTarget.objectPath, uploadTarget.uploadToken, draft.proof.file, {
+                    contentType: draft.proof.mimeType,
+                    upsert: true,
+                })
+            : await supabase.storage
+                .from(uploadTarget.bucket)
+                .upload(uploadTarget.objectPath, draft.proof.file, {
+                    upsert: true,
+                    contentType: draft.proof.mimeType,
+                    cacheControl: "120",
+                });
+
+        const uploadError = uploadResponse.error;
+
+        if (uploadError) {
+            console.error("Task proof upload failed (task detail):", uploadError);
+            const uploadMessage = uploadError.message || "Unknown upload error";
+            setProofUploadError(`Proof upload failed (${uploadMessage}). Task reverted to active state.`);
+            toast.error(`Proof upload failed: ${uploadMessage}`);
+            const reverted = await revertTaskCompletionAfterProofFailure(taskId);
+            if (reverted?.error) {
+                toast.error(reverted.error);
+            }
+            if (reverted?.success) {
+                const restoredStatus = (reverted as any).status as "CREATED" | "POSTPONED";
+                setTaskState((prev) => ({
+                    ...prev,
+                    status: restoredStatus,
+                    marked_completed_at: null,
+                    voucher_response_deadline: null,
+                    updated_at: new Date().toISOString(),
+                }));
+            }
+            refreshInBackground();
+            return;
+        }
+
+        const finalize = await finalizeTaskProofUpload(taskId, {
+            mediaKind: draft.proof.mediaKind,
+            mimeType: draft.proof.mimeType,
+            sizeBytes: draft.proof.sizeBytes,
+            durationMs: draft.proof.durationMs,
+            bucket: uploadTarget.bucket,
+            objectPath: uploadTarget.objectPath,
+        });
+
+        if (finalize?.error) {
+            setProofUploadError("Proof finalize failed. Task reverted to active state.");
+            const reverted = await revertTaskCompletionAfterProofFailure(taskId);
+            if (reverted?.error) {
+                toast.error(reverted.error);
+            }
+            if (reverted?.success) {
+                const restoredStatus = (reverted as any).status as "CREATED" | "POSTPONED";
+                setTaskState((prev) => ({
+                    ...prev,
+                    status: restoredStatus,
+                    marked_completed_at: null,
+                    voucher_response_deadline: null,
+                    updated_at: new Date().toISOString(),
+                }));
+            }
+            refreshInBackground();
+            return;
+        }
+
+        setTaskProofDraft(null);
+        setProofUploadError(null);
+        refreshInBackground();
+    };
+
     const statusColors: Record<string, string> = {
         CREATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
         POSTPONED: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
@@ -403,11 +563,14 @@ export default function TaskDetailClient({
             return;
         }
         setActionPending("markComplete", true);
+        setProofUploadError(null);
 
         const now = new Date();
         const voucherResponseDeadline = getVoucherResponseDeadlineLocal(now);
+        const draft = proofDraft;
+        const proofIntent = draft ? getProofIntentFromPreparedProof(draft.proof) : null;
 
-        await runOptimisticMutation({
+        const result = await runOptimisticMutation({
             captureSnapshot: () => ({ taskState }),
             applyOptimistic: () => {
                 setTaskState((prev) => ({
@@ -418,7 +581,7 @@ export default function TaskDetailClient({
                     updated_at: now.toISOString(),
                 }));
             },
-            runMutation: () => markTaskComplete(taskState.id, userTimeZone),
+            runMutation: () => markTaskCompleteWithProofIntent(taskState.id, userTimeZone, proofIntent),
             rollback: (snapshot) => {
                 setTaskState(snapshot.taskState);
             },
@@ -426,6 +589,23 @@ export default function TaskDetailClient({
                 refreshInBackground();
             },
         });
+
+        if (result.ok && draft) {
+            const uploadTarget = (result.result as any)?.proofUploadTarget as
+                | { bucket: string; objectPath: string; uploadToken?: string }
+                | undefined;
+
+            if (!uploadTarget) {
+                setProofUploadError("Proof upload target missing. Task reverted to active state.");
+                const reverted = await revertTaskCompletionAfterProofFailure(taskState.id);
+                if (reverted?.error) {
+                    toast.error(reverted.error);
+                }
+                refreshInBackground();
+            } else {
+                void uploadProofInBackground(taskState.id, draft, uploadTarget);
+            }
+        }
 
         setActionPending("markComplete", false);
     }
@@ -458,6 +638,8 @@ export default function TaskDetailClient({
                 setTaskState(snapshot.taskState);
             },
             onSuccess: () => {
+                setTaskProofDraft(null);
+                setProofUploadError(null);
                 refreshInBackground();
             },
         });
@@ -795,6 +977,15 @@ export default function TaskDetailClient({
                 <HardRefreshButton />
             </div>
 
+            <input
+                ref={proofInputRef}
+                type="file"
+                accept="image/*,video/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleProofInputChange}
+            />
+
             <Card className="bg-slate-900/40 border-slate-800">
                 <CardHeader>
                     <CardTitle className="text-white">Task Details</CardTitle>
@@ -1090,6 +1281,22 @@ export default function TaskDetailClient({
                                 defaultDurationMinutes={defaultPomoDurationMinutes}
                             />
                             <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={openProofPicker}
+                                disabled={isActionPending("markComplete")}
+                                className={cn(
+                                    "h-9 w-9 p-0 border",
+                                    proofDraft
+                                        ? "text-blue-300 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20"
+                                        : "text-slate-300 border-slate-700/80 hover:text-white hover:bg-slate-800"
+                                )}
+                                title={proofDraft ? "Proof attached" : "Attach proof (optional)"}
+                                aria-label="Attach proof"
+                            >
+                                <Camera className="h-4 w-4" />
+                            </Button>
+                            <Button
                                 onClick={handleMarkComplete}
                                 disabled={isActionPending("markComplete") || isOverdue || incompleteSubtasksCount > 0}
                                 className={cn(
@@ -1101,6 +1308,45 @@ export default function TaskDetailClient({
                             >
                                 Mark Complete
                             </Button>
+
+                            {proofDraft && (
+                                <div className="w-full rounded-lg border border-blue-500/20 bg-blue-950/20 p-3">
+                                    <div className="mb-2 flex items-center justify-between gap-2">
+                                        <p className="text-xs text-blue-200 uppercase tracking-wider font-mono">
+                                            Proof attached ({proofDraft.proof.mediaKind})
+                                        </p>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            className="h-7 px-2 text-[11px] text-blue-200 hover:text-white hover:bg-blue-900/30"
+                                            onClick={() => setTaskProofDraft(null)}
+                                        >
+                                            Remove
+                                        </Button>
+                                    </div>
+                                    {proofDraft.proof.mediaKind === "image" ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                            src={proofDraft.previewUrl}
+                                            alt="Selected proof"
+                                            className="max-h-44 rounded-md object-cover"
+                                        />
+                                    ) : (
+                                        <video
+                                            controls
+                                            preload="metadata"
+                                            className="max-h-44 rounded-md"
+                                            src={proofDraft.previewUrl}
+                                        />
+                                    )}
+                                </div>
+                            )}
+
+                            {proofUploadError && (
+                                <div className="w-full rounded-lg border border-red-900/60 bg-red-950/30 p-3">
+                                    <p className="text-sm text-red-300">{proofUploadError}</p>
+                                </div>
+                            )}
 
                             {taskState.status === "CREATED" && !taskState.postponed_at && !isOverdue && (
                                 <Dialog open={postponeOpen} onOpenChange={handlePostponeOpenChange}>

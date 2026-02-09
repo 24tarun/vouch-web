@@ -8,6 +8,7 @@ import { type Database, type VoucherPendingTask } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { pendingVoucherRequestsTag } from "@/lib/cache-tags";
+import { deleteTaskProof } from "@/lib/task-proof";
 
 function invalidatePendingVoucherRequestsCache(voucherId: string) {
     revalidateTag(pendingVoucherRequestsTag(voucherId), "max");
@@ -99,6 +100,11 @@ export async function voucherAccept(taskId: string) {
         return { error: `Cannot accept task in ${(task as any).status} status` };
     }
 
+    const cleanup = await deleteTaskProof(taskId, "voucher_accept");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not remove proof media." };
+    }
+
     // @ts-ignore
     const { error } = await (supabase.from("tasks") as any)
         .update({ status: "COMPLETED" } as any)
@@ -157,6 +163,11 @@ export async function voucherDeleteTask(taskId: string) {
     ];
     if (!nonFinalStatuses.includes((task as any).status)) {
         return { error: `Cannot delete task in ${(task as any).status} status` };
+    }
+
+    const cleanup = await deleteTaskProof(taskId, "voucher_delete");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not remove proof media." };
     }
 
     // Update status to DELETED (soft delete)
@@ -226,6 +237,11 @@ export async function voucherDeny(taskId: string) {
 
     if (!canTransition((task as any).status as TaskStatus, "VOUCHER_DENY")) {
         return { error: `Cannot deny task in ${(task as any).status} status` };
+    }
+
+    const cleanup = await deleteTaskProof(taskId, "voucher_deny");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not remove proof media." };
     }
 
     // Add to ledger
@@ -393,12 +409,19 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
             const taskIds = pendingTasks.map((task) => task.id);
             const ownerIds = [...new Set(pendingTasks.map((task) => task.user_id))];
 
-            // @ts-ignore
-            const { data: sessions } = await (supabaseAdmin.from("pomo_sessions") as any)
-                .select("task_id, elapsed_seconds")
-                .in("task_id", taskIds as any)
-                .in("user_id", ownerIds as any)
-                .neq("status", "DELETED");
+            const [{ data: sessions }, { data: proofs }] = await Promise.all([
+                // @ts-ignore
+                (supabaseAdmin.from("pomo_sessions") as any)
+                    .select("task_id, elapsed_seconds")
+                    .in("task_id", taskIds as any)
+                    .in("user_id", ownerIds as any)
+                    .neq("status", "DELETED"),
+                // @ts-ignore
+                (supabaseAdmin.from("task_completion_proofs") as any)
+                    .select("task_id, media_kind, mime_type, size_bytes, duration_ms, upload_state, updated_at")
+                    .in("task_id", taskIds as any)
+                    .eq("upload_state", "UPLOADED"),
+            ]);
 
             const secondsByTask = new Map<string, number>();
             for (const row of (sessions as any[]) || []) {
@@ -407,9 +430,15 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
                 secondsByTask.set(key, total + (row.elapsed_seconds || 0));
             }
 
+            const proofByTask = new Map<string, any>();
+            for (const row of (proofs as any[]) || []) {
+                proofByTask.set(row.task_id as string, row);
+            }
+
             const normalizedTasks = pendingTasks.map((task) => ({
                 ...task,
                 pomo_total_seconds: secondsByTask.get(task.id) || 0,
+                completion_proof: proofByTask.get(task.id) || null,
                 pending_display_type: getPendingDisplayType(task.status as TaskStatus),
                 pending_deadline_at: getPendingDeadline({
                     status: task.status as TaskStatus,

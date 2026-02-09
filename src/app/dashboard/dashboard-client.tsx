@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createTask, markTaskCompleted, ownerTempDeleteTask } from "@/actions/tasks";
+import {
+    createTask,
+    finalizeTaskProofUpload,
+    markTaskCompleteWithProofIntent,
+    ownerTempDeleteTask,
+    revertTaskCompletionAfterProofFailure,
+} from "@/actions/tasks";
 import { hideDashboardTips } from "@/actions/auth";
 import { DashboardHeaderActions } from "@/components/DashboardHeaderActions";
 import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
@@ -11,8 +17,21 @@ import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList"
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import type { Profile, Task } from "@/lib/types";
 import { Lightbulb } from "lucide-react";
+import { toast } from "sonner";
+import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
+import {
+    getProofIntentFromPreparedProof,
+    prepareTaskProof,
+    type PreparedTaskProof,
+} from "@/lib/task-proof-client";
+import { pickProofFileFromNativeUi } from "@/lib/native-proof-picker";
 
 const MAX_COMPLETED_TASKS = 10;
+
+interface TaskProofDraft {
+    proof: PreparedTaskProof;
+    previewUrl: string;
+}
 
 function getVoucherResponseDeadlineLocal(baseDate: Date = new Date()): Date {
     const deadline = new Date(baseDate);
@@ -83,8 +102,13 @@ export default function DashboardClient({
     const [completedTasks, setCompletedTasks] = useState<Task[]>(split.completed.slice(0, MAX_COMPLETED_TASKS));
     const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
     const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(new Set());
+    const [proofByTaskId, setProofByTaskId] = useState<Record<string, TaskProofDraft>>({});
+    const [proofUploadErrors, setProofUploadErrors] = useState<Record<string, string>>({});
+    const [proofPickerTaskId, setProofPickerTaskId] = useState<string | null>(null);
     const [tipsHidden, setTipsHidden] = useState(initialHideTips);
     const [isHidingTips, setIsHidingTips] = useState(false);
+    const proofInputRef = useRef<HTMLInputElement>(null);
+    const proofByTaskIdRef = useRef<Record<string, TaskProofDraft>>({});
 
     useEffect(() => {
         setActiveTasks(split.active);
@@ -106,6 +130,18 @@ export default function DashboardClient({
     useEffect(() => {
         setTipsHidden(initialHideTips);
     }, [initialHideTips]);
+
+    useEffect(() => {
+        proofByTaskIdRef.current = proofByTaskId;
+    }, [proofByTaskId]);
+
+    useEffect(() => {
+        return () => {
+            for (const entry of Object.values(proofByTaskIdRef.current)) {
+                URL.revokeObjectURL(entry.previewUrl);
+            }
+        };
+    }, []);
 
     const refreshInBackground = () => {
         startRefreshTransition(() => {
@@ -135,6 +171,157 @@ export default function DashboardClient({
             }
             return next;
         });
+    };
+
+    const setTaskProofDraft = (taskId: string, nextDraft: TaskProofDraft | null) => {
+        setProofByTaskId((prev) => {
+            const current = prev[taskId];
+            if (current && (!nextDraft || current.previewUrl !== nextDraft.previewUrl)) {
+                URL.revokeObjectURL(current.previewUrl);
+            }
+
+            if (!nextDraft) {
+                if (!current) return prev;
+                const next = { ...prev };
+                delete next[taskId];
+                return next;
+            }
+
+            return {
+                ...prev,
+                [taskId]: nextDraft,
+            };
+        });
+    };
+
+    const processPickedProofFile = async (taskId: string, selectedFile: File) => {
+        try {
+            const preparedProof = await prepareTaskProof(selectedFile);
+            const previewUrl = URL.createObjectURL(preparedProof.file);
+
+            setTaskProofDraft(taskId, {
+                proof: preparedProof,
+                previewUrl,
+            });
+            setProofUploadErrors((prev) => {
+                if (!prev[taskId]) return prev;
+                const next = { ...prev };
+                delete next[taskId];
+                return next;
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Could not process proof file.";
+            toast.error(message);
+        }
+    };
+
+    const openTaskProofPicker = async (task: Task) => {
+        if (completingTaskIds.has(task.id)) return;
+        if (proofByTaskId[task.id]) {
+            const shouldReplace = window.confirm(
+                "A proof file is already attached. Press OK to replace it, or Cancel to remove it."
+            );
+            if (!shouldReplace) {
+                setTaskProofDraft(task.id, null);
+                setProofUploadErrors((prev) => {
+                    if (!prev[task.id]) return prev;
+                    const next = { ...prev };
+                    delete next[task.id];
+                    return next;
+                });
+                return;
+            }
+        }
+
+        const nativeFile = await pickProofFileFromNativeUi();
+        if (nativeFile) {
+            await processPickedProofFile(task.id, nativeFile);
+            return;
+        }
+
+        setProofPickerTaskId(task.id);
+        proofInputRef.current?.click();
+    };
+
+    const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const pickedTaskId = proofPickerTaskId;
+        const selectedFile = event.target.files?.[0];
+        event.target.value = "";
+        setProofPickerTaskId(null);
+
+        if (!pickedTaskId || !selectedFile) return;
+        await processPickedProofFile(pickedTaskId, selectedFile);
+    };
+
+    const uploadProofInBackground = async (
+        taskId: string,
+        draft: TaskProofDraft,
+        target: { bucket: string; objectPath: string; uploadToken?: string }
+    ) => {
+        const supabase = createBrowserSupabaseClient();
+        const uploadResponse = target.uploadToken
+            ? await supabase.storage
+                .from(target.bucket)
+                .uploadToSignedUrl(target.objectPath, target.uploadToken, draft.proof.file, {
+                    contentType: draft.proof.mimeType,
+                    upsert: true,
+                })
+            : await supabase.storage
+                .from(target.bucket)
+                .upload(target.objectPath, draft.proof.file, {
+                    upsert: true,
+                    contentType: draft.proof.mimeType,
+                    cacheControl: "120",
+                });
+
+        const uploadError = uploadResponse.error;
+
+        if (uploadError) {
+            console.error("Task proof upload failed (dashboard):", uploadError);
+            const uploadMessage = uploadError.message || "Unknown upload error";
+            setProofUploadErrors((prev) => ({
+                ...prev,
+                [taskId]: `Proof upload failed (${uploadMessage}). Task reverted to active state.`,
+            }));
+            toast.error(`Proof upload failed: ${uploadMessage}`);
+            const reverted = await revertTaskCompletionAfterProofFailure(taskId);
+            if (reverted?.error) {
+                toast.error(reverted.error);
+            }
+            refreshInBackground();
+            return;
+        }
+
+        const finalize = await finalizeTaskProofUpload(taskId, {
+            mediaKind: draft.proof.mediaKind,
+            mimeType: draft.proof.mimeType,
+            sizeBytes: draft.proof.sizeBytes,
+            durationMs: draft.proof.durationMs,
+            bucket: target.bucket,
+            objectPath: target.objectPath,
+        });
+
+        if (finalize?.error) {
+            setProofUploadErrors((prev) => ({
+                ...prev,
+                [taskId]: "Proof finalize failed. Task reverted to active state. Re-attach or retry.",
+            }));
+            const reverted = await revertTaskCompletionAfterProofFailure(taskId);
+            if (reverted?.error) {
+                toast.error(reverted.error);
+            }
+            refreshInBackground();
+            return;
+        }
+
+        setTaskProofDraft(taskId, null);
+        setProofUploadErrors((prev) => {
+            if (!prev[taskId]) return prev;
+            const next = { ...prev };
+            delete next[taskId];
+            return next;
+        });
+        refreshInBackground();
     };
 
     const handleCreateTaskOptimistic = (payload: TaskInputCreatePayload) => {
@@ -210,6 +397,8 @@ export default function DashboardClient({
         const now = new Date();
         const voucherResponseDeadline = getVoucherResponseDeadlineLocal(now);
         const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+        const proofDraft = proofByTaskId[task.id] || null;
+        const proofIntent = proofDraft ? getProofIntentFromPreparedProof(proofDraft.proof) : null;
         const nowIso = now.toISOString();
         const optimisticTask: Task = {
             ...task,
@@ -230,7 +419,7 @@ export default function DashboardClient({
                     [optimisticTask, ...prev.filter((currentTask) => currentTask.id !== task.id)].slice(0, MAX_COMPLETED_TASKS)
                 );
             },
-            runMutation: () => markTaskCompleted(task.id, userTimeZone),
+            runMutation: () => markTaskCompleteWithProofIntent(task.id, userTimeZone, proofIntent),
             rollback: (snapshot) => {
                 setActiveTasks(snapshot.activeTasks);
                 setCompletedTasks(snapshot.completedTasks);
@@ -244,12 +433,39 @@ export default function DashboardClient({
             refreshInBackground();
         }
 
+        if (result.ok && proofDraft) {
+            const uploadTarget = (result.result as any)?.proofUploadTarget as
+                | { bucket: string; objectPath: string; uploadToken?: string }
+                | undefined;
+
+            if (!uploadTarget) {
+                setProofUploadErrors((prev) => ({
+                    ...prev,
+                    [task.id]: "Proof upload target missing. Task reverted to active state.",
+                }));
+                const reverted = await revertTaskCompletionAfterProofFailure(task.id);
+                if (reverted?.error) {
+                    toast.error(reverted.error);
+                }
+                refreshInBackground();
+            } else {
+                void uploadProofInBackground(task.id, proofDraft, uploadTarget);
+            }
+        }
+
         setTaskCompleting(task.id, false);
     };
 
     const handleDeleteTaskOptimistic = async (task: Task) => {
         if (deletingTaskIds.has(task.id) || task.id.startsWith("temp-")) return;
         setTaskDeleting(task.id, true);
+        setTaskProofDraft(task.id, null);
+        setProofUploadErrors((prev) => {
+            if (!prev[task.id]) return prev;
+            const next = { ...prev };
+            delete next[task.id];
+            return next;
+        });
 
         const result = await runOptimisticMutation({
             captureSnapshot: () => ({
@@ -350,12 +566,24 @@ export default function DashboardClient({
                             task={task}
                             onComplete={handleCompleteTaskOptimistic}
                             isCompleting={completingTaskIds.has(task.id)}
+                            onAttachProof={openTaskProofPicker}
+                            hasProofAttached={Boolean(proofByTaskId[task.id])}
+                            proofUploadError={proofUploadErrors[task.id] || null}
                             onDelete={handleDeleteTaskOptimistic}
                             isDeleting={deletingTaskIds.has(task.id)}
                         />
                     ))
                 )}
             </div>
+
+            <input
+                ref={proofInputRef}
+                type="file"
+                accept="image/*,video/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleProofInputChange}
+            />
 
             {completedTasks.length > 0 && (
                 <CollapsibleCompletedList tasks={completedTasks} />

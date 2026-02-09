@@ -159,7 +159,7 @@ export const taskMachine = setup({
                     actions: ["updateTimestamp"],
                 },
                 TIMEOUT_24H: {
-                    target: "FAILED",
+                    target: "COMPLETED",
                     actions: ["updateTimestamp"],
                 },
                 VOUCHER_DELETE: {

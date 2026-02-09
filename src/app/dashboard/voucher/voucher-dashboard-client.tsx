@@ -371,6 +371,10 @@ function CompactPendingItem({
     isLoading: boolean;
 }) {
     const [renderTimestamp] = useState(() => Date.now());
+    const [isProofFullscreen, setIsProofFullscreen] = useState(false);
+    const blockSaveShortcut = (event: React.MouseEvent<HTMLElement>) => {
+        event.preventDefault();
+    };
 
     const formatPomoBadge = (seconds: number) => {
         if (seconds < 60) return "<1m";
@@ -419,6 +423,21 @@ function CompactPendingItem({
         : (hoursLeft < 6
             ? "bg-red-500/10 text-red-500 border-red-500/30 text-[10px]"
             : "bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]");
+    const proof = task.completion_proof;
+    const proofSrc = proof
+        ? `/api/task-proofs/${task.id}?v=${encodeURIComponent(proof.updated_at || task.updated_at)}`
+        : null;
+
+    useEffect(() => {
+        if (!isProofFullscreen) return;
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") {
+                setIsProofFullscreen(false);
+            }
+        };
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [isProofFullscreen]);
 
     return (
         <div className="group flex items-start gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
@@ -454,6 +473,38 @@ function CompactPendingItem({
                     <span className="text-slate-300">{task.user?.username || "Unknown"}</span> .{" "}
                     <span className="text-slate-400 font-mono">{"\u20ac"}{(task.failure_cost_cents / 100).toFixed(2)}</span>
                 </p>
+
+                {proof && proofSrc && (
+                    <div
+                        className="mt-3 rounded-lg border border-slate-800 bg-slate-950/50 p-2 max-w-sm select-none"
+                        onContextMenu={blockSaveShortcut}
+                    >
+                        {proof.media_kind === "image" ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                                src={proofSrc}
+                                alt="Completion proof"
+                                className="w-full h-auto rounded-md object-cover cursor-zoom-in"
+                                loading="lazy"
+                                draggable={false}
+                                onContextMenu={blockSaveShortcut}
+                                onClick={() => setIsProofFullscreen(true)}
+                            />
+                        ) : (
+                            <video
+                                controls
+                                preload="metadata"
+                                className="w-full rounded-md cursor-zoom-in"
+                                src={proofSrc}
+                                controlsList="nodownload noplaybackrate noremoteplayback"
+                                disablePictureInPicture
+                                disableRemotePlayback
+                                onContextMenu={blockSaveShortcut}
+                                onClick={() => setIsProofFullscreen(true)}
+                            />
+                        )}
+                    </div>
+                )}
             </div>
 
             <div className="shrink-0 self-center flex items-center gap-3">
@@ -483,6 +534,52 @@ function CompactPendingItem({
                     </>
                 )}
             </div>
+
+            {isProofFullscreen && proof && proofSrc && (
+                <div
+                    className="fixed inset-0 z-[100] bg-black/95 p-3 md:p-6 flex items-center justify-center"
+                    onClick={() => setIsProofFullscreen(false)}
+                    onContextMenu={blockSaveShortcut}
+                >
+                    <button
+                        type="button"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            setIsProofFullscreen(false);
+                        }}
+                        className="absolute top-3 right-3 md:top-5 md:right-5 h-9 w-9 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-white"
+                        aria-label="Close fullscreen proof"
+                        title="Close"
+                    >
+                        <X className="h-4 w-4 mx-auto" />
+                    </button>
+
+                    {proof.media_kind === "image" ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                            src={proofSrc}
+                            alt="Completion proof fullscreen"
+                            className="max-h-[95vh] max-w-[95vw] object-contain rounded-md"
+                            draggable={false}
+                            onClick={(event) => event.stopPropagation()}
+                            onContextMenu={blockSaveShortcut}
+                        />
+                    ) : (
+                        <video
+                            controls
+                            autoPlay
+                            preload="auto"
+                            className="max-h-[95vh] max-w-[95vw] rounded-md"
+                            src={proofSrc}
+                            controlsList="nodownload noplaybackrate noremoteplayback"
+                            disablePictureInPicture
+                            disableRemotePlayback
+                            onClick={(event) => event.stopPropagation()}
+                            onContextMenu={blockSaveShortcut}
+                        />
+                    )}
+                </div>
+            )}
         </div>
     );
 }

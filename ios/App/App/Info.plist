@@ -45,6 +45,14 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Vouch uses the camera to capture optional task proof photos or videos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Vouch needs photo library access so you can attach proof media from gallery.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Vouch may save edited proof media before upload when needed.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Vouch needs microphone access when recording proof videos.</string>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 </dict>

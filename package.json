@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.0.2",
+    "@capacitor/camera": "^8.0.0",
     "@capacitor/cli": "^8.0.2",
     "@capacitor/core": "^8.0.2",
     "@capacitor/ios": "^8.0.2",
+    "@capawesome/capacitor-file-picker": "^8.0.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
