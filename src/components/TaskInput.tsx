@@ -47,6 +47,7 @@ export interface TaskInputCreatePayload {
     title: string;
     subtasks: string[];
     deadlineIso: string;
+    reminderIsos: string[];
     voucherId: string;
     failureCost: string;
     recurrenceType: string | null;
@@ -82,6 +83,9 @@ export function TaskInput({
     const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
     const [dateDraft, setDateDraft] = useState("");
     const [timeDraft, setTimeDraft] = useState("");
+    const [reminders, setReminders] = useState<Date[]>([]);
+    const [remindersDraft, setRemindersDraft] = useState<Date[]>([]);
+    const [reminderDraftValue, setReminderDraftValue] = useState("");
 
     const [recurrenceType, setRecurrenceType] = useState<string>("");
     const [recurrenceLabel, setRecurrenceLabel] = useState<string>("");
@@ -92,7 +96,6 @@ export function TaskInput({
     const [showShake, setShowShake] = useState(false);
 
     const formRef = useRef<HTMLFormElement>(null);
-    const dateInputRef = useRef<HTMLInputElement>(null);
     const lastCalendarTapRef = useRef(0);
 
     useEffect(() => {
@@ -162,16 +165,66 @@ export function TaskInput({
         return date.toLocaleString();
     };
 
+    const formatReminderLabel = (date: Date) => {
+        return date.toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    };
+
+    const getDraftDeadline = () => {
+        const localValue = combineDateAndTime(dateDraft, timeDraft);
+        if (!localValue) return null;
+        return fromDateTimeLocalValue(localValue);
+    };
+
+    const normalizeReminderDates = (values: Date[]) => {
+        const deduped = new Map<number, Date>();
+        for (const value of values) {
+            deduped.set(value.getTime(), value);
+        }
+        return Array.from(deduped.values()).sort((a, b) => a.getTime() - b.getTime());
+    };
+
+    const buildReminderDateOnDeadlineDay = (deadlineDate: Date, hours: number, minutes: number) => {
+        const reminderDate = new Date(deadlineDate);
+        reminderDate.setHours(hours, minutes, 0, 0);
+        return reminderDate;
+    };
+
+    const parseReminderTimesFromTitle = (text: string) => {
+        const regex = /!r\s*(\d{1,2})(?::(\d{2}))?/gi;
+        const results: Array<{ hours: number; minutes: number }> = [];
+        let match: RegExpExecArray | null;
+
+        while ((match = regex.exec(text)) !== null) {
+            const hours = parseInt(match[1], 10);
+            const minutes = parseInt(match[2] || "0", 10);
+            if (Number.isNaN(hours) || Number.isNaN(minutes)) continue;
+            if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) continue;
+            results.push({ hours, minutes });
+        }
+
+        return results;
+    };
+
     const resetDeadlineToDefault = () => {
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(false);
         setSelectedDate(getDefaultDeadline());
+        setReminders([]);
+        setRemindersDraft([]);
+        setReminderDraftValue("");
     };
 
     const openDateSheet = () => {
         const localValue = toDateTimeLocalValue(selectedDate ?? getDefaultDeadline());
         setDateDraft(getDatePartFromLocalDateTime(localValue));
         setTimeDraft(getTimePartFromLocalDateTime(localValue));
+        setRemindersDraft(reminders.slice().sort((a, b) => a.getTime() - b.getTime()));
+        setReminderDraftValue("");
         setIsDateSheetOpen(true);
     };
 
@@ -190,15 +243,6 @@ export function TaskInput({
             return;
         }
 
-        try {
-            if (dateInputRef.current && typeof dateInputRef.current.showPicker === "function") {
-                dateInputRef.current.showPicker();
-                return;
-            }
-        } catch {
-            // Fall through to modal fallback.
-        }
-
         openDateSheet();
     };
 
@@ -210,10 +254,49 @@ export function TaskInput({
             setDeadlineError("Deadline must be in the future.");
             return;
         }
+
+        const hasInvalidReminder = remindersDraft.some(
+            (reminder) => reminder.getTime() <= Date.now() || reminder.getTime() > parsed.getTime()
+        );
+        if (hasInvalidReminder) {
+            setDeadlineError("Reminders must be in the future and before or at the deadline.");
+            return;
+        }
+
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(true);
         setSelectedDate(parsed);
+        setReminders(normalizeReminderDates(remindersDraft));
         setIsDateSheetOpen(false);
+    };
+
+    const handleAddReminderDraft = () => {
+        if (!reminderDraftValue) return;
+
+        const parsedReminder = fromDateTimeLocalValue(reminderDraftValue);
+        const parsedDeadline = getDraftDeadline();
+        if (!parsedReminder || !parsedDeadline) {
+            setDeadlineError("Please choose a valid reminder.");
+            return;
+        }
+
+        if (parsedReminder.getTime() <= Date.now()) {
+            setDeadlineError("Reminder must be in the future.");
+            return;
+        }
+
+        if (parsedReminder.getTime() > parsedDeadline.getTime()) {
+            setDeadlineError("Reminder must be before or at the deadline.");
+            return;
+        }
+
+        setDeadlineError(null);
+        setRemindersDraft((prev) => normalizeReminderDates([...prev, parsedReminder]));
+        setReminderDraftValue("");
+    };
+
+    const handleRemoveReminderDraft = (iso: string) => {
+        setRemindersDraft((prev) => prev.filter((reminder) => reminder.toISOString() !== iso));
     };
 
     const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -259,8 +342,9 @@ export function TaskInput({
 
     const stripMetadata = (text: string) => {
         return text
-            .replace(/@\d{1,2}(?::\d{2})?/, "")
-            .replace(/vouch\s+\w+/i, "")
+            .replace(/@\d{1,2}(?::\d{2})?/g, "")
+            .replace(/!r\s*\d{1,2}(?::\d{2})?/gi, "")
+            .replace(/vouch\s+\w+/gi, "")
             .trim();
     };
 
@@ -291,6 +375,27 @@ export function TaskInput({
             setDeadlineError("Deadline must be in the future.");
             return;
         }
+
+        const parsedReminderTimes = parseReminderTimesFromTitle(title);
+        const parserReminderDates = parsedReminderTimes.map(({ hours, minutes }) =>
+            buildReminderDateOnDeadlineDay(deadlineToSubmit, hours, minutes)
+        );
+        const remindersToSubmit = normalizeReminderDates([...reminders, ...parserReminderDates]);
+
+        const hasPastReminder = remindersToSubmit.some((reminder) => reminder.getTime() <= Date.now());
+        if (hasPastReminder) {
+            setDeadlineError("All reminders must be in the future.");
+            return;
+        }
+
+        const hasReminderAfterDeadline = remindersToSubmit.some(
+            (reminder) => reminder.getTime() > deadlineToSubmit.getTime()
+        );
+        if (hasReminderAfterDeadline) {
+            setDeadlineError("Reminders must be before or at the deadline.");
+            return;
+        }
+
         setDeadlineError(null);
 
         const recurrenceDaysToUse =
@@ -302,6 +407,7 @@ export function TaskInput({
             title: taskTitle,
             subtasks,
             deadlineIso: deadlineToSubmit.toISOString(),
+            reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
             voucherId: selectedVoucherId,
             failureCost,
             recurrenceType: recurrenceType || null,
@@ -328,6 +434,9 @@ export function TaskInput({
             formData.append("failureCost", payload.failureCost);
             if (payload.subtasks.length > 0) {
                 formData.append("subtasks", JSON.stringify(payload.subtasks));
+            }
+            if (payload.reminderIsos.length > 0) {
+                formData.append("reminders", JSON.stringify(payload.reminderIsos));
             }
 
             if (payload.recurrenceType) {
@@ -366,7 +475,7 @@ export function TaskInput({
                     onChange={(e) => setTitle(e.target.value)}
                     onKeyDown={handleTitleKeyDown}
                     enterKeyHint="done"
-                    placeholder="study /solve questions @16 vouch bob"
+                    placeholder="study /solve questions @16 !r16:30 vouch bob"
                     className="w-full bg-transparent border-none py-4 px-5 text-white placeholder:text-slate-500/70 focus:outline-none transition-all font-medium text-lg"
                     disabled={isLoading}
                 />
@@ -403,24 +512,6 @@ export function TaskInput({
                                 </Select>
                             </div>
 
-                            <input
-                                type="datetime-local"
-                                ref={dateInputRef}
-                                className="absolute -z-10 h-0 w-0 opacity-0 pointer-events-none"
-                                value={toDateTimeLocalValue(selectedDate)}
-                                onChange={(e) => {
-                                    const parsed = fromDateTimeLocalValue(e.target.value);
-                                    if (parsed && parsed.getTime() > Date.now()) {
-                                        setDeadlineError(null);
-                                        setIsDeadlineManuallyPicked(true);
-                                        setSelectedDate(parsed);
-                                    } else if (parsed) {
-                                        setDeadlineError("Deadline must be in the future.");
-                                    }
-                                }}
-                                tabIndex={-1}
-                                aria-hidden
-                            />
                             <button
                                 type="button"
                                 onClick={handleCalendarClick}
@@ -432,7 +523,10 @@ export function TaskInput({
                                 title={formatDeadlineTitle(selectedDate)}
                             >
                                 <Calendar className="h-3.5 w-3.5 shrink-0" />
-                                <span className="text-[10px] font-mono truncate">{formatDeadlineLabel(selectedDate)}</span>
+                                <span className="text-[10px] font-mono truncate">
+                                    {formatDeadlineLabel(selectedDate)}
+                                    {reminders.length > 0 ? ` • ${reminders.length}R` : ""}
+                                </span>
                             </button>
 
                             <DropdownMenu>
@@ -587,6 +681,43 @@ export function TaskInput({
                                 step={60}
                                 className="h-9 w-full px-3 bg-slate-800/40 border border-slate-700 rounded-md text-slate-200 focus:outline-none focus:border-slate-500"
                             />
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-xs uppercase tracking-wide text-slate-400">Reminders</label>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="datetime-local"
+                                    value={reminderDraftValue}
+                                    onChange={(e) => setReminderDraftValue(e.target.value)}
+                                    className="h-9 w-full px-3 bg-slate-800/40 border border-slate-700 rounded-md text-slate-200 focus:outline-none focus:border-slate-500"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleAddReminderDraft}
+                                    disabled={!dateDraft || !timeDraft || !reminderDraftValue}
+                                    className="h-9 px-3 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                                >
+                                    Add
+                                </button>
+                            </div>
+
+                            {remindersDraft.length > 0 && (
+                                <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2">
+                                    {remindersDraft.map((reminder) => (
+                                        <div key={reminder.toISOString()} className="flex items-center justify-between gap-2">
+                                            <span className="text-xs text-slate-300">{formatReminderLabel(reminder)}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemoveReminderDraft(reminder.toISOString())}
+                                                className="text-xs text-red-300 hover:text-red-200"
+                                            >
+                                                Remove
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
 

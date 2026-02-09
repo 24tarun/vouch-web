@@ -17,6 +17,9 @@ const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
 const ACTIVE_PARENT_TASK_STATUSES: TaskStatus[] = ["CREATED", "POSTPONED"];
 const SUBTASK_LIMIT_ERROR = `A task can have at most ${MAX_SUBTASKS_PER_TASK} subtasks.`;
 const INCOMPLETE_SUBTASKS_ERROR = "Complete all subtasks before marking this task complete.";
+const INVALID_REMINDERS_ERROR = "Invalid reminders payload.";
+const PAST_REMINDER_ERROR = "All reminders must be in the future.";
+const REMINDER_AFTER_DEADLINE_ERROR = "Reminders must be before or at the deadline.";
 
 function isValidTimeZone(timeZone: string): boolean {
     try {
@@ -161,6 +164,66 @@ function normalizeSubtasksFromFormData(formValue: FormDataEntryValue | null): { 
     }
 }
 
+function validateReminderIsoList(rawValues: unknown, deadline: Date): { reminderDates: Date[]; error?: string } {
+    if (rawValues == null || rawValues === "") {
+        return { reminderDates: [] };
+    }
+
+    if (!Array.isArray(rawValues)) {
+        return { reminderDates: [], error: INVALID_REMINDERS_ERROR };
+    }
+
+    const nowMs = Date.now();
+    const deadlineMs = deadline.getTime();
+    const deduped = new Map<number, Date>();
+
+    for (const value of rawValues) {
+        if (typeof value !== "string") {
+            return { reminderDates: [], error: INVALID_REMINDERS_ERROR };
+        }
+
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return { reminderDates: [], error: INVALID_REMINDERS_ERROR };
+        }
+
+        const reminderMs = parsed.getTime();
+        if (reminderMs <= nowMs) {
+            return { reminderDates: [], error: PAST_REMINDER_ERROR };
+        }
+
+        if (reminderMs > deadlineMs) {
+            return { reminderDates: [], error: REMINDER_AFTER_DEADLINE_ERROR };
+        }
+
+        deduped.set(reminderMs, parsed);
+    }
+
+    const reminderDates = Array.from(deduped.values()).sort((a, b) => a.getTime() - b.getTime());
+    return { reminderDates };
+}
+
+function normalizeRemindersFromFormData(
+    formValue: FormDataEntryValue | null,
+    deadline: Date
+): { reminderDates: Date[]; error?: string } {
+    if (!formValue) return { reminderDates: [] };
+    if (typeof formValue !== "string") {
+        return { reminderDates: [], error: INVALID_REMINDERS_ERROR };
+    }
+
+    if (!formValue.trim()) {
+        return { reminderDates: [] };
+    }
+
+    try {
+        const parsed = JSON.parse(formValue);
+        return validateReminderIsoList(parsed, deadline);
+    } catch {
+        return { reminderDates: [], error: INVALID_REMINDERS_ERROR };
+    }
+}
+
 async function insertTaskSubtasks(
     supabase: SupabaseClient<Database>,
     userId: string,
@@ -177,6 +240,30 @@ async function insertTaskSubtasks(
             title,
             is_completed: false,
             completed_at: null,
+        }))
+    );
+
+    if (error) {
+        return { error: error.message };
+    }
+
+    return {};
+}
+
+async function insertTaskReminders(
+    supabase: SupabaseClient<Database>,
+    userId: string,
+    parentTaskId: string,
+    reminderDates: Date[]
+): Promise<{ error?: string }> {
+    if (reminderDates.length === 0) return {};
+
+    const { error } = await (supabase.from("task_reminders") as any).insert(
+        reminderDates.map((reminderDate) => ({
+            parent_task_id: parentTaskId,
+            user_id: userId,
+            reminder_at: reminderDate.toISOString(),
+            notified_at: null,
         }))
     );
 
@@ -359,6 +446,10 @@ export async function createTask(formData: FormData) {
         return { error: deadlineValidation.error || INVALID_DEADLINE_ERROR };
     }
     const validatedDeadline = deadlineValidation.deadline;
+    const remindersInput = normalizeRemindersFromFormData(formData.get("reminders"), validatedDeadline);
+    if (remindersInput.error) {
+        return { error: remindersInput.error };
+    }
 
     if (failureCostEuros < 0.01 || failureCostEuros > 100) {
         return { error: "Failure cost must be between €0.01 and €100" };
@@ -459,6 +550,16 @@ export async function createTask(formData: FormData) {
         return { error: error.message };
     }
 
+    const reminderInsert = await insertTaskReminders(
+        supabase,
+        (user as any).id,
+        (task as any).id,
+        remindersInput.reminderDates
+    );
+    if (reminderInsert.error) {
+        return { error: reminderInsert.error };
+    }
+
     const subtaskInsert = await insertTaskSubtasks(
         supabase,
         (user as any).id,
@@ -481,7 +582,8 @@ export async function createTask(formData: FormData) {
             title,
             deadline: validatedDeadline.toISOString(),
             failure_cost_cents: Math.round(failureCostEuros * 100),
-            recurrence_rule_id: recurrenceRuleId
+            recurrence_rule_id: recurrenceRuleId,
+            reminder_count: remindersInput.reminderDates.length,
         },
     });
 
@@ -729,6 +831,97 @@ export async function addTaskSubtask(parentTaskId: string, title: string) {
 
     revalidateTaskSurfaces(parentTaskId, user.id);
     return { success: true, subtask };
+}
+
+export async function replaceTaskReminders(taskId: string, remindersIso: string[]) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, status, deadline")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if (!ACTIVE_PARENT_TASK_STATUSES.includes((task as any).status as TaskStatus)) {
+        return { error: `Cannot edit reminders in ${(task as any).status} status` };
+    }
+
+    const parsedReminders = validateReminderIsoList(remindersIso, new Date((task as any).deadline));
+    if (parsedReminders.error) {
+        return { error: parsedReminders.error };
+    }
+
+    if (parsedReminders.reminderDates.length === 0) {
+        const { error: deleteAllError } = await (supabase.from("task_reminders") as any)
+            .delete()
+            .eq("parent_task_id", taskId as any)
+            .eq("user_id", user.id as any);
+
+        if (deleteAllError) {
+            return { error: deleteAllError.message };
+        }
+
+        revalidateTaskSurfaces(taskId, user.id);
+        return { success: true, reminders: [] as string[] };
+    }
+
+    const upsertRows = parsedReminders.reminderDates.map((reminderDate) => ({
+        parent_task_id: taskId,
+        user_id: user.id,
+        reminder_at: reminderDate.toISOString(),
+        notified_at: null,
+    }));
+
+    const { error: upsertError } = await (supabase.from("task_reminders") as any).upsert(
+        upsertRows,
+        { onConflict: "parent_task_id,reminder_at" }
+    );
+
+    if (upsertError) {
+        return { error: upsertError.message };
+    }
+
+    const { data: existingReminders, error: existingError } = await (supabase.from("task_reminders") as any)
+        .select("id, reminder_at")
+        .eq("parent_task_id", taskId as any)
+        .eq("user_id", user.id as any);
+
+    if (existingError) {
+        return { error: existingError.message };
+    }
+
+    const keepIsoSet = new Set(parsedReminders.reminderDates.map((date) => date.toISOString()));
+    const toDeleteIds = ((existingReminders as Array<{ id: string; reminder_at: string }> | null) || [])
+        .filter((row) => !keepIsoSet.has(new Date(row.reminder_at).toISOString()))
+        .map((row) => row.id);
+
+    if (toDeleteIds.length > 0) {
+        const { error: deleteError } = await (supabase.from("task_reminders") as any)
+            .delete()
+            .in("id", toDeleteIds as any)
+            .eq("user_id", user.id as any);
+
+        if (deleteError) {
+            return { error: deleteError.message };
+        }
+    }
+
+    revalidateTaskSurfaces(taskId, user.id);
+    return {
+        success: true,
+        reminders: parsedReminders.reminderDates.map((reminderDate) => reminderDate.toISOString()),
+    };
 }
 
 export async function toggleTaskSubtask(parentTaskId: string, subtaskId: string, completed: boolean) {
@@ -1070,14 +1263,21 @@ export async function getTask(taskId: string) {
         }
 
         if (isOwner) {
-            // @ts-ignore
-            const { data: subtasks } = await (supabase.from("task_subtasks") as any)
-                .select("*")
-                .eq("parent_task_id", taskId as any)
-                .eq("user_id", user.id as any)
-                .order("created_at", { ascending: true });
+            const [{ data: subtasks }, { data: reminders }] = await Promise.all([
+                (supabase.from("task_subtasks") as any)
+                    .select("*")
+                    .eq("parent_task_id", taskId as any)
+                    .eq("user_id", user.id as any)
+                    .order("created_at", { ascending: true }),
+                (supabase.from("task_reminders") as any)
+                    .select("*")
+                    .eq("parent_task_id", taskId as any)
+                    .eq("user_id", user.id as any)
+                    .order("reminder_at", { ascending: true }),
+            ]);
 
             (task as any).subtasks = (subtasks as any[]) || [];
+            (task as any).reminders = (reminders as any[]) || [];
         }
 
         if (isOwner || isVoucher) {

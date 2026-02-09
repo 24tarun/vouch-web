@@ -49,6 +49,9 @@ function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
     if (payload.subtasks.length > 0) {
         formData.append("subtasks", JSON.stringify(payload.subtasks));
     }
+    if (payload.reminderIsos.length > 0) {
+        formData.append("reminders", JSON.stringify(payload.reminderIsos));
+    }
 
     if (payload.recurrenceType) {
         formData.append("recurrenceType", payload.recurrenceType);

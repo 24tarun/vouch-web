@@ -10,6 +10,7 @@ import {
     markTaskComplete,
     ownerTempDeleteTask,
     postponeTask,
+    replaceTaskReminders,
     undoTaskComplete,
     toggleTaskSubtask,
 } from "@/actions/tasks";
@@ -89,6 +90,12 @@ export default function TaskDetailClient({
     const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
     const [nowMs, setNowMs] = useState(() => Date.now());
     const [subtasks, setSubtasks] = useState(task.subtasks || []);
+    const [reminders, setReminders] = useState((task.reminders || []).slice().sort((a, b) =>
+        new Date(a.reminder_at).getTime() - new Date(b.reminder_at).getTime()
+    ));
+    const [remindersOpen, setRemindersOpen] = useState(false);
+    const [reminderDrafts, setReminderDrafts] = useState<string[]>([]);
+    const [newReminderLocal, setNewReminderLocal] = useState("");
     const [subtaskInputOpen, setSubtaskInputOpen] = useState((task.subtasks || []).length === 0);
     const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
     const [subtaskError, setSubtaskError] = useState<string | null>(null);
@@ -209,11 +216,24 @@ export default function TaskDetailClient({
     }, [task.subtasks]);
 
     useEffect(() => {
+        setReminders((task.reminders || []).slice().sort((a, b) =>
+            new Date(a.reminder_at).getTime() - new Date(b.reminder_at).getTime()
+        ));
+    }, [task.reminders]);
+
+    useEffect(() => {
         setTaskState((prev) => ({
             ...prev,
             subtasks,
         }));
     }, [subtasks]);
+
+    useEffect(() => {
+        setTaskState((prev) => ({
+            ...prev,
+            reminders,
+        }));
+    }, [reminders]);
 
     useEffect(() => {
         if (!isAddingSubtask && shouldRestoreSubtaskInputFocusRef.current) {
@@ -254,6 +274,116 @@ export default function TaskDetailClient({
             setPostponeValue(combined);
         }
     };
+
+    const normalizeReminderIsos = (values: string[]) => {
+        const deduped = new Map<number, string>();
+        for (const value of values) {
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) continue;
+            deduped.set(parsed.getTime(), parsed.toISOString());
+        }
+        return Array.from(deduped.values()).sort(
+            (a, b) => new Date(a).getTime() - new Date(b).getTime()
+        );
+    };
+
+    const handleRemindersOpenChange = (open: boolean) => {
+        setRemindersOpen(open);
+        if (open) {
+            setReminderDrafts(
+                (reminders || []).map((reminder) => new Date(reminder.reminder_at).toISOString())
+            );
+            setNewReminderLocal("");
+        }
+    };
+
+    const handleAddReminderDraft = () => {
+        if (!newReminderLocal) return;
+        const reminderIso = localDateTimeToIso(newReminderLocal);
+        if (!reminderIso) {
+            toast.error("Please choose a valid reminder.");
+            return;
+        }
+
+        const reminderDate = new Date(reminderIso);
+        const deadlineDate = new Date(taskState.deadline);
+        const now = Date.now();
+        if (reminderDate.getTime() <= now) {
+            toast.error("Reminder must be in the future.");
+            return;
+        }
+        if (reminderDate.getTime() > deadlineDate.getTime()) {
+            toast.error("Reminder must be before or at the deadline.");
+            return;
+        }
+
+        setReminderDrafts((prev) => normalizeReminderIsos([...prev, reminderIso]));
+        setNewReminderLocal("");
+    };
+
+    const handleRemoveReminderDraft = (reminderIso: string) => {
+        setReminderDrafts((prev) => prev.filter((value) => value !== reminderIso));
+    };
+
+    async function handleSaveReminders() {
+        if (isActionPending("saveReminders")) return;
+        if (!isOwner || !isActiveParentTask) {
+            toast.error("Reminders can only be edited for active tasks.");
+            return;
+        }
+
+        const normalizedDrafts = normalizeReminderIsos(reminderDrafts);
+        const deadlineDate = new Date(taskState.deadline);
+        const hasInvalidReminder = normalizedDrafts.some((reminderIso) => {
+            const reminderDate = new Date(reminderIso);
+            return reminderDate.getTime() <= Date.now() || reminderDate.getTime() > deadlineDate.getTime();
+        });
+        if (hasInvalidReminder) {
+            toast.error("All reminders must be in the future and before or at the deadline.");
+            return;
+        }
+
+        setActionPending("saveReminders", true);
+        const nowIso = new Date().toISOString();
+
+        const result = await runOptimisticMutation({
+            captureSnapshot: () => ({ reminders, taskState, remindersOpen }),
+            applyOptimistic: () => {
+                const optimisticReminders = normalizedDrafts.map((reminderIso, index) => ({
+                    id: `temp-reminder-${index}-${Math.random().toString(36).slice(2, 8)}`,
+                    parent_task_id: taskState.id,
+                    user_id: taskState.user_id,
+                    reminder_at: reminderIso,
+                    notified_at: null,
+                    created_at: nowIso,
+                    updated_at: nowIso,
+                }));
+                setReminders(optimisticReminders);
+                setTaskState((prev) => ({
+                    ...prev,
+                    reminders: optimisticReminders,
+                }));
+                setRemindersOpen(false);
+            },
+            runMutation: () => replaceTaskReminders(taskState.id, normalizedDrafts),
+            rollback: (snapshot) => {
+                setReminders(snapshot.reminders);
+                setTaskState(snapshot.taskState);
+                setRemindersOpen(snapshot.remindersOpen);
+            },
+            getFailureMessage: (mutationResult) => mutationResult.error || null,
+            fallbackErrorMessage: "Could not save reminders.",
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        if (!result.ok) {
+            refreshInBackground();
+        }
+
+        setActionPending("saveReminders", false);
+    }
 
     const statusColors: Record<string, string> = {
         CREATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
@@ -720,6 +850,116 @@ export default function TaskDetailClient({
                     )}
                 </CardContent>
             </Card>
+
+            {isOwner && (
+                <Card className="bg-slate-900/40 border-slate-800">
+                    <CardHeader className="flex flex-row items-start justify-between gap-3">
+                        <div>
+                            <CardTitle className="text-white">Reminders</CardTitle>
+                            <CardDescription className="text-slate-400">
+                                Private reminders for this task. Hidden from voucher.
+                            </CardDescription>
+                        </div>
+                        <Dialog open={remindersOpen} onOpenChange={handleRemindersOpenChange}>
+                            <DialogTrigger asChild>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={!isActiveParentTask}
+                                    className={cn(
+                                        "border-slate-700 text-slate-200 hover:bg-slate-800",
+                                        !isActiveParentTask && "cursor-not-allowed opacity-60"
+                                    )}
+                                >
+                                    Edit
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="bg-slate-900 border-slate-800">
+                                <DialogHeader>
+                                    <DialogTitle className="text-white">Edit Reminders</DialogTitle>
+                                    <DialogDescription className="text-slate-400">
+                                        Add one or more reminders before or at the deadline.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            type="datetime-local"
+                                            value={newReminderLocal}
+                                            onChange={(e) => setNewReminderLocal(e.target.value)}
+                                            className="bg-slate-800/50 border-slate-700 text-slate-200"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={handleAddReminderDraft}
+                                            disabled={!newReminderLocal}
+                                            className="border-slate-700 text-slate-200 hover:bg-slate-800"
+                                        >
+                                            Add
+                                        </Button>
+                                    </div>
+
+                                    {reminderDrafts.length > 0 ? (
+                                        <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2">
+                                            {normalizeReminderIsos(reminderDrafts).map((reminderIso) => (
+                                                <div key={reminderIso} className="flex items-center justify-between gap-2">
+                                                    <span className="text-xs text-slate-300">
+                                                        {formatDateTimeDdMmYy(reminderIso)}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleRemoveReminderDraft(reminderIso)}
+                                                        className="text-xs text-red-300 hover:text-red-200"
+                                                    >
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-slate-500">No reminders configured.</p>
+                                    )}
+                                </div>
+                                <DialogFooter>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => setRemindersOpen(false)}
+                                        className="border-slate-700 text-slate-200 hover:bg-slate-800"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        type="button"
+                                        onClick={handleSaveReminders}
+                                        disabled={isActionPending("saveReminders")}
+                                        className="bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30"
+                                    >
+                                        Save
+                                    </Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    </CardHeader>
+                    <CardContent>
+                        {reminders.length > 0 ? (
+                            <div className="space-y-2">
+                                {reminders.map((reminder) => (
+                                    <div
+                                        key={reminder.id}
+                                        className="rounded-md border border-slate-800 bg-slate-950/40 px-3 py-2 text-sm text-slate-200"
+                                    >
+                                        {formatDateTimeDdMmYy(reminder.reminder_at)}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-sm text-slate-500">No reminders set.</p>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
 
             {isOwner && (
                 <Card className="bg-slate-900/40 border-slate-800">

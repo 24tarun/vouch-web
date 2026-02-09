@@ -48,6 +48,16 @@ export interface TaskSubtask {
     updated_at: string;
 }
 
+export interface TaskReminder {
+    id: string;
+    parent_task_id: string;
+    user_id: string;
+    reminder_at: string;
+    notified_at: string | null;
+    created_at: string;
+    updated_at: string;
+}
+
 
 export interface TaskEvent {
     id: string;
@@ -149,6 +159,7 @@ export interface TaskWithRelations extends Task {
     recurrence_rule?: RecurrenceRule;
     pomo_total_seconds?: number;
     subtasks?: TaskSubtask[];
+    reminders?: TaskReminder[];
 }
 
 export type VoucherPendingDisplayType = "ACTIVE" | "AWAITING_VOUCHER";
@@ -204,6 +215,11 @@ export interface Database {
                 Row: TaskSubtask
                 Insert: Omit<TaskSubtask, "id" | "created_at" | "updated_at">
                 Update: Partial<TaskSubtask>
+            }
+            task_reminders: {
+                Row: TaskReminder
+                Insert: Omit<TaskReminder, "id" | "created_at" | "updated_at">
+                Update: Partial<TaskReminder>
             }
             task_events: {
                 Row: TaskEvent

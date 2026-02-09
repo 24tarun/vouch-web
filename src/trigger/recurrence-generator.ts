@@ -51,6 +51,92 @@ export const recurrenceGenerator = schedules.task({
     },
 });
 
+async function getLatestReminderOffsetsForRule(
+    recurrenceRuleId: string,
+    supabase: any
+): Promise<number[]> {
+    const { data: latestTask, error: latestTaskError } = await (supabase
+        .from("tasks") as any)
+        .select("id, deadline")
+        .eq("recurrence_rule_id", recurrenceRuleId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (latestTaskError || !latestTask?.id || !latestTask?.deadline) {
+        if (latestTaskError) {
+            console.error(`Failed to load latest task for recurrence rule ${recurrenceRuleId}:`, latestTaskError);
+        }
+        return [];
+    }
+
+    const latestDeadlineMs = new Date(latestTask.deadline).getTime();
+    if (Number.isNaN(latestDeadlineMs)) {
+        return [];
+    }
+
+    const { data: latestReminders, error: remindersError } = await (supabase
+        .from("task_reminders") as any)
+        .select("reminder_at")
+        .eq("parent_task_id", latestTask.id as any)
+        .order("reminder_at", { ascending: true });
+
+    if (remindersError) {
+        console.error(`Failed to load reminders for latest task of rule ${recurrenceRuleId}:`, remindersError);
+        return [];
+    }
+
+    const offsets = new Set<number>();
+    for (const row of ((latestReminders as Array<{ reminder_at: string }> | null) || [])) {
+        const reminderMs = new Date(row.reminder_at).getTime();
+        if (Number.isNaN(reminderMs)) continue;
+        offsets.add(reminderMs - latestDeadlineMs);
+    }
+
+    return Array.from(offsets.values()).sort((a, b) => a - b);
+}
+
+async function insertGeneratedReminders(
+    supabase: any,
+    taskId: string,
+    userId: string,
+    deadlineIso: string,
+    reminderOffsetsMs: number[]
+) {
+    if (reminderOffsetsMs.length === 0) return;
+
+    const nowMs = Date.now();
+    const deadlineMs = new Date(deadlineIso).getTime();
+    if (Number.isNaN(deadlineMs)) return;
+
+    const reminderIsoSet = new Set<string>();
+    for (const offsetMs of reminderOffsetsMs) {
+        const reminderMs = deadlineMs + offsetMs;
+        if (reminderMs <= nowMs) continue;
+        if (reminderMs > deadlineMs) continue;
+        reminderIsoSet.add(new Date(reminderMs).toISOString());
+    }
+
+    const reminderIsos = Array.from(reminderIsoSet.values()).sort(
+        (a, b) => new Date(a).getTime() - new Date(b).getTime()
+    );
+
+    if (reminderIsos.length === 0) return;
+
+    const { error } = await (supabase.from("task_reminders") as any).insert(
+        reminderIsos.map((reminderIso) => ({
+            parent_task_id: taskId,
+            user_id: userId,
+            reminder_at: reminderIso,
+            notified_at: null,
+        }))
+    );
+
+    if (error) {
+        console.error(`Failed to insert copied reminders for task ${taskId}:`, error);
+    }
+}
+
 async function processRule(rule: RecurrenceRule, supabase: any) {
     const { frequency, interval, days_of_week, time_of_day } = rule.rule_config;
     const timezone = rule.timezone || "UTC";
@@ -206,6 +292,7 @@ async function processRule(rule: RecurrenceRule, supabase: any) {
 
     if (shouldRun) {
         console.log(`Generating task for rule ${rule.id} on ${currentLocalDateStr}`);
+        const reminderOffsetsMs = await getLatestReminderOffsetsForRule(rule.id, supabase);
 
         // Construct Deadline: Current Local Date + time_of_day -> UTC
         const [hours, minutes] = time_of_day.split(':').map(Number);
@@ -290,7 +377,7 @@ async function processRule(rule: RecurrenceRule, supabase: any) {
 
         // Create Task
         // @ts-ignore
-        const { error: insertError } = await (supabase.from("tasks") as any)
+        const { data: createdTask, error: insertError } = await (supabase.from("tasks") as any)
             .insert({
                 user_id: rule.user_id,
                 voucher_id: rule.voucher_id,
@@ -300,11 +387,23 @@ async function processRule(rule: RecurrenceRule, supabase: any) {
                 deadline: deadlineIso,
                 status: "CREATED",
                 recurrence_rule_id: rule.id
-            });
+            })
+            .select("id, deadline")
+            .single();
 
         if (insertError) {
             console.error("Failed to insert task:", insertError);
             return;
+        }
+
+        if (createdTask?.id) {
+            await insertGeneratedReminders(
+                supabase,
+                createdTask.id,
+                rule.user_id,
+                createdTask.deadline || deadlineIso,
+                reminderOffsetsMs
+            );
         }
 
         // Update Rule
