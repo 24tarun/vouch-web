@@ -653,7 +653,7 @@ export function TaskInput({
             </div>
 
             <Dialog open={isDateSheetOpen} onOpenChange={setIsDateSheetOpen}>
-                <DialogContent className="bg-slate-900 border-slate-800 text-slate-200">
+                <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 [&>[data-slot='dialog-close']]:text-slate-300 [&>[data-slot='dialog-close']]:opacity-100 [&>[data-slot='dialog-close']]:hover:text-white">
                     <DialogHeader>
                         <DialogTitle className="text-white">Set deadline</DialogTitle>
                         <DialogDescription className="text-slate-400">
@@ -668,7 +668,7 @@ export function TaskInput({
                                 type="date"
                                 value={dateDraft}
                                 onChange={(e) => setDateDraft(e.target.value)}
-                                className="h-9 w-full px-3 bg-slate-800/40 border border-slate-700 rounded-md text-slate-200 focus:outline-none focus:border-slate-500"
+                                className="h-9 w-full px-3 bg-slate-800/70 border border-slate-600 rounded-md text-white [color-scheme:dark] focus:outline-none focus:border-slate-400"
                             />
                         </div>
 
@@ -679,7 +679,7 @@ export function TaskInput({
                                 value={timeDraft}
                                 onChange={(e) => setTimeDraft(e.target.value)}
                                 step={60}
-                                className="h-9 w-full px-3 bg-slate-800/40 border border-slate-700 rounded-md text-slate-200 focus:outline-none focus:border-slate-500"
+                                className="h-9 w-full px-3 bg-slate-800/70 border border-slate-600 rounded-md text-white [color-scheme:dark] focus:outline-none focus:border-slate-400"
                             />
                         </div>
 
@@ -690,13 +690,13 @@ export function TaskInput({
                                     type="datetime-local"
                                     value={reminderDraftValue}
                                     onChange={(e) => setReminderDraftValue(e.target.value)}
-                                    className="h-9 w-full px-3 bg-slate-800/40 border border-slate-700 rounded-md text-slate-200 focus:outline-none focus:border-slate-500"
+                                    className="h-9 w-full px-3 bg-slate-800/70 border border-slate-600 rounded-md text-white [color-scheme:dark] focus:outline-none focus:border-slate-400"
                                 />
                                 <button
                                     type="button"
                                     onClick={handleAddReminderDraft}
                                     disabled={!dateDraft || !timeDraft || !reminderDraftValue}
-                                    className="h-9 px-3 rounded-md border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                                    className="h-9 px-3 rounded-md border border-slate-600 text-slate-100 hover:bg-slate-700 disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-400 disabled:opacity-100"
                                 >
                                     Add
                                 </button>

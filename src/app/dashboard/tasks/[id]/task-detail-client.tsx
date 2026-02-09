@@ -1059,16 +1059,16 @@ export default function TaskDetailClient({
                                     disabled={!isActiveParentTask}
                                     className={cn(
                                         "border-slate-700 text-slate-200 hover:bg-slate-800",
-                                        !isActiveParentTask && "cursor-not-allowed opacity-60"
+                                        !isActiveParentTask && "cursor-not-allowed opacity-80 text-slate-400"
                                     )}
                                 >
                                     Edit
                                 </Button>
                             </DialogTrigger>
-                            <DialogContent className="bg-slate-900 border-slate-800">
+                            <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 [&>[data-slot='dialog-close']]:text-slate-300 [&>[data-slot='dialog-close']]:opacity-100 [&>[data-slot='dialog-close']]:hover:text-white">
                                 <DialogHeader>
                                     <DialogTitle className="text-white">Edit Reminders</DialogTitle>
-                                    <DialogDescription className="text-slate-400">
+                                    <DialogDescription className="text-slate-300">
                                         Add one or more reminders before or at the deadline.
                                     </DialogDescription>
                                 </DialogHeader>
@@ -1078,14 +1078,14 @@ export default function TaskDetailClient({
                                             type="datetime-local"
                                             value={newReminderLocal}
                                             onChange={(e) => setNewReminderLocal(e.target.value)}
-                                            className="bg-slate-800/50 border-slate-700 text-slate-200"
+                                            className="bg-slate-800/70 border-slate-600 text-white [color-scheme:dark]"
                                         />
                                         <Button
                                             type="button"
                                             variant="outline"
                                             onClick={handleAddReminderDraft}
                                             disabled={!newReminderLocal}
-                                            className="border-slate-700 text-slate-200 hover:bg-slate-800"
+                                            className="border-slate-600 text-slate-100 hover:bg-slate-700 disabled:opacity-100 disabled:border-slate-700 disabled:bg-slate-800 disabled:text-slate-400"
                                         >
                                             Add
                                         </Button>
@@ -1109,7 +1109,7 @@ export default function TaskDetailClient({
                                             ))}
                                         </div>
                                     ) : (
-                                        <p className="text-xs text-slate-500">No reminders configured.</p>
+                                        <p className="text-xs text-slate-300">No reminders configured.</p>
                                     )}
                                 </div>
                                 <DialogFooter>
@@ -1117,7 +1117,7 @@ export default function TaskDetailClient({
                                         type="button"
                                         variant="outline"
                                         onClick={() => setRemindersOpen(false)}
-                                        className="border-slate-700 text-slate-200 hover:bg-slate-800"
+                                        className="border-slate-600 text-slate-100 hover:bg-slate-700"
                                     >
                                         Cancel
                                     </Button>
@@ -1125,7 +1125,7 @@ export default function TaskDetailClient({
                                         type="button"
                                         onClick={handleSaveReminders}
                                         disabled={isActionPending("saveReminders")}
-                                        className="bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30"
+                                        className="border border-blue-500/40 bg-blue-600/30 text-blue-100 hover:bg-blue-600/40"
                                     >
                                         Save
                                     </Button>
