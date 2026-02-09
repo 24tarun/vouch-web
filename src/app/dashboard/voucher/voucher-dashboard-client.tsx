@@ -421,18 +421,21 @@ function CompactPendingItem({
             : "bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]");
 
     return (
-        <div className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
+        <div className="group flex items-start gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
+                <div>
                     <button
                         type="button"
                         onClick={onOpenTask}
-                        className="block min-w-0 max-w-[58vw] md:max-w-[24rem] overflow-hidden text-ellipsis whitespace-nowrap text-left [direction:ltr] text-lg font-medium text-slate-100 hover:text-white underline-offset-2 hover:underline"
+                        className="block w-full text-left [direction:ltr] text-lg font-medium leading-tight text-slate-100 hover:text-white underline-offset-2 hover:underline whitespace-normal break-words"
                         title={task.title}
                         aria-label={`Open task ${task.title}`}
                     >
                         {task.title}
                     </button>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Badge variant="outline" className={statusClass}>
                         {statusLabel}
                     </Badge>
@@ -446,13 +449,14 @@ function CompactPendingItem({
                         </Badge>
                     )}
                 </div>
-                <p className="text-sm text-slate-500 mt-1">
+
+                <p className="text-sm text-slate-500 mt-2">
                     <span className="text-slate-300">{task.user?.username || "Unknown"}</span> .{" "}
                     <span className="text-slate-400 font-mono">{"\u20ac"}{(task.failure_cost_cents / 100).toFixed(2)}</span>
                 </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="shrink-0 self-center flex items-center gap-3">
                 {task.pending_actionable && (
                     <>
                         <Button
