@@ -374,39 +374,71 @@ export default function TaskDetailClient({
         }
     };
 
+    const toReminderIso = (value: string) => {
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return null;
+        return parsed.toISOString();
+    };
+
     const normalizeReminderIsos = (values: string[]) => {
         const deduped = new Map<number, string>();
         for (const value of values) {
-            const parsed = new Date(value);
-            if (Number.isNaN(parsed.getTime())) continue;
-            deduped.set(parsed.getTime(), parsed.toISOString());
+            const normalizedIso = toReminderIso(value);
+            if (!normalizedIso) continue;
+            deduped.set(new Date(normalizedIso).getTime(), normalizedIso);
         }
         return Array.from(deduped.values()).sort(
             (a, b) => new Date(a).getTime() - new Date(b).getTime()
         );
     };
 
-    const getCurrentReminderIsos = () =>
+    const splitCurrentRemindersByTime = (referenceNowMs: number) => {
+        const pastReminders: typeof reminders = [];
+        const futureReminders: typeof reminders = [];
+
+        for (const reminder of reminders || []) {
+            const reminderMs = new Date(reminder.reminder_at).getTime();
+            if (Number.isNaN(reminderMs)) continue;
+
+            if (reminderMs <= referenceNowMs) {
+                pastReminders.push(reminder);
+            } else {
+                futureReminders.push(reminder);
+            }
+        }
+
+        const sortByReminderAt = (a: { reminder_at: string }, b: { reminder_at: string }) =>
+            new Date(a.reminder_at).getTime() - new Date(b.reminder_at).getTime();
+
+        return {
+            pastReminders: pastReminders.slice().sort(sortByReminderAt),
+            futureReminders: futureReminders.slice().sort(sortByReminderAt),
+        };
+    };
+
+    const getCurrentFutureReminderIsos = (referenceNowMs: number = Date.now()) =>
         normalizeReminderIsos(
-            (reminders || []).map((reminder) => new Date(reminder.reminder_at).toISOString())
+            splitCurrentRemindersByTime(referenceNowMs).futureReminders.map(
+                (reminder) => reminder.reminder_at
+            )
         );
 
-    const hasInvalidReminderForTask = (reminderIsos: string[]) => {
+    const hasInvalidFutureReminderForTask = (futureReminderIsos: string[]) => {
         const deadlineDate = new Date(taskState.deadline);
-        return reminderIsos.some((reminderIso) => {
+        return futureReminderIsos.some((reminderIso) => {
             const reminderDate = new Date(reminderIso);
             return reminderDate.getTime() <= Date.now() || reminderDate.getTime() > deadlineDate.getTime();
         });
     };
 
-    async function saveReminderSet(reminderIsos: string[], clearReminderInput: boolean) {
+    async function saveReminderSet(futureReminderIsos: string[], clearReminderInput: boolean) {
         if (isActionPending("saveReminders")) return { ok: false as const };
         if (!canManageActionChildren) {
             toast.error("Reminders can only be edited for active tasks.");
             return { ok: false as const };
         }
 
-        if (hasInvalidReminderForTask(reminderIsos)) {
+        if (hasInvalidFutureReminderForTask(futureReminderIsos)) {
             toast.error("All reminders must be in the future and before or at the deadline.");
             return { ok: false as const };
         }
@@ -417,15 +449,38 @@ export default function TaskDetailClient({
         const result = await runOptimisticMutation({
             captureSnapshot: () => ({ reminders, taskState, newReminderLocal }),
             applyOptimistic: () => {
-                const optimisticReminders = reminderIsos.map((reminderIso, index) => ({
-                    id: `temp-reminder-${index}-${Math.random().toString(36).slice(2, 8)}`,
-                    parent_task_id: taskState.id,
-                    user_id: taskState.user_id,
-                    reminder_at: reminderIso,
-                    notified_at: null,
-                    created_at: nowIso,
-                    updated_at: nowIso,
-                }));
+                const referenceNowMs = Date.now();
+                const { pastReminders } = splitCurrentRemindersByTime(referenceNowMs);
+                const existingByIso = new Map<string, (typeof reminders)[number]>();
+                for (const reminder of reminders || []) {
+                    const normalizedIso = toReminderIso(reminder.reminder_at);
+                    if (!normalizedIso) continue;
+                    existingByIso.set(normalizedIso, reminder);
+                }
+
+                const optimisticFutureReminders = futureReminderIsos.map((reminderIso, index) => {
+                    const existingReminder = existingByIso.get(reminderIso);
+                    if (existingReminder) {
+                        return {
+                            ...existingReminder,
+                            reminder_at: reminderIso,
+                        };
+                    }
+
+                    return {
+                        id: `temp-reminder-${index}-${Math.random().toString(36).slice(2, 8)}`,
+                        parent_task_id: taskState.id,
+                        user_id: taskState.user_id,
+                        reminder_at: reminderIso,
+                        notified_at: null,
+                        created_at: nowIso,
+                        updated_at: nowIso,
+                    };
+                });
+
+                const optimisticReminders = [...pastReminders, ...optimisticFutureReminders].sort(
+                    (a, b) => new Date(a.reminder_at).getTime() - new Date(b.reminder_at).getTime()
+                );
                 setReminders(optimisticReminders);
                 setTaskState((prev) => ({
                     ...prev,
@@ -435,7 +490,7 @@ export default function TaskDetailClient({
                     setNewReminderLocal("");
                 }
             },
-            runMutation: () => replaceTaskReminders(taskState.id, reminderIsos),
+            runMutation: () => replaceTaskReminders(taskState.id, futureReminderIsos),
             rollback: (snapshot) => {
                 setReminders(snapshot.reminders);
                 setTaskState(snapshot.taskState);
@@ -479,14 +534,22 @@ export default function TaskDetailClient({
             return;
         }
 
-        const nextReminderIsos = normalizeReminderIsos([...getCurrentReminderIsos(), reminderIso]);
-        await saveReminderSet(nextReminderIsos, true);
+        const nextFutureReminderIsos = normalizeReminderIsos([
+            ...getCurrentFutureReminderIsos(now),
+            reminderIso,
+        ]);
+        await saveReminderSet(nextFutureReminderIsos, true);
     }
 
     async function handleRemoveReminder(reminderIso: string) {
         if (!canManageActionChildren || isActionPending("saveReminders")) return;
-        const nextReminderIsos = getCurrentReminderIsos().filter((value) => value !== reminderIso);
-        await saveReminderSet(nextReminderIsos, false);
+        const reminderMs = new Date(reminderIso).getTime();
+        if (!Number.isNaN(reminderMs) && reminderMs <= Date.now()) {
+            toast.info("Past reminders are kept as history.");
+            return;
+        }
+        const nextFutureReminderIsos = getCurrentFutureReminderIsos().filter((value) => value !== reminderIso);
+        await saveReminderSet(nextFutureReminderIsos, false);
     }
 
     const processPickedProofFile = async (selectedFile: File) => {
@@ -1223,24 +1286,37 @@ export default function TaskDetailClient({
                                         {reminders.length > 0 && (
                                             <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2">
                                                 {reminders.map((reminder) => {
-                                                    const reminderIso = new Date(reminder.reminder_at).toISOString();
+                                                    const reminderDate = new Date(reminder.reminder_at);
+                                                    const reminderMs = reminderDate.getTime();
+                                                    const reminderIso = Number.isNaN(reminderMs)
+                                                        ? reminder.reminder_at
+                                                        : reminderDate.toISOString();
+                                                    const isPastReminder = Number.isNaN(reminderMs) || reminderMs <= nowMs;
                                                     return (
                                                         <div key={reminder.id} className="flex items-center justify-between gap-2">
                                                             <span className="text-xs text-slate-300">
-                                                                {formatDateTimeDdMmYy(reminderIso)}
+                                                                {Number.isNaN(reminderMs)
+                                                                    ? reminder.reminder_at
+                                                                    : formatDateTimeDdMmYy(reminderIso)}
                                                             </span>
-                                                            <button
-                                                                type="button"
-                                                                disabled={!canManageActionChildren || isActionPending("saveReminders")}
-                                                                onClick={() => void handleRemoveReminder(reminderIso)}
-                                                                className={cn(
-                                                                    "text-xs text-red-300 hover:text-red-200",
-                                                                    (!canManageActionChildren || isActionPending("saveReminders")) &&
-                                                                    "cursor-not-allowed text-slate-500 hover:text-slate-500"
-                                                                )}
-                                                            >
-                                                                Remove
-                                                            </button>
+                                                            {isPastReminder ? (
+                                                                <span className="text-[11px] uppercase tracking-wide text-slate-500">
+                                                                    {reminder.notified_at ? "Sent" : "Past"}
+                                                                </span>
+                                                            ) : (
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={!canManageActionChildren || isActionPending("saveReminders")}
+                                                                    onClick={() => void handleRemoveReminder(reminderIso)}
+                                                                    className={cn(
+                                                                        "text-xs text-red-300 hover:text-red-200",
+                                                                        (!canManageActionChildren || isActionPending("saveReminders")) &&
+                                                                        "cursor-not-allowed text-slate-500 hover:text-slate-500"
+                                                                    )}
+                                                                >
+                                                                    Remove
+                                                                </button>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}

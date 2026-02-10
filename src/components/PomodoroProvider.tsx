@@ -32,7 +32,6 @@ interface PomodoroContextType {
     stopSession: (source?: PomoEndSource) => Promise<void>;
     minimized: boolean;
     setMinimized: (v: boolean) => void;
-    suppressUnloadWarning: () => void;
 }
 
 const PomodoroContext = createContext<PomodoroContextType | undefined>(undefined);
@@ -52,8 +51,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
     const [minimized, setMinimized] = useState(false);
     const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
-    const unloadSignalSentRef = useRef(false);
-    const suppressBeforeUnloadRef = useRef(false);
     const supabaseRef = useRef(createSupabaseClient());
     const pomoChannelRef = useRef<RealtimeChannel | null>(null);
 
@@ -181,59 +178,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         return () => window.clearInterval(interval);
     }, [session, refreshSession]);
 
-    useEffect(() => {
-        unloadSignalSentRef.current = false;
-        if (session?.status !== "ACTIVE") {
-            suppressBeforeUnloadRef.current = false;
-        }
-    }, [session?.id, session?.status]);
-
-    // Warn on close if active, and auto-end session if user force-leaves.
-    useEffect(() => {
-        const tryAutoEndOnUnload = () => {
-            if (!session || session.status !== "ACTIVE") return;
-            if (unloadSignalSentRef.current) return;
-            unloadSignalSentRef.current = true;
-
-            const payload = JSON.stringify({ sessionId: session.id });
-            const blob = new Blob([payload], { type: "application/json" });
-
-            let queued = false;
-            if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-                queued = navigator.sendBeacon("/api/pomo/auto-end", blob);
-            }
-
-            if (!queued) {
-                void fetch("/api/pomo/auto-end", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: payload,
-                    keepalive: true,
-                });
-            }
-        };
-
-        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (suppressBeforeUnloadRef.current) return;
-            if (session && session.status === "ACTIVE") {
-                e.preventDefault();
-                e.returnValue = ""; // Legacy
-                return "You have an active Pomodoro session. It will be stopped if you leave.";
-            }
-        };
-
-        const handlePageHide = () => {
-            tryAutoEndOnUnload();
-        };
-
-        window.addEventListener("beforeunload", handleBeforeUnload);
-        window.addEventListener("pagehide", handlePageHide);
-        return () => {
-            window.removeEventListener("beforeunload", handleBeforeUnload);
-            window.removeEventListener("pagehide", handlePageHide);
-        };
-    }, [session]);
-
     const startSession = async (taskId: string, durationMinutes: number) => {
         // Guard invalid concurrent starts locally for snappy feedback.
         if (session && (session.status === "ACTIVE" || session.status === "PAUSED")) {
@@ -299,10 +243,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    const suppressUnloadWarning = () => {
-        suppressBeforeUnloadRef.current = true;
-    };
-
     return (
         <PomodoroContext.Provider value={{
             session,
@@ -313,8 +253,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             resumeSession,
             stopSession,
             minimized,
-            setMinimized,
-            suppressUnloadWarning
+            setMinimized
         }}>
             {children}
             {session && (

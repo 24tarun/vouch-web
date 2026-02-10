@@ -1241,39 +1241,31 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
         return { error: `Cannot edit reminders in ${(task as any).status} status` };
     }
 
-    const parsedReminders = validateReminderIsoList(remindersIso, new Date((task as any).deadline));
-    if (parsedReminders.error) {
-        return { error: parsedReminders.error };
+    if (!Array.isArray(remindersIso)) {
+        return { error: INVALID_REMINDERS_ERROR };
     }
 
-    if (parsedReminders.reminderDates.length === 0) {
-        const { error: deleteAllError } = await (supabase.from("task_reminders") as any)
-            .delete()
-            .eq("parent_task_id", taskId as any)
-            .eq("user_id", user.id as any);
+    const deadlineDate = new Date((task as any).deadline);
+    if (Number.isNaN(deadlineDate.getTime())) {
+        return { error: INVALID_DEADLINE_ERROR };
+    }
 
-        if (deleteAllError) {
-            return { error: deleteAllError.message };
+    const dedupedByTimestamp = new Map<number, Date>();
+    for (const value of remindersIso) {
+        if (typeof value !== "string") {
+            return { error: INVALID_REMINDERS_ERROR };
         }
 
-        revalidateTaskSurfaces(taskId, user.id);
-        return { success: true, reminders: [] as string[] };
-    }
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return { error: INVALID_REMINDERS_ERROR };
+        }
 
-    const upsertRows = parsedReminders.reminderDates.map((reminderDate) => ({
-        parent_task_id: taskId,
-        user_id: user.id,
-        reminder_at: reminderDate.toISOString(),
-        notified_at: null,
-    }));
+        if (parsed.getTime() > deadlineDate.getTime()) {
+            return { error: REMINDER_AFTER_DEADLINE_ERROR };
+        }
 
-    const { error: upsertError } = await (supabase.from("task_reminders") as any).upsert(
-        upsertRows,
-        { onConflict: "parent_task_id,reminder_at" }
-    );
-
-    if (upsertError) {
-        return { error: upsertError.message };
+        dedupedByTimestamp.set(parsed.getTime(), parsed);
     }
 
     const { data: existingReminders, error: existingError } = await (supabase.from("task_reminders") as any)
@@ -1285,9 +1277,37 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
         return { error: existingError.message };
     }
 
-    const keepIsoSet = new Set(parsedReminders.reminderDates.map((date) => date.toISOString()));
+    const nowMs = Date.now();
+    const nextFutureReminders = Array.from(dedupedByTimestamp.values())
+        .filter((date) => date.getTime() > nowMs)
+        .sort((a, b) => a.getTime() - b.getTime());
+    const nextFutureIsoSet = new Set(nextFutureReminders.map((date) => date.toISOString()));
+
+    if (nextFutureReminders.length > 0) {
+        const upsertRows = nextFutureReminders.map((reminderDate) => ({
+            parent_task_id: taskId,
+            user_id: user.id,
+            reminder_at: reminderDate.toISOString(),
+            notified_at: null,
+        }));
+
+        const { error: upsertError } = await (supabase.from("task_reminders") as any).upsert(
+            upsertRows,
+            { onConflict: "parent_task_id,reminder_at" }
+        );
+
+        if (upsertError) {
+            return { error: upsertError.message };
+        }
+    }
+
     const toDeleteIds = ((existingReminders as Array<{ id: string; reminder_at: string }> | null) || [])
-        .filter((row) => !keepIsoSet.has(new Date(row.reminder_at).toISOString()))
+        .filter((row) => {
+            const reminderDate = new Date(row.reminder_at);
+            if (Number.isNaN(reminderDate.getTime())) return false;
+            if (reminderDate.getTime() <= nowMs) return false;
+            return !nextFutureIsoSet.has(reminderDate.toISOString());
+        })
         .map((row) => row.id);
 
     if (toDeleteIds.length > 0) {
@@ -1304,7 +1324,7 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
     revalidateTaskSurfaces(taskId, user.id);
     return {
         success: true,
-        reminders: parsedReminders.reminderDates.map((reminderDate) => reminderDate.toISOString()),
+        reminders: nextFutureReminders.map((reminderDate) => reminderDate.toISOString()),
     };
 }
 

@@ -10,7 +10,7 @@ interface SignOutMenuFormProps {
 }
 
 export function SignOutMenuForm({ variant = "menu", className = "" }: SignOutMenuFormProps) {
-    const { session, suppressUnloadWarning } = usePomodoro();
+    const { session } = usePomodoro();
 
     const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
         if (session?.status === "ACTIVE") {
@@ -23,8 +23,6 @@ export function SignOutMenuForm({ variant = "menu", className = "" }: SignOutMen
                 return;
             }
         }
-
-        suppressUnloadWarning();
     };
 
     if (variant === "nav") {

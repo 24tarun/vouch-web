@@ -3,6 +3,8 @@ import { Badge } from "@/components/ui/badge";
 import type { LedgerEntry } from "@/lib/types";
 import { LedgerReportButton } from "@/components/LedgerReportButton";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
+import { ExternalLink } from "lucide-react";
+import Link from "next/link";
 
 export default async function LedgerPage() {
     const supabase = await createClient();
@@ -105,8 +107,10 @@ export default async function LedgerPage() {
                     </div>
                 ) : (
                     <div className="flex flex-col border-t border-slate-900/50">
-                        {(entries as any).map((entry: any) => (
-                            <div key={entry.id} className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
+                        {(entries as any).map((entry: any) => {
+                            const taskId = entry.task?.id || entry.task_id || null;
+                            return (
+                                <div key={entry.id} className="group flex items-center gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
                                         <p className="text-lg font-medium text-slate-300 group-hover:text-slate-100 transition-colors truncate">
@@ -128,6 +132,17 @@ export default async function LedgerPage() {
                                                         ? "Force Majeure"
                                                         : "Rectified"}
                                         </Badge>
+                                        {taskId && (
+                                            <Link
+                                                href={`/dashboard/tasks/${taskId}`}
+                                                prefetch
+                                                className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800 rounded-md transition-colors inline-flex items-center justify-center"
+                                                aria-label="Open task"
+                                                title="Open task"
+                                            >
+                                                <ExternalLink className="h-3.5 w-3.5" />
+                                            </Link>
+                                        )}
                                     </div>
                                     <p className="text-xs text-slate-600 mt-1">
                                         {new Date(entry.created_at).toLocaleDateString()} at {new Date(entry.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -143,7 +158,8 @@ export default async function LedgerPage() {
                                     </span>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </section>
