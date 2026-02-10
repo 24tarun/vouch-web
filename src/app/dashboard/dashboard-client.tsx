@@ -7,6 +7,7 @@ import {
     finalizeTaskProofUpload,
     markTaskCompleteWithProofIntent,
     ownerTempDeleteTask,
+    postponeTask,
     revertTaskCompletionAfterProofFailure,
 } from "@/actions/tasks";
 import { hideDashboardTips } from "@/actions/auth";
@@ -52,6 +53,7 @@ interface DashboardClientProps {
     friends: Profile[];
     defaultFailureCostEuros: string;
     defaultVoucherId: string | null;
+    defaultPomoDurationMinutes: number;
     userId: string;
     username: string;
     initialHideTips: boolean;
@@ -114,6 +116,7 @@ export default function DashboardClient({
     friends,
     defaultFailureCostEuros,
     defaultVoucherId,
+    defaultPomoDurationMinutes,
     userId,
     username,
     initialHideTips,
@@ -125,6 +128,7 @@ export default function DashboardClient({
     const [activeTasks, setActiveTasks] = useState<Task[]>(split.active);
     const [completedTasks, setCompletedTasks] = useState<Task[]>(split.completed.slice(0, MAX_COMPLETED_TASKS));
     const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(new Set());
+    const [postponingTaskIds, setPostponingTaskIds] = useState<Set<string>>(new Set());
     const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(new Set());
     const [proofByTaskId, setProofByTaskId] = useState<Record<string, TaskProofDraft>>({});
     const [proofUploadErrors, setProofUploadErrors] = useState<Record<string, string>>({});
@@ -138,6 +142,12 @@ export default function DashboardClient({
         setActiveTasks(split.active);
         setCompletedTasks(split.completed.slice(0, MAX_COMPLETED_TASKS));
         setCompletingTaskIds((prev) => {
+            if (prev.size === 0) return prev;
+            const activeIds = new Set(split.active.map((task) => task.id));
+            const next = new Set(Array.from(prev).filter((taskId) => activeIds.has(taskId)));
+            return next.size === prev.size ? prev : next;
+        });
+        setPostponingTaskIds((prev) => {
             if (prev.size === 0) return prev;
             const activeIds = new Set(split.active.map((task) => task.id));
             const next = new Set(Array.from(prev).filter((taskId) => activeIds.has(taskId)));
@@ -189,6 +199,18 @@ export default function DashboardClient({
         setDeletingTaskIds((prev) => {
             const next = new Set(prev);
             if (deleting) {
+                next.add(taskId);
+            } else {
+                next.delete(taskId);
+            }
+            return next;
+        });
+    };
+
+    const setTaskPostponing = (taskId: string, postponing: boolean) => {
+        setPostponingTaskIds((prev) => {
+            const next = new Set(prev);
+            if (postponing) {
                 next.add(taskId);
             } else {
                 next.delete(taskId);
@@ -517,6 +539,54 @@ export default function DashboardClient({
         setTaskDeleting(task.id, false);
     };
 
+    const handlePostponeTaskOptimistic = async (task: Task) => {
+        if (postponingTaskIds.has(task.id) || task.id.startsWith("temp-")) return;
+        if (!["CREATED", "POSTPONED"].includes(task.status)) return;
+        if (task.postponed_at) return;
+        const currentDeadline = new Date(task.deadline);
+        if (Number.isNaN(currentDeadline.getTime()) || currentDeadline.getTime() <= Date.now()) return;
+
+        setTaskPostponing(task.id, true);
+        const nowIso = new Date().toISOString();
+        const optimisticDeadlineIso = new Date(currentDeadline.getTime() + 60 * 60 * 1000).toISOString();
+
+        const result = await runOptimisticMutation({
+            captureSnapshot: () => ({
+                activeTasks,
+                completedTasks,
+            }),
+            applyOptimistic: () => {
+                setActiveTasks((prev) =>
+                    prev.map((currentTask) =>
+                        currentTask.id === task.id
+                            ? {
+                                ...currentTask,
+                                status: "POSTPONED",
+                                deadline: optimisticDeadlineIso,
+                                postponed_at: nowIso,
+                                updated_at: nowIso,
+                            }
+                            : currentTask
+                    )
+                );
+            },
+            runMutation: () => postponeTask(task.id),
+            rollback: (snapshot) => {
+                setActiveTasks(snapshot.activeTasks);
+                setCompletedTasks(snapshot.completedTasks);
+            },
+            onSuccess: () => {
+                refreshInBackground();
+            },
+        });
+
+        if (!result.ok) {
+            refreshInBackground();
+        }
+
+        setTaskPostponing(task.id, false);
+    };
+
     const handleHideTips = async () => {
         if (tipsHidden || isHidingTips) return;
         setIsHidingTips(true);
@@ -594,8 +664,12 @@ export default function DashboardClient({
                             onAttachProof={openTaskProofPicker}
                             hasProofAttached={Boolean(proofByTaskId[task.id])}
                             proofUploadError={proofUploadErrors[task.id] || null}
+                            onPostpone={handlePostponeTaskOptimistic}
+                            isPostponing={postponingTaskIds.has(task.id)}
+                            defaultPomoDurationMinutes={defaultPomoDurationMinutes}
                             onDelete={handleDeleteTaskOptimistic}
                             isDeleting={deletingTaskIds.has(task.id)}
+                            layoutVariant="active"
                         />
                     ))
                 )}

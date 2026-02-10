@@ -5,11 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { deleteTaskSubtask, toggleTaskSubtask } from "@/actions/tasks";
 import type { Task } from "@/lib/types";
-import { Camera, Check, ChevronDown, ChevronRight, ExternalLink, Repeat, Trash2 } from "lucide-react";
+import { Camera, Check, ChevronDown, ChevronRight, ExternalLink, Repeat, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "./ui/button";
+import { PomoButton } from "./ui/PomoButton";
 import { cn } from "@/lib/utils";
 import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
+import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
 
 interface TaskRowProps {
     task: Task;
@@ -18,8 +20,12 @@ interface TaskRowProps {
     onAttachProof?: (task: Task) => void;
     hasProofAttached?: boolean;
     proofUploadError?: string | null;
+    onPostpone?: (task: Task) => void;
+    isPostponing?: boolean;
+    defaultPomoDurationMinutes?: number;
     onDelete?: (task: Task) => void;
     isDeleting?: boolean;
+    layoutVariant?: "active" | "completed";
 }
 
 const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
@@ -31,8 +37,12 @@ export function TaskRow({
     onAttachProof,
     hasProofAttached = false,
     proofUploadError = null,
+    onPostpone,
+    isPostponing = false,
+    defaultPomoDurationMinutes = DEFAULT_POMO_DURATION_MINUTES,
     onDelete,
     isDeleting = false,
+    layoutVariant = "active",
 }: TaskRowProps) {
     const router = useRouter();
     const hasPrefetchedRef = useRef(false);
@@ -62,12 +72,35 @@ export function TaskRow({
             ? `Log ${Math.ceil((requiredPomoSeconds - pomoTotalSeconds) / 60)} more focus minute(s) first`
             : "Mark complete";
     const canEditSubtasks = isParentActive && !isTempTask;
+    const canDeleteWindowOpen = canOwnerTemporarilyDelete(task, nowMs);
     const canDelete = Boolean(
         onDelete &&
         !isTempTask &&
-        canOwnerTemporarilyDelete(task, nowMs)
+        canDeleteWindowOpen
     );
+    const canDeleteButtonBeShown = Boolean(onDelete && !isTempTask && isParentActive);
     const canAttachProof = Boolean(onAttachProof && !isActuallyCompleted && !isOverdue);
+    const canPostpone = Boolean(
+        onPostpone &&
+        !isTempTask &&
+        task.status === "CREATED" &&
+        !task.postponed_at &&
+        !isOverdue &&
+        !isPostponing
+    );
+    const normalizedDefaultPomoDuration =
+        Number.isInteger(defaultPomoDurationMinutes) &&
+            defaultPomoDurationMinutes >= 1 &&
+            defaultPomoDurationMinutes <= 720
+            ? defaultPomoDurationMinutes
+            : DEFAULT_POMO_DURATION_MINUTES;
+    const isCompleteActionDisabled =
+        isActuallyCompleted ||
+        isCompleting ||
+        isOverdue ||
+        !onComplete ||
+        hasIncompleteSubtasks ||
+        hasIncompletePomoRequirement;
 
     const subtaskExpandStorageKey = `task-subtasks-expanded:${task.id}`;
 
@@ -93,6 +126,11 @@ export function TaskRow({
         onDelete(task);
     };
 
+    const handlePostpone = () => {
+        if (!canPostpone || !onPostpone) return;
+        onPostpone(task);
+    };
+
     const handleSubtaskToggle = async (subtaskId: string) => {
         if (!canEditSubtasks || subtaskPendingIds.has(subtaskId)) return;
 
@@ -102,7 +140,7 @@ export function TaskRow({
         const nextCompleted = !current.is_completed;
         setSubtaskPending(subtaskId, true);
 
-        const result = await runOptimisticMutation({
+        await runOptimisticMutation({
             captureSnapshot: () => ({ subtasks }),
             applyOptimistic: () => {
                 setSubtasks((prev) =>
@@ -135,7 +173,7 @@ export function TaskRow({
 
         setSubtaskPending(subtaskId, true);
 
-        const result = await runOptimisticMutation({
+        await runOptimisticMutation({
             captureSnapshot: () => ({ subtasks }),
             applyOptimistic: () => {
                 setSubtasks((prev) => prev.filter((subtask) => subtask.id !== subtaskId));
@@ -231,123 +269,313 @@ export function TaskRow({
         router.push(detailPath);
     };
 
+    const quickActionButtonClass = "h-10 w-10 p-0";
+
+    const renderCheckQuickAction = () => (
+        <button
+            onClick={handleCheck}
+            disabled={isCompleteActionDisabled}
+            className={cn(
+                "h-8 w-8 p-0 rounded-full border flex items-center justify-center transition-all",
+                isActuallyCompleted
+                    ? (currentStatusColor || "bg-slate-700 border-slate-700 text-slate-400")
+                    : ("border-slate-600 hover:border-slate-500 text-transparent"),
+                (hasIncompleteSubtasks || hasIncompletePomoRequirement) && !isActuallyCompleted && "opacity-60 cursor-not-allowed"
+            )}
+            title={disabledCompleteTitle}
+            aria-label="Mark complete"
+        >
+            {isActuallyCompleted && <Check className="h-[14px] w-[14px]" strokeWidth={3} />}
+        </button>
+    );
+
+    const renderActiveQuickActions = (includeCheck: boolean) => (
+        <>
+            {includeCheck && renderCheckQuickAction()}
+
+            <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onAttachProof?.(task)}
+                disabled={!canAttachProof}
+                className={cn(
+                    quickActionButtonClass,
+                    "text-blue-300 hover:text-blue-200 hover:bg-slate-800",
+                    !canAttachProof && "cursor-not-allowed opacity-50"
+                )}
+                aria-label="Attach proof"
+                title={hasProofAttached ? "Proof attached" : "Attach proof (optional)"}
+            >
+                <Camera className="h-[18px] w-[18px]" />
+            </Button>
+
+            <Button
+                type="button"
+                variant="ghost"
+                onClick={handlePostpone}
+                disabled={!canPostpone}
+                className={cn(
+                    quickActionButtonClass,
+                    canPostpone
+                        ? "text-amber-300 hover:text-amber-200 hover:bg-slate-800"
+                        : "text-slate-500 cursor-not-allowed"
+                )}
+                aria-label="Postpone task"
+                title={canPostpone ? "Postpone by 1 hour" : "Postpone unavailable"}
+            >
+                <TriangleAlert className="h-[18px] w-[18px]" />
+            </Button>
+
+            <PomoButton
+                taskId={task.id}
+                variant="icon"
+                defaultDurationMinutes={normalizedDefaultPomoDuration}
+                className="h-10 w-10 p-0 justify-center text-cyan-300 hover:text-cyan-200 disabled:text-slate-500"
+            />
+
+            {canDeleteButtonBeShown && (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleDelete}
+                    disabled={isDeleting || !canDelete}
+                    className={cn(
+                        quickActionButtonClass,
+                        canDelete
+                            ? "text-red-400 hover:text-red-300 hover:bg-slate-800"
+                            : "text-slate-500 cursor-not-allowed"
+                    )}
+                    aria-label="Delete task"
+                    title={canDelete
+                        ? "Delete task (available for 5 minutes after creation)"
+                        : "Delete available only within 5 minutes of creation"}
+                >
+                    <Trash2 className="h-[18px] w-[18px]" />
+                </Button>
+            )}
+
+            {hasSubtasks && (
+                <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleExpandToggle}
+                    className="h-10 w-10 p-0 text-slate-300 hover:text-white hover:bg-slate-800"
+                    aria-label={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                    title={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                >
+                    {isExpanded ? <ChevronDown className="h-[18px] w-[18px]" /> : <ChevronRight className="h-[18px] w-[18px]" />}
+                </Button>
+            )}
+
+            <Button
+                asChild
+                variant="ghost"
+                className="h-10 w-10 p-0 text-slate-300 hover:text-white hover:bg-slate-800"
+                aria-label="Open task"
+                title="Open task"
+            >
+                <Link href={detailPath} prefetch>
+                    <ExternalLink className="h-[18px] w-[18px]" />
+                </Link>
+            </Button>
+        </>
+    );
+
     return (
         <div>
-            <div
-                className={cn(
-                    "group flex items-center gap-3 py-3 border-b border-slate-800/50 last:border-0 hover:bg-slate-900/20 -mx-4 px-4 transition-colors",
-                    isActuallyCompleted && "opacity-80"
-                )}
-                onMouseEnter={prefetchTaskDetails}
-                onFocus={prefetchTaskDetails}
-                onTouchStart={prefetchTaskDetails}
-                onDoubleClick={handleRowDoubleClick}
-                title="Double-click to open task details"
-            >
-                <button
-                    onClick={handleCheck}
-                    disabled={isActuallyCompleted || isCompleting || isOverdue || !onComplete || hasIncompleteSubtasks || hasIncompletePomoRequirement}
+            {layoutVariant === "completed" ? (
+                <div
                     className={cn(
-                        "flex-shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
-                        isActuallyCompleted
-                            ? (currentStatusColor || "bg-slate-700 border-slate-700 text-slate-400")
-                            : ("border-slate-600 hover:border-slate-500 text-transparent"),
-                        (hasIncompleteSubtasks || hasIncompletePomoRequirement) && !isActuallyCompleted && "opacity-50 cursor-not-allowed"
+                        "group flex items-center gap-3 py-3 border-b border-slate-800/50 last:border-0 hover:bg-slate-900/20 -mx-4 px-4 transition-colors",
+                        isActuallyCompleted && "opacity-80"
                     )}
-                    title={disabledCompleteTitle}
+                    onMouseEnter={prefetchTaskDetails}
+                    onFocus={prefetchTaskDetails}
+                    onTouchStart={prefetchTaskDetails}
+                    onDoubleClick={handleRowDoubleClick}
+                    title="Double-click to open task details"
                 >
-                    {isActuallyCompleted && <Check className="h-3 w-3" strokeWidth={3} />}
-                </button>
-
-                <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
-                    <p
+                    <button
+                        onClick={handleCheck}
+                        disabled={isActuallyCompleted || isCompleting || isOverdue || !onComplete || hasIncompleteSubtasks || hasIncompletePomoRequirement}
                         className={cn(
-                            "text-sm font-medium truncate",
+                            "flex-shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
                             isActuallyCompleted
-                                ? cn("line-through", currentStatusColor || "text-slate-400")
-                                : "text-white"
+                                ? (currentStatusColor || "bg-slate-700 border-slate-700 text-slate-400")
+                                : ("border-slate-600 hover:border-slate-500 text-transparent"),
+                            (hasIncompleteSubtasks || hasIncompletePomoRequirement) && !isActuallyCompleted && "opacity-50 cursor-not-allowed"
                         )}
+                        title={disabledCompleteTitle}
                     >
-                        {task.title}
-                    </p>
-                    {task.recurrence_rule_id && (
-                        <Repeat className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                    )}
-                    {hasSubtasks && (
-                        <span className="text-[10px] text-slate-500 font-mono shrink-0">
-                            {completedSubtasksCount}/{subtasks.length}
-                        </span>
-                    )}
-                </div>
+                        {isActuallyCompleted && <Check className="h-3 w-3" strokeWidth={3} />}
+                    </button>
 
-                <div className="flex items-center gap-2 text-xs">
-                    <div className={cn("flex items-center gap-1.5", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
-                        <span suppressHydrationWarning>
-                            {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
-                        </span>
+                    <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
+                        <p
+                            className={cn(
+                                "text-sm font-medium truncate",
+                                isActuallyCompleted
+                                    ? cn("line-through", currentStatusColor || "text-slate-400")
+                                    : "text-white"
+                            )}
+                        >
+                            {task.title}
+                        </p>
+                        {task.recurrence_rule_id && (
+                            <Repeat className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                        )}
+                        {hasSubtasks && (
+                            <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                {completedSubtasksCount}/{subtasks.length}
+                            </span>
+                        )}
                     </div>
 
-                    {hasSubtasks && (
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={handleExpandToggle}
-                            className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/80"
-                            aria-label={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
-                            title={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
-                        >
-                            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                        </Button>
-                    )}
+                    <div className="flex items-center gap-2 text-xs">
+                        <div className={cn("flex items-center gap-1.5", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
+                            <span suppressHydrationWarning>
+                                {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
+                            </span>
+                        </div>
 
-                    {canAttachProof && (
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={() => onAttachProof?.(task)}
-                            className={cn(
-                                "h-7 w-7 p-0 border",
-                                hasProofAttached
-                                    ? "text-blue-300 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20"
-                                    : "text-slate-300 border-slate-700/80 hover:text-white hover:bg-slate-800"
-                            )}
-                            aria-label="Attach proof"
-                            title={hasProofAttached ? "Proof attached" : "Attach proof (optional)"}
-                        >
-                            <Camera className="h-3.5 w-3.5" />
-                        </Button>
-                    )}
+                        {hasSubtasks && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={handleExpandToggle}
+                                className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-700/80"
+                                aria-label={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                                title={isExpanded ? "Collapse subtasks" : "Expand subtasks"}
+                            >
+                                {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                            </Button>
+                        )}
 
-                    {canDelete && (
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            onClick={handleDelete}
-                            disabled={isDeleting}
-                            className={cn(
-                                "h-7 w-7 p-0 border transition-colors",
-                                "text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/30"
-                            )}
-                            aria-label="Delete task"
-                            title="Delete task (available for 5 minutes after creation)"
-                        >
-                            <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                    )}
+                        {canAttachProof && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={() => onAttachProof?.(task)}
+                                className={cn(
+                                    "h-7 w-7 p-0 border",
+                                    hasProofAttached
+                                        ? "text-blue-300 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20"
+                                        : "text-slate-300 border-slate-700/80 hover:text-white hover:bg-slate-800"
+                                )}
+                                aria-label="Attach proof"
+                                title={hasProofAttached ? "Proof attached" : "Attach proof (optional)"}
+                            >
+                                <Camera className="h-3.5 w-3.5" />
+                            </Button>
+                        )}
 
-                    <Button
-                        asChild
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800"
-                        aria-label="Open task"
-                        title="Open task"
-                    >
-                        <Link href={detailPath} prefetch>
-                            <ExternalLink className="h-3.5 w-3.5" />
-                        </Link>
-                    </Button>
+                        {canDelete && (
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                onClick={handleDelete}
+                                disabled={isDeleting}
+                                className={cn(
+                                    "h-7 w-7 p-0 border transition-colors",
+                                    "text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/30"
+                                )}
+                                aria-label="Delete task"
+                                title="Delete task (available for 5 minutes after creation)"
+                            >
+                                <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                        )}
+
+                        <Button
+                            asChild
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800"
+                            aria-label="Open task"
+                            title="Open task"
+                        >
+                            <Link href={detailPath} prefetch>
+                                <ExternalLink className="h-3.5 w-3.5" />
+                            </Link>
+                        </Button>
+                    </div>
                 </div>
-            </div>
+            ) : (
+                <div
+                    className={cn(
+                        "group py-3 border-b border-slate-800/50 last:border-0 hover:bg-slate-900/20 -mx-4 px-4 transition-colors",
+                        isActuallyCompleted && "opacity-80"
+                    )}
+                    onMouseEnter={prefetchTaskDetails}
+                    onFocus={prefetchTaskDetails}
+                    onTouchStart={prefetchTaskDetails}
+                    onDoubleClick={handleRowDoubleClick}
+                    title="Double-click to open task details"
+                >
+                    <div className="hidden md:flex md:items-center md:justify-between md:gap-3">
+                        <div className="min-w-0 flex items-center gap-2 overflow-hidden">
+                            {renderCheckQuickAction()}
+                            <p
+                                className={cn(
+                                    "text-sm font-medium truncate",
+                                    isActuallyCompleted
+                                        ? cn("line-through", currentStatusColor || "text-slate-400")
+                                        : "text-white"
+                                )}
+                                title={task.title}
+                            >
+                                {task.title}
+                            </p>
+                            {task.recurrence_rule_id && (
+                                <Repeat className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                            )}
+                            {hasSubtasks && (
+                                <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                    {completedSubtasksCount}/{subtasks.length}
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span suppressHydrationWarning className={cn("text-xs", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
+                                {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
+                            </span>
+                            {renderActiveQuickActions(false)}
+                        </div>
+                    </div>
+
+                    <div className="md:hidden">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex items-center gap-1.5 overflow-hidden">
+                                <p
+                                    className={cn(
+                                        "text-sm font-medium truncate",
+                                        isActuallyCompleted
+                                            ? cn("line-through", currentStatusColor || "text-slate-400")
+                                            : "text-white"
+                                    )}
+                                    title={task.title}
+                                >
+                                    {task.title}
+                                </p>
+                                {task.recurrence_rule_id && (
+                                    <Repeat className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                )}
+                                {hasSubtasks && (
+                                    <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                        {completedSubtasksCount}/{subtasks.length}
+                                    </span>
+                                )}
+                            </div>
+                            <span suppressHydrationWarning className={cn("text-xs shrink-0", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
+                                {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
+                            </span>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-center gap-2">
+                            {renderActiveQuickActions(true)}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {proofUploadError && (
                 <div className="ml-8 mr-3 mb-2 mt-0.5 rounded border border-red-900/60 bg-red-950/30 px-2 py-1">

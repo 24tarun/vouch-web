@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Task } from "@/lib/types";
 import { getFriends } from "@/actions/friends";
-import { DEFAULT_FAILURE_COST_CENTS } from "@/lib/constants";
+import { DEFAULT_FAILURE_COST_CENTS, DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
 import DashboardClient from "@/app/dashboard/dashboard-client";
 import { getCachedActiveTasksForUser } from "@/actions/tasks";
 import { BuildStamp } from "@/components/BuildStamp";
@@ -19,7 +19,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("default_failure_cost_cents, default_voucher_id, username, hide_tips")
+            .select("default_failure_cost_cents, default_voucher_id, default_pomo_duration_minutes, username, hide_tips")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => result.data),
@@ -36,6 +36,7 @@ export default async function DashboardPage() {
     const profileDefaults = rawProfileDefaults as {
         default_failure_cost_cents: number | null;
         default_voucher_id: string | null;
+        default_pomo_duration_minutes: number | null;
         username: string | null;
         hide_tips: boolean | null;
     } | null;
@@ -43,6 +44,11 @@ export default async function DashboardPage() {
     const defaultFailureCostEuros = (
         ((profileDefaults?.default_failure_cost_cents ?? DEFAULT_FAILURE_COST_CENTS) / 100)
     ).toFixed(2);
+    const defaultPomoDurationMinutes =
+        Number.isInteger(profileDefaults?.default_pomo_duration_minutes) &&
+            (profileDefaults?.default_pomo_duration_minutes ?? 0) > 0
+            ? (profileDefaults?.default_pomo_duration_minutes as number)
+            : DEFAULT_POMO_DURATION_MINUTES;
     const defaultVoucherId = profileDefaults?.default_voucher_id ?? null;
     const username =
         profileDefaults?.username?.trim() ||
@@ -103,6 +109,7 @@ export default async function DashboardPage() {
                     friends={friends}
                     defaultFailureCostEuros={defaultFailureCostEuros}
                     defaultVoucherId={defaultVoucherId}
+                    defaultPomoDurationMinutes={defaultPomoDurationMinutes}
                     userId={userId || ""}
                     username={username}
                     initialHideTips={initialHideTips}

@@ -30,12 +30,17 @@ export default async function OverviewPage() {
     const taskIds = rawTasks.map((task) => task.id).filter(Boolean);
     let timeoutAcceptedTaskIds = new Set<string>();
     if (taskIds.length > 0) {
-        const { data: timeoutEvents } = await supabase
+        const { data: timeoutEventsRaw } = await supabase
             .from("task_events")
             .select("task_id")
             .in("task_id", taskIds)
             .eq("event_type", "VOUCHER_TIMEOUT");
-        timeoutAcceptedTaskIds = new Set((timeoutEvents || []).map((event) => event.task_id));
+        const timeoutEvents = (timeoutEventsRaw || []) as Array<{ task_id: string | null }>;
+        timeoutAcceptedTaskIds = new Set(
+            timeoutEvents
+                .map((event) => event.task_id)
+                .filter((taskId): taskId is string => Boolean(taskId))
+        );
     }
     const tasks = rawTasks.map((task) => ({
         ...task,

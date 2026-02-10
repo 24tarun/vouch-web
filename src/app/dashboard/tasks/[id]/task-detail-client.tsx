@@ -1057,36 +1057,36 @@ export default function TaskDetailClient({
                     <CardTitle className="text-white">Task Details</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="rounded-lg border border-slate-800/80 bg-slate-950/35 p-3">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
                             <p className="text-[11px] uppercase tracking-wide text-slate-400">Task State</p>
                             <div className="mt-2">
                                 <Badge className={statusColors[taskState.status]}>{taskStatusLabel}</Badge>
                             </div>
                         </div>
-                        <div className="rounded-lg border border-slate-800/80 bg-slate-950/35 p-3">
+                        <div>
                             <p className="text-[11px] uppercase tracking-wide text-slate-400">Voucher</p>
                             <p className="mt-2 text-white font-medium">{taskState.voucher?.username || "Unassigned"}</p>
                         </div>
-                        <div className="rounded-lg border border-slate-800/80 bg-slate-950/35 p-3">
+                        <div>
                             <p className="text-[11px] uppercase tracking-wide text-slate-400">Deadline</p>
                             <p className={`mt-2 text-lg font-medium ${isOverdue ? "text-red-400" : "text-white"}`}>
                                 {formatDateTimeDdMmYy(deadline)}
                             </p>
                         </div>
-                        <div className="rounded-lg border border-slate-800/80 bg-slate-950/35 p-3">
+                        <div>
                             <p className="text-[11px] uppercase tracking-wide text-slate-400">Hedge</p>
                             <p className="mt-2 text-lg font-medium text-pink-400">
                                 {"\u20ac"}{(taskState.failure_cost_cents / 100).toFixed(2)}
                             </p>
                         </div>
-                        <div className="rounded-lg border border-slate-800/80 bg-slate-950/35 p-3">
+                        <div>
                             <p className="text-[11px] uppercase tracking-wide text-slate-400">Time Spent</p>
                             <p className="mt-2 text-lg font-medium text-cyan-300">
                                 {formatFocusTime(totalPomoSeconds)}
                             </p>
                         </div>
-                        <div className="rounded-lg border border-slate-800/80 bg-slate-950/35 p-3">
+                        <div>
                             <p className="text-[11px] uppercase tracking-wide text-slate-400">Proof</p>
                             <p className="mt-2 text-white font-medium">{proofSummary}</p>
                         </div>
