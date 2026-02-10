@@ -1081,16 +1081,39 @@ export default function TaskDetailClient({
         return `${minutes}m`;
     };
 
+    const getPomoElapsedSeconds = (event: TaskEvent) => {
+        const elapsedRaw = event.metadata?.elapsed_seconds;
+        return typeof elapsedRaw === "number" ? elapsedRaw : Number(elapsedRaw ?? 0);
+    };
+
     const formatEventLabel = (event: TaskEvent) => {
         if (event.event_type === "POMO_COMPLETED") {
-            const elapsedRaw = event.metadata?.elapsed_seconds;
-            const elapsedSeconds =
-                typeof elapsedRaw === "number"
-                    ? elapsedRaw
-                    : Number(elapsedRaw ?? 0);
+            const elapsedSeconds = getPomoElapsedSeconds(event);
             return `Focus session completed (${formatFocusTime(elapsedSeconds)})`;
         }
         return event.event_type.replace(/_/g, " ");
+    };
+
+    const formatEventTimestamp = (event: TaskEvent) => {
+        if (event.event_type !== "POMO_COMPLETED") {
+            return formatDateTimeDdMmYy(event.created_at);
+        }
+
+        const elapsedSeconds = getPomoElapsedSeconds(event);
+        const endDate = new Date(event.created_at);
+        if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0 || Number.isNaN(endDate.getTime())) {
+            return formatDateTimeDdMmYy(event.created_at);
+        }
+
+        const startDate = new Date(endDate.getTime() - elapsedSeconds * 1000);
+        const startDay = formatDateDdMmYy(startDate);
+        const endDay = formatDateDdMmYy(endDate);
+
+        if (startDay === endDay) {
+            return `${endDay} ${formatTime24h(startDate)} to ${formatTime24h(endDate)}`;
+        }
+
+        return `${startDay} ${formatTime24h(startDate)} to ${endDay} ${formatTime24h(endDate)}`;
     };
 
     const visibleEvents = useMemo(() => {
@@ -1704,7 +1727,7 @@ export default function TaskDetailClient({
                                             {formatEventLabel(event)}
                                         </p>
                                         <p className="text-xs text-slate-500">
-                                            {formatDateTimeDdMmYy(event.created_at)}
+                                            {formatEventTimestamp(event)}
                                         </p>
                                     </div>
                                 </div>
