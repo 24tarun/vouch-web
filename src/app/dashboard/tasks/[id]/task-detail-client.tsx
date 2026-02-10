@@ -28,28 +28,10 @@ import {
     CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { TaskWithRelations, TaskEvent } from "@/lib/types";
 import { PomoButton } from "@/components/ui/PomoButton";
-import { isIOS } from "@/lib/platform";
-import {
-    combineDateAndTime,
-    fromDateTimeLocalValue,
-    getDatePartFromLocalDateTime,
-    getTimePartFromLocalDateTime,
-    localDateTimeToIso,
-    toDateTimeLocalValue,
-} from "@/lib/datetime-local";
+import { localDateTimeToIso } from "@/lib/datetime-local";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
 import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
@@ -115,9 +97,7 @@ export default function TaskDetailClient({
 }: TaskDetailClientProps) {
     const router = useRouter();
     const [, startRefreshTransition] = useTransition();
-    const isIOSDevice = isIOS();
     const [taskState, setTaskState] = useState<TaskWithRelations>(task);
-    const [postponeOpen, setPostponeOpen] = useState(false);
     const [isRepetitionStopped, setIsRepetitionStopped] = useState(task.recurrence_rule?.active === false);
     const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
     const [nowMs, setNowMs] = useState(() => Date.now());
@@ -145,14 +125,6 @@ export default function TaskDetailClient({
         deadline < new Date() &&
         !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"].includes(taskState.status);
 
-    const maxPostpone = new Date(deadline.getTime() + 60 * 60 * 1000);
-    const minPostpone = new Date(deadline.getTime() + 60 * 1000);
-    const minPostponeLocal = toDateTimeLocalValue(minPostpone);
-    const maxPostponeLocal = toDateTimeLocalValue(maxPostpone);
-
-    const [postponeValue, setPostponeValue] = useState(maxPostponeLocal);
-    const [postponeDate, setPostponeDate] = useState(() => getDatePartFromLocalDateTime(maxPostponeLocal));
-    const [postponeTime, setPostponeTime] = useState(() => getTimePartFromLocalDateTime(maxPostponeLocal));
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
     const isOwner = taskState.user_id === viewerId;
@@ -340,39 +312,6 @@ export default function TaskDetailClient({
         window.addEventListener("keydown", onKeyDown);
         return () => window.removeEventListener("keydown", onKeyDown);
     }, [isStoredProofFullscreen]);
-
-    const resetPostponeDraft = () => {
-        const latestDeadline = new Date(taskState.deadline);
-        const latestMaxPostpone = new Date(latestDeadline.getTime() + 60 * 60 * 1000);
-        const latestMaxLocal = toDateTimeLocalValue(latestMaxPostpone);
-
-        setPostponeValue(latestMaxLocal);
-        setPostponeDate(getDatePartFromLocalDateTime(latestMaxLocal));
-        setPostponeTime(getTimePartFromLocalDateTime(latestMaxLocal));
-    };
-
-    const handlePostponeOpenChange = (open: boolean) => {
-        setPostponeOpen(open);
-        if (open) {
-            resetPostponeDraft();
-        }
-    };
-
-    const handlePostponeDateChange = (value: string) => {
-        setPostponeDate(value);
-        const combined = combineDateAndTime(value, postponeTime);
-        if (combined) {
-            setPostponeValue(combined);
-        }
-    };
-
-    const handlePostponeTimeChange = (value: string) => {
-        setPostponeTime(value);
-        const combined = combineDateAndTime(postponeDate, value);
-        if (combined) {
-            setPostponeValue(combined);
-        }
-    };
 
     const toReminderIso = (value: string) => {
         const parsed = new Date(value);
@@ -651,6 +590,7 @@ export default function TaskDetailClient({
 
         if (finalize?.error) {
             setProofUploadError("Proof finalize failed. Task reverted to active state.");
+            toast.error(`Proof upload failed: ${finalize.error}`);
             const reverted = await revertTaskCompletionAfterProofFailure(taskId);
             if (reverted?.error) {
                 toast.error(reverted.error);
@@ -672,6 +612,7 @@ export default function TaskDetailClient({
 
         setTaskProofDraft(null);
         setProofUploadError(null);
+        toast.success("Proof uploaded successfully.");
         refreshInBackground();
     };
 
@@ -751,6 +692,7 @@ export default function TaskDetailClient({
 
             if (!uploadTarget) {
                 setProofUploadError("Proof upload target missing. Task reverted to active state.");
+                toast.error("Proof upload failed: Upload target missing.");
                 const reverted = await revertTaskCompletionAfterProofFailure(taskState.id);
                 if (reverted?.error) {
                     toast.error(reverted.error);
@@ -802,46 +744,26 @@ export default function TaskDetailClient({
         setActionPending("undoComplete", false);
     }
 
-    async function handlePostpone(e: React.FormEvent<HTMLFormElement>) {
-        e.preventDefault();
-
+    async function handlePostpone() {
         if (isActionPending("postpone")) return;
         if (isOverdue) {
             toast.error("Cannot postpone an overdue task.");
             return;
         }
 
-        const formData = new FormData(e.currentTarget);
-        const newDeadlineLocal = formData.get("newDeadline");
-        if (typeof newDeadlineLocal !== "string" || !newDeadlineLocal) {
-            toast.error("Please choose a valid deadline.");
+        const currentDeadline = new Date(taskState.deadline);
+        if (Number.isNaN(currentDeadline.getTime()) || currentDeadline.getTime() <= Date.now()) {
+            toast.error("Cannot postpone this task.");
             return;
         }
-
-        const parsedLocal = fromDateTimeLocalValue(newDeadlineLocal);
-        if (!parsedLocal) {
-            toast.error("Please choose a valid deadline.");
-            return;
-        }
-
-        if (parsedLocal < minPostpone || parsedLocal > maxPostpone) {
-            toast.error("Postpone must be within 1 minute to 1 hour from the current deadline.");
-            return;
-        }
-
-        const newDeadlineIso = localDateTimeToIso(newDeadlineLocal);
-        if (!newDeadlineIso) {
-            toast.error("Please choose a valid deadline.");
-            return;
-        }
+        const newDeadlineIso = new Date(currentDeadline.getTime() + 60 * 60 * 1000).toISOString();
 
         setActionPending("postpone", true);
         const optimisticUpdatedAt = new Date().toISOString();
 
         await runOptimisticMutation({
-            captureSnapshot: () => ({ taskState, postponeOpen }),
+            captureSnapshot: () => ({ taskState }),
             applyOptimistic: () => {
-                setPostponeOpen(false);
                 setTaskState((prev) => ({
                     ...prev,
                     status: "POSTPONED",
@@ -850,10 +772,9 @@ export default function TaskDetailClient({
                     updated_at: optimisticUpdatedAt,
                 }));
             },
-            runMutation: () => postponeTask(taskState.id, newDeadlineIso),
+            runMutation: () => postponeTask(taskState.id),
             rollback: (snapshot) => {
                 setTaskState(snapshot.taskState);
-                setPostponeOpen(snapshot.postponeOpen);
             },
             onSuccess: () => {
                 refreshInBackground();
@@ -1542,75 +1463,15 @@ export default function TaskDetailClient({
                             )}
 
                             {taskState.status === "CREATED" && !taskState.postponed_at && !isOverdue && (
-                                <Dialog open={postponeOpen} onOpenChange={handlePostponeOpenChange}>
-                                    <DialogTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            className="h-9 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300"
-                                        >
-                                            Postpone (1x only)
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="bg-slate-900 border-slate-800">
-                                        <DialogHeader>
-                                            <DialogTitle className="text-white">
-                                                Postpone Task
-                                            </DialogTitle>
-                                            <DialogDescription className="text-slate-400">
-                                                You can postpone once by up to 1 hour.
-                                            </DialogDescription>
-                                        </DialogHeader>
-                                        <form onSubmit={handlePostpone} className="space-y-4">
-                                            <div className="space-y-2">
-                                                <Label className="text-slate-200">New Deadline</Label>
-                                                {isIOSDevice ? (
-                                                    <div className="space-y-2">
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                            <Input
-                                                                id="postponeDate"
-                                                                type="date"
-                                                                value={postponeDate}
-                                                                onChange={(e) => handlePostponeDateChange(e.target.value)}
-                                                                className="bg-slate-700/50 border-slate-600 text-white"
-                                                                required
-                                                            />
-                                                            <Input
-                                                                id="postponeTime"
-                                                                type="time"
-                                                                value={postponeTime}
-                                                                onChange={(e) => handlePostponeTimeChange(e.target.value)}
-                                                                step={60}
-                                                                className="bg-slate-700/50 border-slate-600 text-white"
-                                                                required
-                                                            />
-                                                        </div>
-                                                        <input name="newDeadline" type="hidden" value={postponeValue} readOnly />
-                                                    </div>
-                                                ) : (
-                                                    <Input
-                                                        name="newDeadline"
-                                                        type="datetime-local"
-                                                        min={minPostponeLocal}
-                                                        max={maxPostponeLocal}
-                                                        value={postponeValue}
-                                                        onChange={(e) => setPostponeValue(e.target.value)}
-                                                        className="bg-slate-700/50 border-slate-600 text-white"
-                                                        required
-                                                    />
-                                                )}
-                                            </div>
-                                            <DialogFooter>
-                                                <Button
-                                                    type="submit"
-                                                    disabled={isActionPending("postpone")}
-                                                    className="bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300"
-                                                >
-                                                    Confirm Postpone
-                                                </Button>
-                                            </DialogFooter>
-                                        </form>
-                                    </DialogContent>
-                                </Dialog>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={handlePostpone}
+                                    disabled={isActionPending("postpone")}
+                                    className="h-9 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 disabled:opacity-60"
+                                >
+                                    {isActionPending("postpone") ? "Postponing..." : "Postpone (1x only)"}
+                                </Button>
                             )}
 
                             <Button

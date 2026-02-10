@@ -353,6 +353,7 @@ export default function DashboardClient({
                 ...prev,
                 [taskId]: "Proof finalize failed. Task reverted to active state. Re-attach or retry.",
             }));
+            toast.error(`Proof upload failed: ${finalize.error}`);
             const reverted = await revertTaskCompletionAfterProofFailure(taskId);
             if (reverted?.error) {
                 toast.error(reverted.error);
@@ -369,6 +370,7 @@ export default function DashboardClient({
             delete next[taskId];
             return next;
         });
+        toast.success("Proof uploaded successfully.");
         refreshInBackground();
     };
 
@@ -497,6 +499,7 @@ export default function DashboardClient({
                     ...prev,
                     [task.id]: "Proof upload target missing. Task reverted to active state.",
                 }));
+                toast.error("Proof upload failed: Upload target missing.");
                 const reverted = await revertTaskCompletionAfterProofFailure(task.id);
                 if (reverted?.error) {
                     toast.error(reverted.error);
