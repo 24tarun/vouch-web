@@ -8,6 +8,7 @@ export interface Profile {
     default_pomo_duration_minutes: number;
     default_failure_cost_cents: number;
     default_voucher_id: string | null;
+    strict_pomo_enabled: boolean;
     hide_tips: boolean;
     created_at: string;
 }
@@ -123,6 +124,7 @@ export interface PomoSession {
     task_id: string;
     duration_minutes: number;
     elapsed_seconds: number;
+    is_strict: boolean;
     status: "ACTIVE" | "PAUSED" | "COMPLETED" | "DELETED";
     started_at: string;
     paused_at: string | null;
@@ -214,7 +216,7 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Omit<Profile, "id" | "created_at" | "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "hide_tips"> & Partial<Pick<Profile, "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "hide_tips">>
+                Insert: Omit<Profile, "id" | "created_at" | "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "hide_tips"> & Partial<Pick<Profile, "default_pomo_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "hide_tips">>
                 Update: Partial<Profile>
             }
             friendships: {

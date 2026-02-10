@@ -49,6 +49,9 @@ export default function SettingsClient({ profile, friends }: SettingsClientProps
     const [defaultVoucherId, setDefaultVoucherId] = useState<string | null>(
         profile.default_voucher_id ?? null
     );
+    const [strictPomoEnabled, setStrictPomoEnabled] = useState(
+        profile.strict_pomo_enabled ?? false
+    );
     const [isDefaultsLoading, setIsDefaultsLoading] = useState(false);
     const [defaultsError, setDefaultsError] = useState<string | null>(null);
     const [defaultsSuccess, setDefaultsSuccess] = useState(false);
@@ -86,6 +89,7 @@ export default function SettingsClient({ profile, friends }: SettingsClientProps
         formData.append("defaultPomoDurationMinutes", defaultPomoDurationMinutes);
         formData.append("defaultFailureCost", defaultFailureCostEuros);
         formData.append("defaultVoucherId", effectiveDefaultVoucherId ?? "");
+        formData.append("strictPomoEnabled", String(strictPomoEnabled));
 
         const result = await updateUserDefaults(formData);
 
@@ -222,6 +226,26 @@ export default function SettingsClient({ profile, friends }: SettingsClientProps
                                     ))}
                                 </SelectContent>
                             </Select>
+                        </div>
+
+                        <div className="rounded-lg border border-slate-700/70 bg-slate-800/30 px-3 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="space-y-1">
+                                    <Label htmlFor="strictPomoEnabled" className="text-slate-200">
+                                        Strict Pomodoro
+                                    </Label>
+                                    <p className="text-xs text-slate-400">
+                                        When enabled, newly started pomodoros cannot be paused and only timer-completed sessions count.
+                                    </p>
+                                </div>
+                                <input
+                                    id="strictPomoEnabled"
+                                    type="checkbox"
+                                    checked={strictPomoEnabled}
+                                    onChange={(e) => setStrictPomoEnabled(e.target.checked)}
+                                    className="h-4 w-4 accent-cyan-400"
+                                />
+                            </div>
                         </div>
 
                         {defaultsError && <p className="text-sm text-red-400">{defaultsError}</p>}

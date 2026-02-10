@@ -41,10 +41,11 @@ async function autoEndLingeringPomoSession(
         ? Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000))
         : 0;
     const finalElapsed = (session.elapsed_seconds || 0) + additionalElapsed;
+    const isStrictSession = Boolean(session.is_strict);
 
     const { data: updatedSession, error: updateError } = await (supabase.from("pomo_sessions") as any)
         .update({
-            status: "COMPLETED",
+            status: isStrictSession ? "DELETED" : "COMPLETED",
             elapsed_seconds: finalElapsed,
             completed_at: now.toISOString(),
         })
@@ -60,6 +61,13 @@ async function autoEndLingeringPomoSession(
     }
 
     if (!updatedSession) return;
+    if (isStrictSession) {
+        revalidatePath("/dashboard");
+        if (session.task_id) {
+            revalidatePath(`/dashboard/tasks/${session.task_id}`);
+        }
+        return;
+    }
 
     if (!session.task_id) return;
 
@@ -225,6 +233,7 @@ export async function updateUserDefaults(formData: FormData) {
     const defaultPomoDurationRaw = formData.get("defaultPomoDurationMinutes") as string;
     const defaultFailureCostRaw = formData.get("defaultFailureCost") as string;
     const defaultVoucherIdRaw = formData.get("defaultVoucherId") as string;
+    const strictPomoEnabledRaw = formData.get("strictPomoEnabled");
 
     const defaultPomoDurationMinutes = Number(defaultPomoDurationRaw);
     if (
@@ -251,6 +260,16 @@ export async function updateUserDefaults(formData: FormData) {
     }
 
     const defaultVoucherId = defaultVoucherIdRaw?.trim() ? defaultVoucherIdRaw.trim() : null;
+    let strictPomoEnabled: boolean | undefined;
+    if (strictPomoEnabledRaw != null && strictPomoEnabledRaw !== "") {
+        if (typeof strictPomoEnabledRaw !== "string") {
+            return { error: "Strict Pomodoro toggle value is invalid." };
+        }
+        if (strictPomoEnabledRaw !== "true" && strictPomoEnabledRaw !== "false") {
+            return { error: "Strict Pomodoro toggle value is invalid." };
+        }
+        strictPomoEnabled = strictPomoEnabledRaw === "true";
+    }
 
     if (defaultVoucherId) {
         const { data: friendship } = await supabase
@@ -265,13 +284,18 @@ export async function updateUserDefaults(formData: FormData) {
         }
     }
 
+    const profileUpdate: Record<string, unknown> = {
+        default_pomo_duration_minutes: defaultPomoDurationMinutes ?? DEFAULT_POMO_DURATION_MINUTES,
+        default_failure_cost_cents: defaultFailureCostCents ?? DEFAULT_FAILURE_COST_CENTS,
+        default_voucher_id: defaultVoucherId,
+    };
+    if (strictPomoEnabled !== undefined) {
+        profileUpdate.strict_pomo_enabled = strictPomoEnabled;
+    }
+
     // @ts-ignore
     const { error } = await (supabase.from("profiles" as any) as any)
-        .update({
-            default_pomo_duration_minutes: defaultPomoDurationMinutes ?? DEFAULT_POMO_DURATION_MINUTES,
-            default_failure_cost_cents: defaultFailureCostCents ?? DEFAULT_FAILURE_COST_CENTS,
-            default_voucher_id: defaultVoucherId,
-        })
+        .update(profileUpdate as any)
         .eq("id", user.id);
 
     if (error) {

@@ -159,6 +159,7 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
     };
 
     const formattedTime = formatTime(timeLeft);
+    const isStrictSession = Boolean(session.is_strict);
 
     if (minimized) {
         return (
@@ -239,8 +240,8 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
                 </div>
 
                 {/* Controls */}
-                <div className="flex items-center gap-10 w-full justify-center">
-                    {session.status === "ACTIVE" ? (
+                <div className={cn("flex items-center w-full justify-center", !isStrictSession && "gap-10")}>
+                    {!isStrictSession && (session.status === "ACTIVE" ? (
                         <button
                             onClick={onPause}
                             className="text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.45)] hover:text-cyan-300 hover:drop-shadow-[0_0_12px_rgba(34,211,238,0.6)] transition-all hover:scale-105 active:scale-95 p-2"
@@ -256,7 +257,7 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
                         >
                             <Play className="w-10 h-10 fill-current" />
                         </button>
-                    )}
+                    ))}
 
                     <button
                         onClick={() => {

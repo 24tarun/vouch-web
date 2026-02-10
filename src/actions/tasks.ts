@@ -1768,6 +1768,20 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
         return { error: "You already have an active session. Please stop it first." };
     }
 
+    // Stamp strict mode from the user's current setting at session start.
+    // @ts-ignore
+    const { data: profile, error: profileError } = await (supabase
+        .from("profiles") as any)
+        .select("strict_pomo_enabled")
+        .eq("id", user.id)
+        .maybeSingle();
+
+    if (profileError) {
+        return { error: profileError.message };
+    }
+
+    const isStrict = Boolean((profile as any)?.strict_pomo_enabled);
+
     // Create new session
     // @ts-ignore
     const { data: session, error } = await (supabase
@@ -1776,6 +1790,7 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
             user_id: user.id,
             task_id: taskId,
             duration_minutes: durationMinutes,
+            is_strict: isStrict,
             status: "ACTIVE",
             started_at: new Date().toISOString(),
             elapsed_seconds: 0,
@@ -1806,6 +1821,7 @@ export async function pausePomoSession(sessionId: string) {
 
     if (!session) return { error: "Session not found" };
     if (session.status !== "ACTIVE") return { error: "Session is not active" };
+    if (session.is_strict) return { error: "Pause is disabled for strict pomodoros." };
 
     const now = new Date();
     const startTime = new Date(session.started_at);
@@ -1838,12 +1854,13 @@ export async function resumePomoSession(sessionId: string) {
     // @ts-ignore
     const { data: session } = await (supabase
         .from("pomo_sessions") as any)
-        .select("status")
+        .select("status, is_strict")
         .eq("id", sessionId)
         .eq("user_id", user.id)
         .single();
 
     if (!session) return { error: "Session not found" };
+    if ((session as any).is_strict) return { error: "Resume is disabled for strict pomodoros." };
     if ((session as any).status !== "PAUSED") return { error: "Session is not paused" };
 
     // @ts-ignore
@@ -1897,18 +1914,30 @@ export async function endPomoSession(
         finalElapsed += Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
     }
 
+    const isStrictSession = Boolean(session.is_strict);
+    const shouldCount = !isStrictSession || source === "timer_completed";
+    const terminalStatus = shouldCount ? "COMPLETED" : "DELETED";
+    const completedAt = new Date().toISOString();
+
     // @ts-ignore
     const { error } = await (supabase
         .from("pomo_sessions") as any)
         .update({
-            status: "COMPLETED",
+            status: terminalStatus,
             elapsed_seconds: finalElapsed,
-            completed_at: new Date().toISOString(),
+            completed_at: completedAt,
         })
         .eq("id", sessionId)
         .eq("user_id", user.id);
 
     if (error) return { error: error.message };
+    if (!shouldCount) {
+        revalidatePath("/dashboard");
+        if (session.task_id) {
+            revalidatePath(`/dashboard/tasks/${session.task_id}`);
+        }
+        return { success: true, counted: false };
+    }
 
     // Log completion in task activity feed
     if (session.task_id) {
@@ -1959,7 +1988,7 @@ export async function endPomoSession(
     if (session.task_id) {
         revalidatePath(`/dashboard/tasks/${session.task_id}`);
     }
-    return { success: true };
+    return { success: true, counted: true };
 }
 
 export async function deletePomoSession(sessionId: string) {
