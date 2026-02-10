@@ -48,7 +48,12 @@ function normalizeDaysOfWeek(rawDays: unknown, fallbackDay?: number): number[] {
         }
     }
 
-    if (unique.size === 0 && Number.isInteger(fallbackDay) && fallbackDay >= 0 && fallbackDay <= 6) {
+    const hasValidFallbackDay =
+        typeof fallbackDay === "number" &&
+        Number.isInteger(fallbackDay) &&
+        fallbackDay >= 0 &&
+        fallbackDay <= 6;
+    if (unique.size === 0 && hasValidFallbackDay) {
         unique.add(fallbackDay);
     }
 
