@@ -237,7 +237,20 @@ export function TaskInput({
             return;
         }
 
-        const hasInvalidReminder = remindersDraft.some(
+        const pendingReminder =
+            reminderDraftValue.trim().length > 0
+                ? fromDateTimeLocalValue(reminderDraftValue)
+                : null;
+        if (reminderDraftValue.trim().length > 0 && !pendingReminder) {
+            setDeadlineError("Please choose a valid reminder.");
+            return;
+        }
+
+        const remindersToApply = normalizeReminderDates(
+            pendingReminder ? [...remindersDraft, pendingReminder] : remindersDraft
+        );
+
+        const hasInvalidReminder = remindersToApply.some(
             (reminder) => reminder.getTime() <= Date.now() || reminder.getTime() > parsed.getTime()
         );
         if (hasInvalidReminder) {
@@ -248,7 +261,8 @@ export function TaskInput({
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(true);
         setSelectedDate(parsed);
-        setReminders(normalizeReminderDates(remindersDraft));
+        setReminders(remindersToApply);
+        setReminderDraftValue("");
         setIsDateSheetOpen(false);
     };
 
@@ -671,6 +685,7 @@ export function TaskInput({
                                     Add
                                 </button>
                             </div>
+                            <p className="text-xs text-slate-400">Click Add or just Apply to include this reminder.</p>
 
                             {remindersDraft.length > 0 && (
                                 <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2">
