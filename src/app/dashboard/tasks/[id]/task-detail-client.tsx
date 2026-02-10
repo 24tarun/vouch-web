@@ -143,6 +143,11 @@ export default function TaskDetailClient({
     const isActiveParentTask = taskState.status === "CREATED" || taskState.status === "POSTPONED";
     const completedSubtasksCount = subtasks.filter((subtask) => subtask.is_completed).length;
     const incompleteSubtasksCount = subtasks.length - completedSubtasksCount;
+    const totalPomoSeconds = pomoSummary?.totalSeconds || 0;
+    const requiredPomoSeconds = (taskState.required_pomo_minutes || 0) * 60;
+    const remainingRequiredPomoSeconds = Math.max(0, requiredPomoSeconds - totalPomoSeconds);
+    const hasIncompletePomoRequirement =
+        requiredPomoSeconds > 0 && remainingRequiredPomoSeconds > 0;
     const canManageSubtasks = isOwner && isActiveParentTask;
 
     const formatDateDdMmYy = (value: Date | string) =>
@@ -577,6 +582,11 @@ export default function TaskDetailClient({
         if (isActionPending("markComplete")) return;
         if (incompleteSubtasksCount > 0) {
             toast.error("Complete all subtasks before marking this task complete.");
+            return;
+        }
+        if (hasIncompletePomoRequirement) {
+            const remainingMinutes = Math.ceil(remainingRequiredPomoSeconds / 60);
+            toast.error(`Log ${remainingMinutes} more focus minute${remainingMinutes === 1 ? "" : "s"} before marking this task complete.`);
             return;
         }
         setActionPending("markComplete", true);
@@ -1321,10 +1331,10 @@ export default function TaskDetailClient({
                             </Button>
                             <Button
                                 onClick={handleMarkComplete}
-                                disabled={isActionPending("markComplete") || isOverdue || incompleteSubtasksCount > 0}
+                                disabled={isActionPending("markComplete") || isOverdue || incompleteSubtasksCount > 0 || hasIncompletePomoRequirement}
                                 className={cn(
                                     "border text-emerald-300",
-                                    incompleteSubtasksCount > 0
+                                    (incompleteSubtasksCount > 0 || hasIncompletePomoRequirement)
                                         ? "bg-slate-800/50 border-slate-700/60 text-slate-500 cursor-not-allowed"
                                         : "bg-emerald-600/20 hover:bg-emerald-600/30 border-emerald-500/40"
                                 )}
@@ -1465,6 +1475,14 @@ export default function TaskDetailClient({
                         <div className="w-full p-3 rounded-lg bg-slate-800/40 border border-slate-700/70">
                             <p className="text-sm text-slate-300">
                                 Complete all subtasks to enable parent completion ({completedSubtasksCount}/{subtasks.length}).
+                            </p>
+                        </div>
+                    )}
+
+                    {(taskState.status === "CREATED" || taskState.status === "POSTPONED") && hasIncompletePomoRequirement && (
+                        <div className="w-full p-3 rounded-lg bg-slate-800/40 border border-slate-700/70">
+                            <p className="text-sm text-slate-300">
+                                Log {formatFocusTime(remainingRequiredPomoSeconds)} more focus time to enable parent completion ({formatFocusTime(totalPomoSeconds)}/{taskState.required_pomo_minutes}m).
                             </p>
                         </div>
                     )}

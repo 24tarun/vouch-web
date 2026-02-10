@@ -42,6 +42,7 @@ interface TaskInputProps {
 export interface TaskInputCreatePayload {
     title: string;
     subtasks: string[];
+    requiredPomoMinutes: number | null;
     deadlineIso: string;
     reminderIsos: string[];
     voucherId: string;
@@ -340,7 +341,18 @@ export function TaskInput({
             .replace(/@\d{1,2}(?::\d{2})?/g, "")
             .replace(/!r\s*\d{1,2}(?::\d{2})?/gi, "")
             .replace(/vouch\s+\w+/gi, "")
+            .replace(/\bpomo\s+\d+\b/gi, "")
             .trim();
+    };
+
+    const parseRequiredPomoMinutes = (text: string): number | null => {
+        const match = text.match(/\bpomo\s+(\d+)\b/i);
+        if (!match) return null;
+
+        const parsed = Number.parseInt(match[1], 10);
+        if (!Number.isInteger(parsed)) return null;
+        if (parsed < 1 || parsed > 10000) return null;
+        return parsed;
     };
 
     const parseTaskTitleAndSubtasks = (text: string) => {
@@ -356,6 +368,7 @@ export function TaskInput({
         e.preventDefault();
 
         const { taskTitle, subtasks } = parseTaskTitleAndSubtasks(title);
+        const requiredPomoMinutes = parseRequiredPomoMinutes(title);
 
         if (!taskTitle || isLoading) return;
 
@@ -401,6 +414,7 @@ export function TaskInput({
         const payload: TaskInputCreatePayload = {
             title: taskTitle,
             subtasks,
+            requiredPomoMinutes,
             deadlineIso: deadlineToSubmit.toISOString(),
             reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
             voucherId: selectedVoucherId,
@@ -429,6 +443,9 @@ export function TaskInput({
             formData.append("failureCost", payload.failureCost);
             if (payload.subtasks.length > 0) {
                 formData.append("subtasks", JSON.stringify(payload.subtasks));
+            }
+            if (payload.requiredPomoMinutes != null) {
+                formData.append("requiredPomoMinutes", String(payload.requiredPomoMinutes));
             }
             if (payload.reminderIsos.length > 0) {
                 formData.append("reminders", JSON.stringify(payload.reminderIsos));
@@ -470,7 +487,7 @@ export function TaskInput({
                     onChange={(e) => setTitle(e.target.value)}
                     onKeyDown={handleTitleKeyDown}
                     enterKeyHint="done"
-                    placeholder="study /solve questions @16 !r16:30 vouch bob"
+                    placeholder="study pomo 75 /solve questions @16 !r16:30 vouch bob"
                     className="w-full bg-transparent border-none py-4 px-5 text-white placeholder:text-slate-500/70 focus:outline-none transition-all font-medium text-lg"
                     disabled={isLoading}
                 />

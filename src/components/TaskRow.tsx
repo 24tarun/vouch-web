@@ -50,6 +50,15 @@ export function TaskRow({
     const hasSubtasks = subtasks.length > 0;
     const completedSubtasksCount = subtasks.filter((subtask) => subtask.is_completed).length;
     const hasIncompleteSubtasks = subtasks.some((subtask) => !subtask.is_completed);
+    const requiredPomoSeconds = (task.required_pomo_minutes || 0) * 60;
+    const pomoTotalSeconds = task.pomo_total_seconds || 0;
+    const hasIncompletePomoRequirement =
+        requiredPomoSeconds > 0 && pomoTotalSeconds < requiredPomoSeconds;
+    const disabledCompleteTitle = hasIncompleteSubtasks
+        ? "Complete all subtasks first"
+        : hasIncompletePomoRequirement
+            ? `Log ${Math.ceil((requiredPomoSeconds - pomoTotalSeconds) / 60)} more focus minute(s) first`
+            : "Mark complete";
     const canEditSubtasks = isParentActive && !isTempTask;
     const canDelete = Boolean(
         onDelete &&
@@ -73,7 +82,7 @@ export function TaskRow({
     };
 
     const handleCheck = () => {
-        if (!onComplete || isCompleting || isActuallyCompleted || isOverdue || hasIncompleteSubtasks) return;
+        if (!onComplete || isCompleting || isActuallyCompleted || isOverdue || hasIncompleteSubtasks || hasIncompletePomoRequirement) return;
         onComplete(task);
     };
 
@@ -233,15 +242,15 @@ export function TaskRow({
             >
                 <button
                     onClick={handleCheck}
-                    disabled={isActuallyCompleted || isCompleting || isOverdue || !onComplete || hasIncompleteSubtasks}
+                    disabled={isActuallyCompleted || isCompleting || isOverdue || !onComplete || hasIncompleteSubtasks || hasIncompletePomoRequirement}
                     className={cn(
                         "flex-shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all",
                         isActuallyCompleted
                             ? (currentStatusColor || "bg-slate-700 border-slate-700 text-slate-400")
                             : ("border-slate-600 hover:border-slate-500 text-transparent"),
-                        hasIncompleteSubtasks && !isActuallyCompleted && "opacity-50 cursor-not-allowed"
+                        (hasIncompleteSubtasks || hasIncompletePomoRequirement) && !isActuallyCompleted && "opacity-50 cursor-not-allowed"
                     )}
-                    title={hasIncompleteSubtasks ? "Complete all subtasks first" : "Mark complete"}
+                    title={disabledCompleteTitle}
                 >
                     {isActuallyCompleted && <Check className="h-3 w-3" strokeWidth={3} />}
                 </button>

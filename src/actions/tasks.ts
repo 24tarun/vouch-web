@@ -26,9 +26,11 @@ const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
 const ACTIVE_PARENT_TASK_STATUSES: TaskStatus[] = ["CREATED", "POSTPONED"];
 const SUBTASK_LIMIT_ERROR = `A task can have at most ${MAX_SUBTASKS_PER_TASK} subtasks.`;
 const INCOMPLETE_SUBTASKS_ERROR = "Complete all subtasks before marking this task complete.";
+const INCOMPLETE_POMO_REQUIREMENT_ERROR = "Log enough pomodoro time before marking this task complete.";
 const INVALID_REMINDERS_ERROR = "Invalid reminders payload.";
 const PAST_REMINDER_ERROR = "All reminders must be in the future.";
 const REMINDER_AFTER_DEADLINE_ERROR = "Reminders must be before or at the deadline.";
+const INVALID_REQUIRED_POMO_ERROR = "Required pomodoro minutes must be an integer between 1 and 10000.";
 const INVALID_TASK_PROOF_ERROR = "Invalid proof payload.";
 const TASK_PROOF_TOO_LARGE_ERROR = "Proof must be 5MB or less.";
 const TASK_PROOF_VIDEO_TOO_LONG_ERROR = "Video proof must be 15 seconds or less.";
@@ -234,6 +236,34 @@ function normalizeRemindersFromFormData(
     } catch {
         return { reminderDates: [], error: INVALID_REMINDERS_ERROR };
     }
+}
+
+function parseRequiredPomoMinutesFromFormData(
+    formValue: FormDataEntryValue | null
+): { requiredPomoMinutes: number | null; error?: string } {
+    if (formValue == null || formValue === "") {
+        return { requiredPomoMinutes: null };
+    }
+
+    if (typeof formValue !== "string") {
+        return { requiredPomoMinutes: null, error: INVALID_REQUIRED_POMO_ERROR };
+    }
+
+    const trimmed = formValue.trim();
+    if (!trimmed) {
+        return { requiredPomoMinutes: null };
+    }
+
+    if (!/^\d+$/.test(trimmed)) {
+        return { requiredPomoMinutes: null, error: INVALID_REQUIRED_POMO_ERROR };
+    }
+
+    const parsed = Number.parseInt(trimmed, 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10000) {
+        return { requiredPomoMinutes: null, error: INVALID_REQUIRED_POMO_ERROR };
+    }
+
+    return { requiredPomoMinutes: parsed };
 }
 
 function validateProofIntent(rawProofIntent?: TaskProofIntent | null): { proofIntent?: TaskProofIntent; error?: string } {
@@ -496,12 +526,16 @@ export async function createTask(formData: FormData) {
     const deadline = formData.get("deadline") as string;
     const voucherId = formData.get("voucherId") as string;
     const subtasksInput = normalizeSubtasksFromFormData(formData.get("subtasks"));
+    const requiredPomoInput = parseRequiredPomoMinutesFromFormData(formData.get("requiredPomoMinutes"));
 
     if (!title || !deadline || !voucherId || isNaN(failureCostEuros)) {
         return { error: "Missing required fields" };
     }
     if (subtasksInput.error) {
         return { error: subtasksInput.error };
+    }
+    if (requiredPomoInput.error) {
+        return { error: requiredPomoInput.error };
     }
 
     const deadlineValidation = parseAndValidateFutureDeadline(deadline);
@@ -573,6 +607,7 @@ export async function createTask(formData: FormData) {
                 title,
                 description: description || null,
                 failure_cost_cents: Math.round(failureCostEuros * 100),
+                required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
                 rule_config: ruleConfig,
                 timezone: userTimezone,
                 active: true,
@@ -602,6 +637,7 @@ export async function createTask(formData: FormData) {
             title,
             description: description || null,
             failure_cost_cents: Math.round(failureCostEuros * 100),
+            required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
             deadline: validatedDeadline.toISOString(),
             status: "CREATED",
             recurrence_rule_id: recurrenceRuleId
@@ -647,6 +683,7 @@ export async function createTask(formData: FormData) {
             failure_cost_cents: Math.round(failureCostEuros * 100),
             recurrence_rule_id: recurrenceRuleId,
             reminder_count: remindersInput.reminderDates.length,
+            required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
         },
     });
 
@@ -738,6 +775,31 @@ export async function markTaskCompleteWithProofIntent(
 
     if ((incompleteSubtasksCount || 0) > 0) {
         return { error: INCOMPLETE_SUBTASKS_ERROR };
+    }
+
+    const requiredPomoMinutes = Number((task as any).required_pomo_minutes || 0);
+    if (Number.isInteger(requiredPomoMinutes) && requiredPomoMinutes > 0) {
+        const { data: pomoRows, error: pomoError } = await (supabase.from("pomo_sessions") as any)
+            .select("elapsed_seconds")
+            .eq("task_id", taskId as any)
+            .eq("user_id", (user as any).id as any)
+            .neq("status", "DELETED");
+
+        if (pomoError) {
+            return { error: pomoError.message };
+        }
+
+        const totalPomoSeconds = ((pomoRows as Array<{ elapsed_seconds: number }> | null) || [])
+            .reduce((sum, row) => sum + (row.elapsed_seconds || 0), 0);
+        const requiredPomoSeconds = requiredPomoMinutes * 60;
+
+        if (totalPomoSeconds < requiredPomoSeconds) {
+            const remainingSeconds = requiredPomoSeconds - totalPomoSeconds;
+            const remainingMinutes = Math.ceil(remainingSeconds / 60);
+            return {
+                error: `${INCOMPLETE_POMO_REQUIREMENT_ERROR} ${remainingMinutes} more minute${remainingMinutes === 1 ? "" : "s"} needed (${Math.floor(totalPomoSeconds / 60)}/${requiredPomoMinutes}m).`,
+            };
+        }
     }
 
     const proofValidation = validateProofIntent(rawProofIntent);

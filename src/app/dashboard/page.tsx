@@ -59,16 +59,31 @@ export default async function DashboardPage() {
     const initialTaskIds = initialTasks.map((task) => task.id);
 
     const subtasksByParent = new Map<string, NonNullable<Task["subtasks"]>>();
+    const pomoTotalSecondsByTask = new Map<string, number>();
     if (initialTaskIds.length > 0) {
-        const { data: subtasksResult } = await supabase
-            .from("task_subtasks")
-            .select("*")
-            .in("parent_task_id", initialTaskIds);
+        const [{ data: subtasksResult }, { data: pomoResult }] = await Promise.all([
+            supabase
+                .from("task_subtasks")
+                .select("*")
+                .in("parent_task_id", initialTaskIds),
+            supabase
+                .from("pomo_sessions")
+                .select("task_id, elapsed_seconds")
+                .eq("user_id", userId || "")
+                .in("task_id", initialTaskIds)
+                .neq("status", "DELETED"),
+        ]);
 
         for (const row of (subtasksResult as NonNullable<Task["subtasks"]>) || []) {
             const list = subtasksByParent.get(row.parent_task_id) || [];
             list.push(row);
             subtasksByParent.set(row.parent_task_id, list);
+        }
+
+        for (const row of ((pomoResult as Array<{ task_id: string; elapsed_seconds: number }> | null) || [])) {
+            if (!row.task_id) continue;
+            const current = pomoTotalSecondsByTask.get(row.task_id) || 0;
+            pomoTotalSecondsByTask.set(row.task_id, current + (row.elapsed_seconds || 0));
         }
     }
 
@@ -77,6 +92,7 @@ export default async function DashboardPage() {
         subtasks: (subtasksByParent.get(task.id) || []).slice().sort((a, b) =>
             new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
         ),
+        pomo_total_seconds: pomoTotalSecondsByTask.get(task.id) || 0,
     }));
 
     return (

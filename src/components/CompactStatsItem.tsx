@@ -95,10 +95,13 @@ export function CompactStatsItem({
     };
 
     const pomoTotalSeconds = task.pomo_total_seconds || 0;
+    const requiredPomoSeconds = (task.required_pomo_minutes || 0) * 60;
+    const hasIncompletePomoRequirement =
+        requiredPomoSeconds > 0 && pomoTotalSeconds < requiredPomoSeconds;
     const statusColorClass = statusColors[task.status] || "text-slate-500";
     const isActiveTask = task.status === "CREATED" || task.status === "POSTPONED";
     const isOverdue = new Date(task.deadline) < new Date();
-    const canComplete = isActiveTask && !isOverdue;
+    const canComplete = isActiveTask && !isOverdue && !hasIncompletePomoRequirement;
     const canPostpone = task.status === "CREATED" && !task.postponed_at && !isOverdue;
     const canQuickPomo = isActiveTask;
     const canDelete = !task.id.startsWith("temp-") && canOwnerTemporarilyDelete(task, nowMs);
@@ -158,7 +161,9 @@ export function CompactStatsItem({
                                 : "bg-slate-800/50 border-slate-700/60 text-slate-500 cursor-not-allowed"
                         )}
                         aria-label="Mark complete"
-                        title="Mark complete"
+                        title={hasIncompletePomoRequirement
+                            ? `Log ${Math.ceil((requiredPomoSeconds - pomoTotalSeconds) / 60)} more focus minute(s) first`
+                            : "Mark complete"}
                     >
                         <Check className="h-4 w-4" strokeWidth={3} />
                     </button>

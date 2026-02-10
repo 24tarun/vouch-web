@@ -26,6 +26,7 @@ export interface Task {
     title: string;
     description: string | null;
     failure_cost_cents: number;
+    required_pomo_minutes: number | null;
     deadline: string;
     status: TaskStatus;
     postponed_at: string | null;
@@ -35,6 +36,7 @@ export interface Task {
     created_at: string;
     updated_at: string;
     voucher_timeout_auto_accepted?: boolean;
+    pomo_total_seconds?: number;
     subtasks?: TaskSubtask[];
     completion_proof?: TaskCompletionProof | null;
 }
@@ -161,6 +163,7 @@ export interface RecurrenceRule {
     title: string;
     description: string | null;
     failure_cost_cents: number;
+    required_pomo_minutes: number | null;
     rule_config: RecurrenceRuleConfig;
     timezone: string;
     active: boolean;
@@ -175,7 +178,6 @@ export interface TaskWithRelations extends Task {
     voucher?: Profile;
     events?: TaskEvent[];
     recurrence_rule?: RecurrenceRule;
-    pomo_total_seconds?: number;
     subtasks?: TaskSubtask[];
     reminders?: TaskReminder[];
     completion_proof?: TaskCompletionProof | null;

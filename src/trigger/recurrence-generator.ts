@@ -384,6 +384,7 @@ async function processRule(rule: RecurrenceRule, supabase: any) {
                 title: rule.title,
                 description: rule.description,
                 failure_cost_cents: rule.failure_cost_cents,
+                required_pomo_minutes: rule.required_pomo_minutes ?? null,
                 deadline: deadlineIso,
                 status: "CREATED",
                 recurrence_rule_id: rule.id

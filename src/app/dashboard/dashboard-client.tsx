@@ -68,6 +68,9 @@ function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
     if (payload.subtasks.length > 0) {
         formData.append("subtasks", JSON.stringify(payload.subtasks));
     }
+    if (payload.requiredPomoMinutes != null) {
+        formData.append("requiredPomoMinutes", String(payload.requiredPomoMinutes));
+    }
     if (payload.reminderIsos.length > 0) {
         formData.append("reminders", JSON.stringify(payload.reminderIsos));
     }
@@ -334,6 +337,7 @@ export default function DashboardClient({
             title: payload.title,
             description: null,
             failure_cost_cents: Math.round(Number(payload.failureCost) * 100),
+            required_pomo_minutes: payload.requiredPomoMinutes,
             deadline: payload.deadlineIso,
             status: "CREATED",
             postponed_at: null,
