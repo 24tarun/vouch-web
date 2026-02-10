@@ -16,6 +16,17 @@ interface CompletionProofRow {
     mime_type: string;
 }
 
+function jsonNoStore(body: { error: string }, status: number) {
+    return NextResponse.json(body, {
+        status,
+        headers: {
+            "Cache-Control": "private, no-store, no-cache, must-revalidate, proxy-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+        },
+    });
+}
+
 export async function GET(_req: NextRequest, context: { params: Promise<{ taskId: string }> }) {
     const secFetchSite = _req.headers.get("sec-fetch-site");
     const secFetchDest = _req.headers.get("sec-fetch-dest");
@@ -23,10 +34,10 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
 
     // Best-effort hardening: only serve same-origin media fetches, not top-level document navigation.
     if (secFetchSite && secFetchSite !== "same-origin") {
-        return NextResponse.json({ error: "Cross-site access denied" }, { status: 403 });
+        return jsonNoStore({ error: "Cross-site access denied" }, 403);
     }
     if (secFetchDest && !allowedDests.has(secFetchDest)) {
-        return NextResponse.json({ error: "Unsupported fetch destination" }, { status: 403 });
+        return jsonNoStore({ error: "Unsupported fetch destination" }, 403);
     }
 
     const supabase = await createClient();
@@ -35,12 +46,12 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
     } = await supabase.auth.getUser();
 
     if (!user) {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+        return jsonNoStore({ error: "Not authenticated" }, 401);
     }
 
     const { taskId } = await context.params;
     if (!taskId) {
-        return NextResponse.json({ error: "Task id is required" }, { status: 400 });
+        return jsonNoStore({ error: "Task id is required" }, 400);
     }
 
     const { data: rawTask } = await supabase
@@ -51,23 +62,23 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
     const task = rawTask as ProofAccessTask | null;
 
     if (!task) {
-        return NextResponse.json({ error: "Task not found" }, { status: 404 });
+        return jsonNoStore({ error: "Task not found" }, 404);
     }
 
     const isOwner = task.user_id === user.id;
     const isVoucher = task.voucher_id === user.id;
     if (!isOwner && !isVoucher) {
-        return NextResponse.json({ error: "Task not found" }, { status: 404 });
+        return jsonNoStore({ error: "Task not found" }, 404);
     }
 
     const status = task.status;
     if (status !== "AWAITING_VOUCHER" && status !== "MARKED_COMPLETED") {
-        return NextResponse.json({ error: "Proof is no longer available" }, { status: 410 });
+        return jsonNoStore({ error: "Proof is no longer available" }, 410);
     }
 
     const responseDeadline = task.voucher_response_deadline;
     if (responseDeadline && Date.now() > new Date(responseDeadline).getTime()) {
-        return NextResponse.json({ error: "Proof window has expired" }, { status: 410 });
+        return jsonNoStore({ error: "Proof window has expired" }, 410);
     }
 
     const { data: rawProof } = await supabase
@@ -79,7 +90,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
     const proof = rawProof as CompletionProofRow | null;
 
     if (!proof) {
-        return NextResponse.json({ error: "Proof not found" }, { status: 404 });
+        return jsonNoStore({ error: "Proof not found" }, 404);
     }
 
     const supabaseAdmin = createAdminClient();
@@ -88,9 +99,9 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
         .download(proof.object_path);
 
     if (downloadError || !fileData) {
-        return NextResponse.json(
+        return jsonNoStore(
             { error: downloadError?.message || "Could not download proof media" },
-            { status: 404 }
+            404
         );
     }
 
@@ -100,9 +111,8 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
         headers: {
             "Content-Type": proof.mime_type || "application/octet-stream",
             "Content-Length": String(buffer.byteLength),
-            "Cache-Control": "private, no-store, no-cache, must-revalidate, proxy-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
+            "Cache-Control": "private, max-age=120, stale-while-revalidate=60",
+            Vary: "Cookie",
             "Content-Disposition": "inline",
             "Cross-Origin-Resource-Policy": "same-origin",
             "Referrer-Policy": "no-referrer",

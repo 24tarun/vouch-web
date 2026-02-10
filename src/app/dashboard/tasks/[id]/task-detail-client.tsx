@@ -207,8 +207,8 @@ export default function TaskDetailClient({
     }, [canViewStoredProof, taskState.completion_proof]);
     const storedProofSrc = useMemo(() => {
         if (!storedProof) return null;
-        return `/api/task-proofs/${taskState.id}?v=${encodeURIComponent(storedProof.updated_at || taskState.updated_at)}`;
-    }, [storedProof, taskState.id, taskState.updated_at]);
+        return `/api/task-proofs/${taskState.id}`;
+    }, [storedProof, taskState.id]);
 
     const refreshInBackground = () => {
         startRefreshTransition(() => {

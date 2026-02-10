@@ -24,6 +24,7 @@ const MEDIA_PREFETCH_STATUSES = new Set<TaskStatus>(["AWAITING_VOUCHER", "MARKED
 
 const prefetchedDetailTaskIds = new Set<string>();
 const prefetchedMediaTaskIds = new Set<string>();
+const prefetchingMediaTaskIds = new Set<string>();
 
 export function TaskDetailPrefetcher({
     tasks,
@@ -65,15 +66,29 @@ export function TaskDetailPrefetcher({
         const controller = new AbortController();
         for (const taskId of mediaPrefetchIds) {
             if (prefetchedMediaTaskIds.has(taskId)) continue;
-            prefetchedMediaTaskIds.add(taskId);
+            if (prefetchingMediaTaskIds.has(taskId)) continue;
+            prefetchingMediaTaskIds.add(taskId);
+
             void fetch(`/api/task-proofs/${taskId}`, {
                 method: "GET",
-                cache: "no-store",
+                cache: "force-cache",
                 credentials: "same-origin",
                 signal: controller.signal,
-            }).catch(() => {
-                // No proof / no access / expired proof are expected in some cases.
-            });
+            })
+                .then((response) => {
+                    if (response.ok) {
+                        prefetchedMediaTaskIds.add(taskId);
+                    } else {
+                        prefetchedMediaTaskIds.delete(taskId);
+                    }
+                })
+                .catch(() => {
+                    // No proof / no access / expired proof are expected in some cases.
+                    prefetchedMediaTaskIds.delete(taskId);
+                })
+                .finally(() => {
+                    prefetchingMediaTaskIds.delete(taskId);
+                });
         }
 
         return () => {
@@ -83,4 +98,3 @@ export function TaskDetailPrefetcher({
 
     return null;
 }
-

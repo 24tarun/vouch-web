@@ -10,6 +10,7 @@ import { Check, ChevronDown, ChevronRight, Loader2, Timer, X } from "lucide-reac
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { toast } from "sonner";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
+import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 
 interface VoucherDashboardClientProps {
     pendingTasks: VoucherPendingTask[];
@@ -264,6 +265,7 @@ export default function VoucherDashboardClient({
 
     return (
         <div className="max-w-3xl mx-auto space-y-12 pb-20 mt-12 px-4 md:px-0">
+            <TaskDetailPrefetcher tasks={pendingState} />
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Vouch Requests</h1>
@@ -425,7 +427,7 @@ function CompactPendingItem({
             : "bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]");
     const proof = task.completion_proof;
     const proofSrc = proof
-        ? `/api/task-proofs/${task.id}?v=${encodeURIComponent(proof.updated_at || task.updated_at)}`
+        ? `/api/task-proofs/${task.id}`
         : null;
 
     useEffect(() => {
