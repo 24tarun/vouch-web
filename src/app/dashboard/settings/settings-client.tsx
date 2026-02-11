@@ -60,6 +60,9 @@ export default function SettingsClient({ profile, friends: initialFriends }: Set
     const [strictPomoEnabled, setStrictPomoEnabled] = useState(
         profile.strict_pomo_enabled ?? false
     );
+    const [deadlineFinalWarningEnabled, setDeadlineFinalWarningEnabled] = useState(
+        profile.deadline_final_warning_enabled ?? true
+    );
     const [isDefaultsLoading, setIsDefaultsLoading] = useState(false);
     const [defaultsError, setDefaultsError] = useState<string | null>(null);
     const [defaultsSuccess, setDefaultsSuccess] = useState(false);
@@ -156,6 +159,7 @@ export default function SettingsClient({ profile, friends: initialFriends }: Set
         formData.append("defaultFailureCost", defaultFailureCostEuros);
         formData.append("defaultVoucherId", effectiveDefaultVoucherId ?? "");
         formData.append("strictPomoEnabled", String(strictPomoEnabled));
+        formData.append("deadlineFinalWarningEnabled", String(deadlineFinalWarningEnabled));
 
         const result = await updateUserDefaults(formData);
 
@@ -392,6 +396,26 @@ export default function SettingsClient({ profile, friends: initialFriends }: Set
                                     type="checkbox"
                                     checked={strictPomoEnabled}
                                     onChange={(e) => setStrictPomoEnabled(e.target.checked)}
+                                    className="h-4 w-4 accent-cyan-400"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="rounded-lg border border-slate-700/70 bg-slate-800/30 px-3 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                                <div className="space-y-1">
+                                    <Label htmlFor="deadlineFinalWarningEnabled" className="text-slate-200">
+                                        Final deadline warning (5 minutes before deadline)
+                                    </Label>
+                                    <p className="text-xs text-slate-400">
+                                        Sends a push notification 5 minutes before deadline. This does not affect the 1-hour warning.
+                                    </p>
+                                </div>
+                                <input
+                                    id="deadlineFinalWarningEnabled"
+                                    type="checkbox"
+                                    checked={deadlineFinalWarningEnabled}
+                                    onChange={(e) => setDeadlineFinalWarningEnabled(e.target.checked)}
                                     className="h-4 w-4 accent-cyan-400"
                                 />
                             </div>

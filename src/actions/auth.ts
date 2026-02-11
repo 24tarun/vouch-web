@@ -234,6 +234,7 @@ export async function updateUserDefaults(formData: FormData) {
     const defaultFailureCostRaw = formData.get("defaultFailureCost") as string;
     const defaultVoucherIdRaw = formData.get("defaultVoucherId") as string;
     const strictPomoEnabledRaw = formData.get("strictPomoEnabled");
+    const deadlineFinalWarningEnabledRaw = formData.get("deadlineFinalWarningEnabled");
 
     const defaultPomoDurationMinutes = Number(defaultPomoDurationRaw);
     if (
@@ -270,6 +271,16 @@ export async function updateUserDefaults(formData: FormData) {
         }
         strictPomoEnabled = strictPomoEnabledRaw === "true";
     }
+    let deadlineFinalWarningEnabled: boolean | undefined;
+    if (deadlineFinalWarningEnabledRaw != null && deadlineFinalWarningEnabledRaw !== "") {
+        if (typeof deadlineFinalWarningEnabledRaw !== "string") {
+            return { error: "Final deadline warning toggle value is invalid." };
+        }
+        if (deadlineFinalWarningEnabledRaw !== "true" && deadlineFinalWarningEnabledRaw !== "false") {
+            return { error: "Final deadline warning toggle value is invalid." };
+        }
+        deadlineFinalWarningEnabled = deadlineFinalWarningEnabledRaw === "true";
+    }
 
     if (defaultVoucherId) {
         const { data: friendship } = await supabase
@@ -291,6 +302,9 @@ export async function updateUserDefaults(formData: FormData) {
     };
     if (strictPomoEnabled !== undefined) {
         profileUpdate.strict_pomo_enabled = strictPomoEnabled;
+    }
+    if (deadlineFinalWarningEnabled !== undefined) {
+        profileUpdate.deadline_final_warning_enabled = deadlineFinalWarningEnabled;
     }
 
     // @ts-ignore

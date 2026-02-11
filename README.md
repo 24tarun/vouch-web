@@ -64,7 +64,7 @@ The application will be available at `http://localhost:3000`.
 
 ## 5. Run Trigger.dev (Background Jobs)
 
-To test background jobs (like deadline warnings) locally:
+To test background jobs (like task reminders and deadline warnings) locally:
 
 1.  Login to Trigger.dev CLI:
     ```bash
@@ -103,12 +103,12 @@ npx trigger.dev@latest deploy
 ### Test Your Tasks
 
 1. Go to Trigger.dev Dashboard → **Tasks**
-2. Find your task (e.g., `deadline-warning`, `monthly-settlement`)
+2. Find your task (e.g., `task-reminder-notify`, `monthly-settlement`)
 3. Click **"Test"** to manually trigger it
 4. Check **Runs** tab for execution logs
 
 **Scheduled Tasks:**
-- `deadline-warning`: Runs every 15 minutes (checks tasks with <1 hour until deadline)
+- `task-reminder-notify`: Runs every minute (sends due custom reminders, a default 1-hour warning, and an optional default 5-minute final warning based on user settings)
 - `voucher-deadline-warning`: Runs at 09:00, 12:00, 15:00, 18:00, 21:00 UTC (daily digest of pending vouch requests, max once per voucher per UTC day)
 - `voucher-timeout`: Runs every hour (auto-accepts overdue awaiting-voucher tasks, adds €0.30 voucher timeout penalty, and cleans proof media)
 - `monthly-settlement`: Runs on 1st of each month at 9am (sends ledger settlement emails)
