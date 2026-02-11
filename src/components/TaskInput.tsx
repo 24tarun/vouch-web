@@ -62,6 +62,15 @@ function parseTimeToken(token: string, allowHourOnly: boolean) {
     return { hours, minutes };
 }
 
+function parseTimerMinutesToken(text: string): number | null {
+    const match = text.match(/\btimer\s+(\d+)\b/i);
+    if (!match) return null;
+
+    const parsed = Number.parseInt(match[1], 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10000) return null;
+    return parsed;
+}
+
 interface TaskInputProps {
     friends: Profile[];
     defaultFailureCostEuros: string;
@@ -335,18 +344,29 @@ export function TaskInput({
     };
 
     useEffect(() => {
-        const timeMatch = title.match(/@(\d{1,2}:\d{2}|\d{4}|\d{1,2})/);
-        if (timeMatch && !isDeadlineManuallyPicked) {
-            const parsed = parseTimeToken(timeMatch[1], true);
-            if (parsed) {
-                // Always interpret @HH[:MM] and @HHMM as today's local time.
-                const todayAtParsedTime = new Date();
-                todayAtParsedTime.setHours(parsed.hours, parsed.minutes, 0, 0);
-                setSelectedDate(todayAtParsedTime);
-                if (todayAtParsedTime.getTime() <= Date.now()) {
-                    setDeadlineError("Deadline must be in the future.");
-                } else {
-                    setDeadlineError(null);
+        if (!isDeadlineManuallyPicked) {
+            const timerMinutes = parseTimerMinutesToken(title);
+            if (timerMinutes !== null) {
+                // `timer <minutes>` is relative to the user's current local time.
+                const timerDeadline = new Date();
+                timerDeadline.setMinutes(timerDeadline.getMinutes() + timerMinutes);
+                setSelectedDate(timerDeadline);
+                setDeadlineError(null);
+            } else {
+                const timeMatch = title.match(/@(\d{1,2}:\d{2}|\d{4}|\d{1,2})/);
+                if (timeMatch) {
+                    const parsed = parseTimeToken(timeMatch[1], true);
+                    if (parsed) {
+                        // Always interpret @HH[:MM] and @HHMM as today's local time.
+                        const todayAtParsedTime = new Date();
+                        todayAtParsedTime.setHours(parsed.hours, parsed.minutes, 0, 0);
+                        setSelectedDate(todayAtParsedTime);
+                        if (todayAtParsedTime.getTime() <= Date.now()) {
+                            setDeadlineError("Deadline must be in the future.");
+                        } else {
+                            setDeadlineError(null);
+                        }
+                    }
                 }
             }
         }
@@ -371,6 +391,7 @@ export function TaskInput({
             .replace(/\bremind\s+(?:\d{1,2}:\d{2}|\d{4})\b/gi, "")
             .replace(/vouch\s+\w+/gi, "")
             .replace(/\bpomo\s+\d+\b/gi, "")
+            .replace(/\btimer\s+\d+\b/gi, "")
             .trim();
     };
 
@@ -516,7 +537,7 @@ export function TaskInput({
                     onChange={(e) => setTitle(e.target.value)}
                     onKeyDown={handleTitleKeyDown}
                     enterKeyHint="done"
-                    placeholder="study pomo 75 /solve questions @2045 remind 1000 vouch bob"
+                    placeholder="study math timer 25 /solve questions remind 1000 vouch bob"
                     className="w-full bg-transparent border-none py-4 px-5 text-white placeholder:text-slate-500/70 focus:outline-none transition-all font-medium text-lg"
                     disabled={isLoading}
                 />

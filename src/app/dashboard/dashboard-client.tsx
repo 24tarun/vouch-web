@@ -652,6 +652,7 @@ export default function DashboardClient({
                 <div className="space-y-1 px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider">
                     <p>Parser tips:</p>
                     <p>Deadline: use @20:45 or @2045</p>
+                    <p>Timer: use timer 25 (minutes from now)</p>
                     <p>Reminder: use remind 10:00 or remind 1000</p>
                     <p>Pomodoro: use pomo 75</p>
                     <p>Voucher: use vouch bob</p>
