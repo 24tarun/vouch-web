@@ -1823,6 +1823,19 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
 
     if (!user) return { error: "Not authenticated" };
 
+    // Verify task ownership
+    // @ts-ignore
+    const { data: task } = await (supabase
+        .from("tasks") as any)
+        .select("id, user_id")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "You don't have permission to start a Pomodoro session for this task." };
+    }
+
     // Check for existing active session
     // @ts-ignore
     const { data: existing } = await (supabase

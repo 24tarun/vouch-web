@@ -317,7 +317,6 @@ export default function VoucherDashboardClient({
                             <CompactPendingItem
                                 key={task.id}
                                 task={task}
-                                onOpenTask={() => router.push(`/dashboard/tasks/${task.id}`)}
                                 onAccept={() => handleAccept(task.id)}
                                 onDeny={() => handleDeny(task.id)}
                                 isLoading={inFlightIds.has(task.id)}
@@ -351,7 +350,6 @@ export default function VoucherDashboardClient({
                                     <CompactHistoryItem
                                         key={task.id}
                                         task={task}
-                                        onOpenTask={() => router.push(`/dashboard/tasks/${task.id}`)}
                                         onRectify={() => handleRectify(task.id)}
                                         isLoading={inFlightIds.has(task.id)}
                                     />
@@ -388,13 +386,11 @@ export default function VoucherDashboardClient({
 
 function CompactPendingItem({
     task,
-    onOpenTask,
     onAccept,
     onDeny,
     isLoading,
 }: {
     task: VoucherPendingTask;
-    onOpenTask: () => void;
     onAccept: () => void;
     onDeny: () => void;
     isLoading: boolean;
@@ -477,15 +473,12 @@ function CompactPendingItem({
         <div className="group flex items-start gap-3 py-6 border-b border-slate-900 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
             <div className="flex-1 min-w-0">
                 <div>
-                    <button
-                        type="button"
-                        onClick={onOpenTask}
-                        className="block w-full text-left [direction:ltr] text-lg font-medium leading-tight text-slate-100 hover:text-white underline-offset-2 hover:underline whitespace-normal break-words"
+                    <div
+                        className="block w-full text-left [direction:ltr] text-lg font-medium leading-tight text-slate-100 whitespace-normal break-words"
                         title={task.title}
-                        aria-label={`Open task ${task.title}`}
                     >
                         {task.title}
-                    </button>
+                    </div>
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -620,12 +613,10 @@ function CompactPendingItem({
 
 function CompactHistoryItem({
     task,
-    onOpenTask,
     onRectify,
     isLoading,
 }: {
     task: HistoryTask;
-    onOpenTask: () => void;
     onRectify: () => void;
     isLoading: boolean;
 }) {
@@ -649,15 +640,12 @@ function CompactHistoryItem({
         <div className="group flex items-center gap-3 py-4 border-b border-slate-900/50 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        onClick={onOpenTask}
-                        className="block min-w-0 max-w-[58vw] md:max-w-[24rem] overflow-hidden text-ellipsis whitespace-nowrap text-left [direction:ltr] text-base font-medium text-slate-300 hover:text-white underline-offset-2 hover:underline"
+                    <div
+                        className="block min-w-0 max-w-[58vw] md:max-w-[24rem] overflow-hidden text-ellipsis whitespace-nowrap text-left [direction:ltr] text-base font-medium text-slate-300"
                         title={task.title}
-                        aria-label={`Open task ${task.title}`}
                     >
                         {task.title}
-                    </button>
+                    </div>
                     <Badge variant="outline" className={`text-[10px] h-4 py-0 px-1 border-slate-800 ${statusColors[task.status] || "text-slate-400"}`}>
                         {task.status === "FAILED"
                             ? (task.marked_completed_at ? "DENIED" : "FAILED")
