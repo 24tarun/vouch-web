@@ -45,7 +45,6 @@ import {
     prepareTaskProof,
     type PreparedTaskProof,
 } from "@/lib/task-proof-client";
-import { pickProofFileFromNativeUi } from "@/lib/native-proof-picker";
 import { getWarmProofSrc, purgeLocalProofMedia } from "@/lib/proof-media-warmup";
 
 interface TaskDetailClientProps {
@@ -519,12 +518,6 @@ export default function TaskDetailClient({
                 setProofUploadError(null);
                 return;
             }
-        }
-
-        const nativeFile = await pickProofFileFromNativeUi();
-        if (nativeFile) {
-            await processPickedProofFile(nativeFile);
-            return;
         }
 
         proofInputRef.current?.click();
@@ -1076,7 +1069,6 @@ export default function TaskDetailClient({
                 ref={proofInputRef}
                 type="file"
                 accept="image/*,video/*"
-                capture="environment"
                 className="hidden"
                 onChange={handleProofInputChange}
             />

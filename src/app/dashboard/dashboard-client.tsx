@@ -26,7 +26,6 @@ import {
     prepareTaskProof,
     type PreparedTaskProof,
 } from "@/lib/task-proof-client";
-import { pickProofFileFromNativeUi } from "@/lib/native-proof-picker";
 import { purgeLocalProofMedia } from "@/lib/proof-media-warmup";
 
 const MAX_COMPLETED_TASKS = 10;
@@ -286,12 +285,6 @@ export default function DashboardClient({
                 });
                 return;
             }
-        }
-
-        const nativeFile = await pickProofFileFromNativeUi();
-        if (nativeFile) {
-            await processPickedProofFile(task.id, nativeFile);
-            return;
         }
 
         setProofPickerTaskId(task.id);
@@ -699,7 +692,6 @@ export default function DashboardClient({
                 ref={proofInputRef}
                 type="file"
                 accept="image/*,video/*"
-                capture="environment"
                 className="hidden"
                 onChange={handleProofInputChange}
             />
