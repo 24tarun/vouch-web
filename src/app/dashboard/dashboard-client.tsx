@@ -171,12 +171,12 @@ export default function DashboardClient({
     const [deletingTaskIds, setDeletingTaskIds] = useState<Set<string>>(new Set());
     const [proofByTaskId, setProofByTaskId] = useState<Record<string, TaskProofDraft>>({});
     const [proofUploadErrors, setProofUploadErrors] = useState<Record<string, string>>({});
-    const [proofPickerTaskId, setProofPickerTaskId] = useState<string | null>(null);
     const [tipsHidden, setTipsHidden] = useState(initialHideTips);
     const [isTogglingTips, setIsTogglingTips] = useState(false);
     const [sortMode, setSortMode] = useState<DashboardSortMode>("deadline_asc");
     const proofInputRef = useRef<HTMLInputElement>(null);
     const proofByTaskIdRef = useRef<Record<string, TaskProofDraft>>({});
+    const proofPickerTaskIdRef = useRef<string | null>(null);
     const sortedActiveTasks = useMemo(() => sortActiveTasks(activeTasks, sortMode), [activeTasks, sortMode]);
 
     useEffect(() => {
@@ -320,15 +320,15 @@ export default function DashboardClient({
             }
         }
 
-        setProofPickerTaskId(task.id);
+        proofPickerTaskIdRef.current = task.id;
         proofInputRef.current?.click();
     };
 
     const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const pickedTaskId = proofPickerTaskId;
+        const pickedTaskId = proofPickerTaskIdRef.current;
         const selectedFile = event.target.files?.[0];
         event.target.value = "";
-        setProofPickerTaskId(null);
+        proofPickerTaskIdRef.current = null;
 
         if (!pickedTaskId || !selectedFile) return;
         await processPickedProofFile(pickedTaskId, selectedFile);
@@ -455,21 +455,40 @@ export default function DashboardClient({
             },
             onSuccess: (result) => {
                 if (result && "taskId" in result && result.taskId) {
+                    const realTaskId = result.taskId as string;
                     setActiveTasks((prev) =>
                         prev.map((task) =>
                             task.id === tempTaskId
                                 ? {
                                     ...task,
-                                    id: result.taskId as string,
+                                    id: realTaskId,
                                     recurrence_rule_id: payload.recurrenceType ? task.recurrence_rule_id : null,
                                     subtasks: (task.subtasks || []).map((subtask) => ({
                                         ...subtask,
-                                        parent_task_id: result.taskId as string,
+                                        parent_task_id: realTaskId,
                                     })),
                                 }
                                 : task
                         )
                     );
+                    setProofByTaskId((prev) => {
+                        const draft = prev[tempTaskId];
+                        if (!draft) return prev;
+                        const next = { ...prev };
+                        next[realTaskId] = draft;
+                        delete next[tempTaskId];
+                        return next;
+                    });
+                    setProofUploadErrors((prev) => {
+                        if (!prev[tempTaskId]) return prev;
+                        const next = { ...prev };
+                        next[realTaskId] = next[tempTaskId];
+                        delete next[tempTaskId];
+                        return next;
+                    });
+                    if (proofPickerTaskIdRef.current === tempTaskId) {
+                        proofPickerTaskIdRef.current = realTaskId;
+                    }
                 }
                 refreshInBackground();
             },

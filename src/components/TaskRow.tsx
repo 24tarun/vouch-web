@@ -82,7 +82,7 @@ export function TaskRow({
         !isTempTask &&
         canDeleteWindowOpen
     );
-    const canDeleteButtonBeShown = Boolean(onDelete && !isTempTask && isParentActive);
+    const canDeleteButtonBeShown = Boolean(onDelete && isParentActive);
     const canAttachProof = Boolean(onAttachProof && !isActuallyCompleted && !isOverdue);
     const canPostpone = Boolean(
         onPostpone &&
@@ -443,7 +443,9 @@ export function TaskRow({
                     aria-label="Delete task"
                     title={canDelete
                         ? "Delete task (available for 5 minutes after creation)"
-                        : "Delete available only within 5 minutes of creation"}
+                        : isTempTask
+                            ? "Saving task..."
+                            : "Delete available only within 5 minutes of creation"}
                 >
                     <Trash2 className="h-[18px] w-[18px]" />
                 </Button>
@@ -574,18 +576,24 @@ export function TaskRow({
                             </Button>
                         )}
 
-                        {canDelete && (
+                        {canDeleteButtonBeShown && (
                             <Button
                                 type="button"
                                 variant="ghost"
                                 onClick={handleDelete}
-                                disabled={isDeleting}
+                                disabled={isDeleting || !canDelete}
                                 className={cn(
                                     "h-7 w-7 p-0 border transition-colors",
-                                    "text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/30"
+                                    canDelete
+                                        ? "text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/30"
+                                        : "text-slate-500 border-slate-700/80 cursor-not-allowed"
                                 )}
                                 aria-label="Delete task"
-                                title="Delete task (available for 5 minutes after creation)"
+                                title={canDelete
+                                    ? "Delete task (available for 5 minutes after creation)"
+                                    : isTempTask
+                                        ? "Saving task..."
+                                        : "Delete available only within 5 minutes of creation"}
                             >
                                 <Trash2 className="h-3.5 w-3.5" />
                             </Button>
