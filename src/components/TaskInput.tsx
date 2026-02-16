@@ -101,6 +101,8 @@ export function TaskInput({
     selfUserId,
     onCreateTaskOptimistic,
 }: TaskInputProps) {
+    const LAST_VOUCHER_STORAGE_KEY = "task-input:last-voucher-id";
+
     const getDefaultDeadline = () => {
         const defaultDeadline = new Date();
         defaultDeadline.setHours(23, 59, 0, 0);
@@ -147,8 +149,27 @@ export function TaskInput({
     }, [defaultFailureCostEuros]);
 
     useEffect(() => {
+        try {
+            const savedVoucherId = window.localStorage.getItem(LAST_VOUCHER_STORAGE_KEY);
+            if (savedVoucherId) {
+                setSelectedVoucherId(resolveVoucherSelection(savedVoucherId));
+                return;
+            }
+        } catch {
+            // Ignore localStorage failures and fallback to default behavior.
+        }
+
         setSelectedVoucherId(resolveVoucherSelection(defaultVoucherId));
     }, [defaultVoucherId, resolveVoucherSelection]);
+
+    useEffect(() => {
+        if (!selectedVoucherId) return;
+        try {
+            window.localStorage.setItem(LAST_VOUCHER_STORAGE_KEY, selectedVoucherId);
+        } catch {
+            // Ignore localStorage failures.
+        }
+    }, [selectedVoucherId]);
 
     useEffect(() => {
         const defaultDeadline = getDefaultDeadline();
