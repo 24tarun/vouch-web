@@ -11,7 +11,7 @@ import {
     revertTaskCompletionAfterProofFailure,
 } from "@/actions/tasks";
 import { setDashboardTipsHidden } from "@/actions/auth";
-import { DashboardHeaderActions } from "@/components/DashboardHeaderActions";
+import { DashboardHeaderActions, type DashboardSortMode } from "@/components/DashboardHeaderActions";
 import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
 import { TaskRow } from "@/components/TaskRow";
 import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList";
@@ -80,13 +80,44 @@ function splitTasks(tasks: Task[]) {
         isTaskCompletedToday(task)
     );
 
-    active.sort((a, b) => {
-        const deadlineDiff = new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-        if (deadlineDiff !== 0) return deadlineDiff;
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    });
-
     return { active, completed };
+}
+
+function safeTimestamp(value: string): number {
+    const ts = new Date(value).getTime();
+    return Number.isNaN(ts) ? 0 : ts;
+}
+
+function sortActiveTasks(tasks: Task[], sortMode: DashboardSortMode): Task[] {
+    return [...tasks].sort((a, b) => {
+        const deadlineA = safeTimestamp(a.deadline);
+        const deadlineB = safeTimestamp(b.deadline);
+        const createdA = safeTimestamp(a.created_at);
+        const createdB = safeTimestamp(b.created_at);
+
+        if (sortMode === "deadline_asc") {
+            if (deadlineA !== deadlineB) return deadlineA - deadlineB;
+            // For same deadline, newer task first.
+            if (createdA !== createdB) return createdB - createdA;
+            return 0;
+        }
+
+        if (sortMode === "deadline_desc") {
+            if (deadlineA !== deadlineB) return deadlineB - deadlineA;
+            if (createdA !== createdB) return createdB - createdA;
+            return 0;
+        }
+
+        if (sortMode === "created_asc") {
+            if (createdA !== createdB) return createdA - createdB;
+            if (deadlineA !== deadlineB) return deadlineA - deadlineB;
+            return 0;
+        }
+
+        if (createdA !== createdB) return createdB - createdA;
+        if (deadlineA !== deadlineB) return deadlineA - deadlineB;
+        return 0;
+    });
 }
 
 function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
@@ -143,8 +174,10 @@ export default function DashboardClient({
     const [proofPickerTaskId, setProofPickerTaskId] = useState<string | null>(null);
     const [tipsHidden, setTipsHidden] = useState(initialHideTips);
     const [isTogglingTips, setIsTogglingTips] = useState(false);
+    const [sortMode, setSortMode] = useState<DashboardSortMode>("deadline_asc");
     const proofInputRef = useRef<HTMLInputElement>(null);
     const proofByTaskIdRef = useRef<Record<string, TaskProofDraft>>({});
+    const sortedActiveTasks = useMemo(() => sortActiveTasks(activeTasks, sortMode), [activeTasks, sortMode]);
 
     useEffect(() => {
         setActiveTasks(split.active);
@@ -638,7 +671,7 @@ export default function DashboardClient({
 
     return (
         <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0 pb-14">
-            <TaskDetailPrefetcher tasks={[...activeTasks, ...completedTasks]} />
+            <TaskDetailPrefetcher tasks={[...sortedActiveTasks, ...completedTasks]} />
             <div className="flex items-center justify-between mb-8">
                 <h1 className="text-2xl font-bold text-white flex items-center gap-2">{`Hi ${username}`}</h1>
                 <DashboardHeaderActions
@@ -647,6 +680,8 @@ export default function DashboardClient({
                         void handleToggleTips();
                     }}
                     isTogglingTips={isTogglingTips}
+                    sortMode={sortMode}
+                    onSortModeChange={setSortMode}
                 />
             </div>
 
@@ -674,12 +709,12 @@ export default function DashboardClient({
             )}
 
             <div className="flex flex-col">
-                {activeTasks.length === 0 ? (
+                {sortedActiveTasks.length === 0 ? (
                     <div className="text-center py-12">
                         <p className="text-slate-500 text-sm">All tasks completed! Relax or add more.</p>
                     </div>
                 ) : (
-                    activeTasks.map((task) => (
+                    sortedActiveTasks.map((task) => (
                         <TaskRow
                             key={task.id}
                             task={task}
