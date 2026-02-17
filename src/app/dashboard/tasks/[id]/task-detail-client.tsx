@@ -46,6 +46,10 @@ import {
     type PreparedTaskProof,
 } from "@/lib/task-proof-client";
 import { getWarmProofSrc, purgeLocalProofMedia } from "@/lib/proof-media-warmup";
+import {
+    isDefaultDeadlineReminderSource,
+    MANUAL_REMINDER_SOURCE,
+} from "@/lib/task-reminder-defaults";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -416,6 +420,7 @@ export default function TaskDetailClient({
                         parent_task_id: taskState.id,
                         user_id: taskState.user_id,
                         reminder_at: reminderIso,
+                        source: MANUAL_REMINDER_SOURCE,
                         notified_at: null,
                         created_at: nowIso,
                         updated_at: nowIso,
@@ -1238,6 +1243,18 @@ export default function TaskDetailClient({
                                                         ? reminder.reminder_at
                                                         : reminderDate.toISOString();
                                                     const isPastReminder = Number.isNaN(reminderMs) || reminderMs <= nowMs;
+                                                    const notifiedAtMs = reminder.notified_at
+                                                        ? new Date(reminder.notified_at).getTime()
+                                                        : Number.NaN;
+                                                    const createdAtMs = new Date(reminder.created_at).getTime();
+                                                    const showPastForSeededHistory =
+                                                        isDefaultDeadlineReminderSource(reminder.source) &&
+                                                        !Number.isNaN(notifiedAtMs) &&
+                                                        !Number.isNaN(createdAtMs) &&
+                                                        createdAtMs === notifiedAtMs;
+                                                    const pastReminderLabel = showPastForSeededHistory
+                                                        ? "Past"
+                                                        : (reminder.notified_at ? "Sent" : "Past");
                                                     return (
                                                         <div key={reminder.id} className="flex items-center justify-between gap-2">
                                                             <span className="text-xs text-slate-300">
@@ -1247,7 +1264,7 @@ export default function TaskDetailClient({
                                                             </span>
                                                             {isPastReminder ? (
                                                                 <span className="text-[11px] uppercase tracking-wide text-slate-500">
-                                                                    {reminder.notified_at ? "Sent" : "Past"}
+                                                                    {pastReminderLabel}
                                                                 </span>
                                                             ) : (
                                                                 <button

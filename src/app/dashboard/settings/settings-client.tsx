@@ -446,7 +446,7 @@ export default function SettingsClient({ profile, friends: initialFriends }: Set
                                         Deadline warning (1 hour before deadline)
                                     </Label>
                                     <p className="text-xs text-slate-400">
-                                        Sends a push notification 1 hour before deadline.
+                                        Auto-adds a 1-hour reminder to each task. You can remove it per task in task details.
                                     </p>
                                 </div>
                                 <input
@@ -466,7 +466,7 @@ export default function SettingsClient({ profile, friends: initialFriends }: Set
                                         Final deadline warning (5 minutes before deadline)
                                     </Label>
                                     <p className="text-xs text-slate-400">
-                                        Sends a push notification 5 minutes before deadline. Controlled independently from the 1-hour warning.
+                                        Auto-adds a 5-minute reminder to each task. You can remove it per task in task details.
                                     </p>
                                 </div>
                                 <input

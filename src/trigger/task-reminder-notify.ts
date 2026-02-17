@@ -3,21 +3,28 @@
  * Runs: Every minute (`* * * * *`).
  * What it does when it runs:
  * 1) Finds due task reminders that were not notified yet.
- * 2) Sends owner-only reminder notifications (push + email) for active tasks.
- * 3) Sends optional default 1-hour deadline warnings for active tasks (push only).
- * 4) Sends optional default 5-minute deadline warnings for active tasks (push only).
- * 5) Marks reminders as notified to avoid duplicate sends.
+ * 2) Sends owner notifications for active tasks.
+ *    - MANUAL reminders: push + email
+ *    - DEFAULT_DEADLINE_1H / DEFAULT_DEADLINE_5M reminders: push only
+ * 3) Writes deadline warning task events for seeded default reminders.
+ * 4) Marks reminders as notified to avoid duplicate sends.
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
+import {
+    DEFAULT_DEADLINE_1H_REMINDER_SOURCE,
+    DEFAULT_DEADLINE_5M_REMINDER_SOURCE,
+    MANUAL_REMINDER_SOURCE,
+} from "@/lib/task-reminder-defaults";
 
 interface DueReminder {
     id: string;
     parent_task_id: string;
     user_id: string;
     reminder_at: string;
+    source: string;
 }
 
 interface ReminderTask {
@@ -33,20 +40,6 @@ interface ReminderUser {
     username: string | null;
 }
 
-interface DeadlineWarningUser {
-    id: string;
-    deadline_one_hour_warning_enabled?: boolean;
-    deadline_final_warning_enabled?: boolean;
-}
-
-interface DeadlineWarningTask {
-    id: string;
-    title: string;
-    deadline: string;
-    status: TaskStatus;
-    user: DeadlineWarningUser | null;
-}
-
 interface SupabaseUpdateError {
     message?: string;
 }
@@ -55,54 +48,18 @@ const ACTIVE_STATUSES: TaskStatus[] = ["CREATED", "POSTPONED"];
 const ONE_HOUR_REMINDER_EVENT = "DEADLINE_WARNING_1H";
 const FIVE_MIN_REMINDER_EVENT = "DEADLINE_WARNING_5M";
 
-function toIso(date: Date): string {
-    return date.toISOString();
+function getReminderEventType(source: string): string | null {
+    if (source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE) return ONE_HOUR_REMINDER_EVENT;
+    if (source === DEFAULT_DEADLINE_5M_REMINDER_SOURCE) return FIVE_MIN_REMINDER_EVENT;
+    return null;
 }
 
-async function loadExistingReminderTaskIds(
+async function logDefaultReminderEvent(
     supabase: ReturnType<typeof createAdminClient>,
-    taskIds: string[],
+    task: ReminderTask,
+    reminder: DueReminder,
     eventType: string
-): Promise<Set<string>> {
-    if (taskIds.length === 0) return new Set();
-
-    const { data, error } = await supabase
-        .from("task_events")
-        .select("task_id")
-        .in("task_id", taskIds)
-        .eq("event_type", eventType);
-
-    if (error) {
-        console.error(`Failed to load task_events for ${eventType}:`, error);
-        return new Set();
-    }
-
-    return new Set(((data as Array<{ task_id: string }> | null) || []).map((row) => row.task_id));
-}
-
-async function sendDeadlineWarningAndLogEvent(
-    supabase: ReturnType<typeof createAdminClient>,
-    task: DeadlineWarningTask,
-    eventType: string,
-    title: string,
-    body: string
 ) {
-    await sendNotification({
-        userId: task.user?.id,
-        subject: title,
-        title,
-        text: body,
-        email: false,
-        push: true,
-        url: `/dashboard/tasks/${task.id}`,
-        tag: `${eventType.toLowerCase()}-${task.id}`,
-        data: {
-            taskId: task.id,
-            kind: eventType,
-            deadline: task.deadline,
-        },
-    });
-
     const taskEvents = supabase.from("task_events") as unknown as {
         insert: (values: {
             task_id: string;
@@ -122,8 +79,9 @@ async function sendDeadlineWarningAndLogEvent(
         to_status: task.status,
         metadata: {
             task_title: task.title.trim(),
-            deadline: task.deadline,
-            body,
+            reminder_id: reminder.id,
+            reminder_at: reminder.reminder_at,
+            source: reminder.source,
         },
     });
 }
@@ -133,7 +91,7 @@ async function processDueTaskReminders(
     nowIso: string
 ) {
     const dueRemindersResponse = await supabase.from("task_reminders")
-        .select("id, parent_task_id, user_id, reminder_at")
+        .select("id, parent_task_id, user_id, reminder_at, source")
         .is("notified_at", null)
         .lte("reminder_at", nowIso)
         .order("reminder_at", { ascending: true })
@@ -188,27 +146,59 @@ async function processDueTaskReminders(
         try {
             if (task && ACTIVE_STATUSES.includes(task.status)) {
                 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-                await sendNotification({
-                    to: owner?.email,
-                    userId: reminder.user_id,
-                    subject: `Task reminder: ${task.title}`,
-                    title: "Task reminder",
-                    text: `Reminder for "${task.title}".`,
-                    html: `
+                const reminderEventType = getReminderEventType(reminder.source);
+
+                if (reminder.source === MANUAL_REMINDER_SOURCE) {
+                    await sendNotification({
+                        to: owner?.email,
+                        userId: reminder.user_id,
+                        subject: `Task reminder: ${task.title}`,
+                        title: "Task reminder",
+                        text: `Reminder for "${task.title}".`,
+                        html: `
                             <h1>Task reminder</h1>
                             <p>Hi ${owner?.username || "there"},</p>
                             <p>This is your reminder for <strong>${task.title}</strong>.</p>
                             <p><a href="${appUrl}/dashboard/tasks/${task.id}">Open task details</a></p>
                         `,
-                    url: `/dashboard/tasks/${task?.id || reminder.parent_task_id}`,
-                    tag: `task-reminder-${reminder.id}`,
-                    data: {
-                        taskId: task?.id || reminder.parent_task_id,
-                        reminderId: reminder.id,
-                        kind: "TASK_REMINDER",
-                        reminderAt: reminder.reminder_at,
-                    },
-                });
+                        url: `/dashboard/tasks/${task.id}`,
+                        tag: `task-reminder-${reminder.id}`,
+                        data: {
+                            taskId: task.id,
+                            reminderId: reminder.id,
+                            kind: "TASK_REMINDER",
+                            reminderAt: reminder.reminder_at,
+                        },
+                    });
+                } else {
+                    const isOneHour = reminder.source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE;
+                    const title = isOneHour ? "Deadline in 1 hour" : "Deadline in 5 minutes";
+                    const text = isOneHour
+                        ? `1 hour left for ${task.title}`
+                        : `5 minutes left for ${task.title}`;
+
+                    await sendNotification({
+                        userId: reminder.user_id,
+                        subject: title,
+                        title,
+                        text,
+                        email: false,
+                        push: true,
+                        url: `/dashboard/tasks/${task.id}`,
+                        tag: `deadline-reminder-${reminder.id}`,
+                        data: {
+                            taskId: task.id,
+                            reminderId: reminder.id,
+                            kind: reminderEventType || "DEADLINE_WARNING",
+                            reminderAt: reminder.reminder_at,
+                            source: reminder.source,
+                        },
+                    });
+
+                    if (reminderEventType) {
+                        await logDefaultReminderEvent(supabase, task, reminder, reminderEventType);
+                    }
+                }
             }
         } catch (error) {
             console.error(`Failed to send task reminder ${reminder.id}:`, error);
@@ -229,102 +219,6 @@ async function processDueTaskReminders(
     }
 }
 
-async function processOneHourDeadlineWarnings(
-    supabase: ReturnType<typeof createAdminClient>,
-    now: Date
-) {
-    const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
-    const fiftyNineMinutesFromNow = new Date(now.getTime() + 59 * 60 * 1000);
-
-    const oneHourResponse = await supabase
-        .from("tasks")
-        .select(`
-            id,
-            title,
-            deadline,
-            status,
-            user:profiles!tasks_user_id_fkey(id, deadline_one_hour_warning_enabled)
-        `)
-        .in("status", ACTIVE_STATUSES)
-        .gt("deadline", toIso(fiftyNineMinutesFromNow))
-        .lte("deadline", toIso(oneHourFromNow));
-
-    if (oneHourResponse.error) {
-        console.error("Error fetching tasks for one-hour deadline warnings:", oneHourResponse.error);
-        return;
-    }
-
-    const tasks = (oneHourResponse.data || []) as unknown as DeadlineWarningTask[];
-    const taskIds = tasks.map((task) => task.id);
-    const alreadyWarnedTaskIds = await loadExistingReminderTaskIds(
-        supabase,
-        taskIds,
-        ONE_HOUR_REMINDER_EVENT
-    );
-
-    for (const task of tasks) {
-        if (!task.user?.id) continue;
-        if (task.user.deadline_one_hour_warning_enabled !== true) continue;
-        if (alreadyWarnedTaskIds.has(task.id)) continue;
-
-        await sendDeadlineWarningAndLogEvent(
-            supabase,
-            task,
-            ONE_HOUR_REMINDER_EVENT,
-            "Deadline in 1 hour",
-            `1 hour left for ${task.title}`
-        );
-    }
-}
-
-async function processFiveMinuteDeadlineWarnings(
-    supabase: ReturnType<typeof createAdminClient>,
-    now: Date
-) {
-    const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
-    const fourMinutesFromNow = new Date(now.getTime() + 4 * 60 * 1000);
-
-    const fiveMinuteResponse = await supabase
-        .from("tasks")
-        .select(`
-            id,
-            title,
-            deadline,
-            status,
-            user:profiles!tasks_user_id_fkey(id, deadline_final_warning_enabled)
-        `)
-        .in("status", ACTIVE_STATUSES)
-        .gt("deadline", toIso(fourMinutesFromNow))
-        .lte("deadline", toIso(fiveMinutesFromNow));
-
-    if (fiveMinuteResponse.error) {
-        console.error("Error fetching tasks for five-minute deadline warnings:", fiveMinuteResponse.error);
-        return;
-    }
-
-    const tasks = (fiveMinuteResponse.data || []) as unknown as DeadlineWarningTask[];
-    const taskIds = tasks.map((task) => task.id);
-    const alreadyWarnedTaskIds = await loadExistingReminderTaskIds(
-        supabase,
-        taskIds,
-        FIVE_MIN_REMINDER_EVENT
-    );
-
-    for (const task of tasks) {
-        if (!task.user?.id) continue;
-        if (task.user.deadline_final_warning_enabled !== true) continue;
-        if (alreadyWarnedTaskIds.has(task.id)) continue;
-
-        await sendDeadlineWarningAndLogEvent(
-            supabase,
-            task,
-            FIVE_MIN_REMINDER_EVENT,
-            "Deadline in 5 minutes",
-            `5 minutes left for ${task.title}`
-        );
-    }
-}
-
 export const taskReminderNotify = schedules.task({
     id: "task-reminder-notify",
     cron: "* * * * *",
@@ -332,7 +226,5 @@ export const taskReminderNotify = schedules.task({
         const supabase = createAdminClient();
         const now = new Date();
         await processDueTaskReminders(supabase, now.toISOString());
-        await processOneHourDeadlineWarnings(supabase, now);
-        await processFiveMinuteDeadlineWarnings(supabase, now);
     },
 });

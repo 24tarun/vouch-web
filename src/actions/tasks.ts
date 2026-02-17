@@ -12,6 +12,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { activeTasksTag, pendingVoucherRequestsTag } from "@/lib/cache-tags";
 import { getOwnerDeleteRemainingMs, isOwnerTempDeletableStatus } from "@/lib/task-delete-window";
 import {
+    buildDefaultDeadlineReminderRows,
+    MANUAL_REMINDER_SOURCE,
+} from "@/lib/task-reminder-defaults";
+import {
     buildTaskProofObjectPath,
     deleteTaskProof,
     MAX_TASK_PROOF_BYTES,
@@ -349,21 +353,43 @@ async function insertTaskReminders(
     parentTaskId: string,
     reminderDates: Date[]
 ): Promise<{ error?: string }> {
-    if (reminderDates.length === 0) return {};
-
-    const { error } = await (supabase.from("task_reminders") as any).insert(
+    return insertTaskReminderRows(
+        supabase,
         reminderDates.map((reminderDate) => ({
             parent_task_id: parentTaskId,
             user_id: userId,
             reminder_at: reminderDate.toISOString(),
+            source: MANUAL_REMINDER_SOURCE,
             notified_at: null,
         }))
     );
+}
 
+async function insertTaskReminderRows(
+    supabase: SupabaseClient<Database>,
+    rows: Database["public"]["Tables"]["task_reminders"]["Insert"][],
+    options?: { ignoreDuplicates?: boolean }
+): Promise<{ error?: string }> {
+    if (rows.length === 0) return {};
+
+    if (options?.ignoreDuplicates) {
+        const { error } = await (supabase.from("task_reminders") as any).upsert(
+            rows,
+            {
+                onConflict: "parent_task_id,reminder_at",
+                ignoreDuplicates: true,
+            }
+        );
+        if (error) {
+            return { error: error.message };
+        }
+        return {};
+    }
+
+    const { error } = await (supabase.from("task_reminders") as any).insert(rows);
     if (error) {
         return { error: error.message };
     }
-
     return {};
 }
 
@@ -448,6 +474,25 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
         .single();
 
     if (error) throw new Error(error.message);
+
+    const seededDefaultReminders = buildDefaultDeadlineReminderRows({
+        parentTaskId: (task as any).id,
+        userId: user.id,
+        deadline,
+        deadlineOneHourWarningEnabled:
+            ((profileDefaults as any)?.deadline_one_hour_warning_enabled as boolean | undefined) ?? true,
+        deadlineFinalWarningEnabled:
+            ((profileDefaults as any)?.deadline_final_warning_enabled as boolean | undefined) ?? true,
+        now: new Date(),
+    });
+    const seededReminderInsert = await insertTaskReminderRows(
+        supabase,
+        seededDefaultReminders,
+        { ignoreDuplicates: true }
+    );
+    if (seededReminderInsert.error) {
+        return { error: seededReminderInsert.error };
+    }
 
     const subtaskInsert = await insertTaskSubtasks(
         supabase,
@@ -535,6 +580,12 @@ export async function createTask(formData: FormData) {
     if (requiredPomoInput.error) {
         return { error: requiredPomoInput.error };
     }
+
+    const { data: reminderDefaultsProfile } = await supabase
+        .from("profiles")
+        .select("deadline_one_hour_warning_enabled, deadline_final_warning_enabled")
+        .eq("id", user.id as any)
+        .maybeSingle();
 
     const deadlineValidation = parseAndValidateFutureDeadline(deadline);
     if (!deadlineValidation.deadline) {
@@ -657,6 +708,25 @@ export async function createTask(formData: FormData) {
     );
     if (reminderInsert.error) {
         return { error: reminderInsert.error };
+    }
+
+    const seededDefaultReminders = buildDefaultDeadlineReminderRows({
+        parentTaskId: (task as any).id,
+        userId: (user as any).id,
+        deadline: validatedDeadline,
+        deadlineOneHourWarningEnabled:
+            ((reminderDefaultsProfile as any)?.deadline_one_hour_warning_enabled as boolean | undefined) ?? true,
+        deadlineFinalWarningEnabled:
+            ((reminderDefaultsProfile as any)?.deadline_final_warning_enabled as boolean | undefined) ?? true,
+        now: new Date(),
+    });
+    const seededReminderInsert = await insertTaskReminderRows(
+        supabase,
+        seededDefaultReminders,
+        { ignoreDuplicates: true }
+    );
+    if (seededReminderInsert.error) {
+        return { error: seededReminderInsert.error };
     }
 
     const subtaskInsert = await insertTaskSubtasks(
@@ -1317,7 +1387,7 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
     }
 
     const { data: existingReminders, error: existingError } = await (supabase.from("task_reminders") as any)
-        .select("id, reminder_at")
+        .select("id, reminder_at, source")
         .eq("parent_task_id", taskId as any)
         .eq("user_id", user.id as any);
 
@@ -1330,12 +1400,19 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
         .filter((date) => date.getTime() > nowMs)
         .sort((a, b) => a.getTime() - b.getTime());
     const nextFutureIsoSet = new Set(nextFutureReminders.map((date) => date.toISOString()));
+    const existingSourceByReminderIso = new Map<string, string>();
+    for (const row of ((existingReminders as Array<{ reminder_at: string; source?: string | null }> | null) || [])) {
+        const reminderDate = new Date(row.reminder_at);
+        if (Number.isNaN(reminderDate.getTime())) continue;
+        existingSourceByReminderIso.set(reminderDate.toISOString(), row.source || MANUAL_REMINDER_SOURCE);
+    }
 
     if (nextFutureReminders.length > 0) {
         const upsertRows = nextFutureReminders.map((reminderDate) => ({
             parent_task_id: taskId,
             user_id: user.id,
             reminder_at: reminderDate.toISOString(),
+            source: existingSourceByReminderIso.get(reminderDate.toISOString()) || MANUAL_REMINDER_SOURCE,
             notified_at: null,
         }));
 

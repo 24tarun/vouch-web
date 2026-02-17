@@ -10,6 +10,10 @@
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { RecurrenceRule, RecurrenceRuleConfig } from "@/lib/types";
+import {
+    buildDefaultDeadlineReminderRows,
+    MANUAL_REMINDER_SOURCE,
+} from "@/lib/task-reminder-defaults";
 
 export const recurrenceGenerator = schedules.task({
     id: "recurrence-generator",
@@ -37,10 +41,14 @@ export const recurrenceGenerator = schedules.task({
 
         console.log(`Processing ${rules.length} active rules...`);
         let generatedCount = 0;
+        const reminderDefaultsByUser = new Map<
+            string,
+            { deadlineOneHourWarningEnabled: boolean; deadlineFinalWarningEnabled: boolean }
+        >();
 
         for (const rule of rules) {
             try {
-                await processRule(rule, supabase);
+                await processRule(rule, supabase, reminderDefaultsByUser);
                 generatedCount++;
             } catch (err) {
                 console.error(`Error processing rule ${rule.id}:`, err);
@@ -77,8 +85,9 @@ async function getLatestReminderOffsetsForRule(
 
     const { data: latestReminders, error: remindersError } = await (supabase
         .from("task_reminders") as any)
-        .select("reminder_at")
+        .select("reminder_at, source")
         .eq("parent_task_id", latestTask.id as any)
+        .eq("source", MANUAL_REMINDER_SOURCE as any)
         .order("reminder_at", { ascending: true });
 
     if (remindersError) {
@@ -128,6 +137,7 @@ async function insertGeneratedReminders(
             parent_task_id: taskId,
             user_id: userId,
             reminder_at: reminderIso,
+            source: MANUAL_REMINDER_SOURCE,
             notified_at: null,
         }))
     );
@@ -137,7 +147,64 @@ async function insertGeneratedReminders(
     }
 }
 
-async function processRule(rule: RecurrenceRule, supabase: any) {
+async function getReminderDefaultsForUser(
+    supabase: any,
+    userId: string,
+    reminderDefaultsByUser: Map<string, { deadlineOneHourWarningEnabled: boolean; deadlineFinalWarningEnabled: boolean }>
+) {
+    const cached = reminderDefaultsByUser.get(userId);
+    if (cached) return cached;
+
+    const { data: profile } = await (supabase.from("profiles") as any)
+        .select("deadline_one_hour_warning_enabled, deadline_final_warning_enabled")
+        .eq("id", userId as any)
+        .maybeSingle();
+
+    const defaults = {
+        deadlineOneHourWarningEnabled:
+            (profile?.deadline_one_hour_warning_enabled as boolean | undefined) ?? true,
+        deadlineFinalWarningEnabled:
+            (profile?.deadline_final_warning_enabled as boolean | undefined) ?? true,
+    };
+    reminderDefaultsByUser.set(userId, defaults);
+    return defaults;
+}
+
+async function insertDefaultDeadlineRemindersForGeneratedTask(
+    supabase: any,
+    taskId: string,
+    userId: string,
+    deadlineIso: string,
+    reminderDefaultsByUser: Map<string, { deadlineOneHourWarningEnabled: boolean; deadlineFinalWarningEnabled: boolean }>
+) {
+    const defaults = await getReminderDefaultsForUser(supabase, userId, reminderDefaultsByUser);
+    const seededRows = buildDefaultDeadlineReminderRows({
+        parentTaskId: taskId,
+        userId,
+        deadline: new Date(deadlineIso),
+        deadlineOneHourWarningEnabled: defaults.deadlineOneHourWarningEnabled,
+        deadlineFinalWarningEnabled: defaults.deadlineFinalWarningEnabled,
+        now: new Date(),
+    });
+    if (seededRows.length === 0) return;
+
+    const { error } = await (supabase.from("task_reminders") as any).upsert(
+        seededRows,
+        {
+            onConflict: "parent_task_id,reminder_at",
+            ignoreDuplicates: true,
+        }
+    );
+    if (error) {
+        console.error(`Failed to seed default reminders for generated task ${taskId}:`, error);
+    }
+}
+
+async function processRule(
+    rule: RecurrenceRule,
+    supabase: any,
+    reminderDefaultsByUser: Map<string, { deadlineOneHourWarningEnabled: boolean; deadlineFinalWarningEnabled: boolean }>
+) {
     const { frequency, interval, days_of_week, time_of_day } = rule.rule_config;
     const timezone = rule.timezone || "UTC";
 
@@ -424,6 +491,13 @@ async function processRule(rule: RecurrenceRule, supabase: any) {
                 rule.user_id,
                 createdTask.deadline || deadlineIso,
                 reminderOffsetsMs
+            );
+            await insertDefaultDeadlineRemindersForGeneratedTask(
+                supabase,
+                createdTask.id,
+                rule.user_id,
+                createdTask.deadline || deadlineIso,
+                reminderDefaultsByUser
             );
         }
 

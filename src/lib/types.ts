@@ -62,6 +62,7 @@ export interface TaskReminder {
     parent_task_id: string;
     user_id: string;
     reminder_at: string;
+    source: "MANUAL" | "DEFAULT_DEADLINE_1H" | "DEFAULT_DEADLINE_5M";
     notified_at: string | null;
     created_at: string;
     updated_at: string;
@@ -251,7 +252,7 @@ export interface Database {
             }
             task_reminders: {
                 Row: TaskReminder
-                Insert: Omit<TaskReminder, "id" | "created_at" | "updated_at">
+                Insert: Omit<TaskReminder, "id" | "created_at" | "updated_at" | "source"> & Partial<Pick<TaskReminder, "created_at" | "updated_at" | "source">>
                 Update: Partial<TaskReminder>
             }
             task_completion_proofs: {
