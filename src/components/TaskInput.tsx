@@ -78,6 +78,15 @@ function parseTimerMinutesToken(text: string): number | null {
     return parsed;
 }
 
+const TOMORROW_KEYWORD_REGEX = /\b(?:tmrw|tomorrow)\b/i;
+
+function getTomorrowDefaultDeadline() {
+    const tomorrowDeadline = new Date();
+    tomorrowDeadline.setDate(tomorrowDeadline.getDate() + 1);
+    tomorrowDeadline.setHours(23, 59, 0, 0);
+    return tomorrowDeadline;
+}
+
 function formatTimeUntilDeadline(deadline: Date, now: Date = new Date()): string {
     const diffMs = deadline.getTime() - now.getTime();
     const totalMinutes = Math.max(1, Math.floor(diffMs / (1000 * 60)));
@@ -411,8 +420,19 @@ export function TaskInput({
                 setSelectedDate(timerDeadline);
                 setDeadlineError(null);
             } else {
+                const hasTomorrowKeyword = TOMORROW_KEYWORD_REGEX.test(title);
                 const timeMatch = title.match(/@(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/);
-                if (timeMatch) {
+                if (hasTomorrowKeyword) {
+                    const tomorrowDeadline = getTomorrowDefaultDeadline();
+                    if (timeMatch) {
+                        const parsed = parseTimeToken(timeMatch[1], true);
+                        if (parsed) {
+                            tomorrowDeadline.setHours(parsed.hours, parsed.minutes, 0, 0);
+                        }
+                    }
+                    setSelectedDate(tomorrowDeadline);
+                    setDeadlineError(null);
+                } else if (timeMatch) {
                     const parsed = parseTimeToken(timeMatch[1], true);
                     if (parsed) {
                         // Always interpret @HH[:MM] and @HHMM as today's local time.
@@ -451,6 +471,7 @@ export function TaskInput({
         return text
             .replace(/@(?:\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/g, "")
             .replace(/\bremind\s+(?:\d{1,2}:\d{2}|\d{4})\b/gi, "")
+            .replace(/\b(?:tmrw|tomorrow)\b/gi, "")
             .replace(/vouch\s+\w+/gi, "")
             .replace(/\bpomo\s+\d+\b/gi, "")
             .replace(/\btimer\s+\d+\b/gi, "")
