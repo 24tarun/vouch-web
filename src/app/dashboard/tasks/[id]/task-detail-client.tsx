@@ -8,6 +8,7 @@ import {
     deleteTaskSubtask,
     finalizeTaskProofUpload,
     forceMajeureTask,
+    initAwaitingVoucherProofUpload,
     markTaskCompleteWithProofIntent,
     ownerTempDeleteTask,
     postponeTask,
@@ -78,6 +79,8 @@ interface ProofUploadTarget {
     uploadToken?: string;
 }
 
+type ProofPickerMode = "draft" | "awaiting-upload";
+
 function getRestoredStatusFromRevertResult(
     result: Awaited<ReturnType<typeof revertTaskCompletionAfterProofFailure>>
 ): RestoredTaskStatus | null {
@@ -124,6 +127,7 @@ export default function TaskDetailClient({
     const newSubtaskInputRef = useRef<HTMLInputElement>(null);
     const proofInputRef = useRef<HTMLInputElement>(null);
     const proofPreviewUrlRef = useRef<string | null>(null);
+    const proofPickerModeRef = useRef<ProofPickerMode>("draft");
     const shouldRestoreSubtaskInputFocusRef = useRef(false);
 
     const deadline = new Date(taskState.deadline);
@@ -181,6 +185,10 @@ export default function TaskDetailClient({
     }, [taskState.recurrence_rule, taskState.deadline]);
     const canViewStoredProof =
         taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED";
+    const hasOpenProofRequest =
+        Boolean(taskState.proof_request_open) &&
+        (taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED");
+    const proofRequestedByLabel = taskState.voucher?.username || "Your voucher";
     const storedProof = useMemo(() => {
         if (!canViewStoredProof) return null;
         const proof = taskState.completion_proof;
@@ -513,8 +521,15 @@ export default function TaskDetailClient({
         }
     };
 
-    const openProofPicker = async () => {
-        if (!isOwner || !isActiveParentTask || isActionPending("markComplete")) return;
+    const openProofPicker = async (mode: ProofPickerMode = "draft") => {
+        const canOpenForDraft = isOwner && isActiveParentTask && !isActionPending("markComplete");
+        const canOpenForAwaitingUpload =
+            isOwner &&
+            taskState.status === "AWAITING_VOUCHER" &&
+            !isActionPending("awaitingProofUpload");
+        if ((mode === "draft" && !canOpenForDraft) || (mode === "awaiting-upload" && !canOpenForAwaitingUpload)) {
+            return;
+        }
         if (proofDraft) {
             const shouldReplace = window.confirm(
                 "A proof file is already attached. Press OK to replace it, or Cancel to remove it."
@@ -526,13 +541,33 @@ export default function TaskDetailClient({
             }
         }
 
+        proofPickerModeRef.current = mode;
         proofInputRef.current?.click();
     };
 
     const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const pickerMode = proofPickerModeRef.current;
+        proofPickerModeRef.current = "draft";
         const selectedFile = event.target.files?.[0];
         event.target.value = "";
         if (!selectedFile) return;
+        if (pickerMode === "awaiting-upload") {
+            setActionPending("awaitingProofUpload", true);
+            try {
+                const prepared = await prepareTaskProof(selectedFile);
+                const previewUrl = URL.createObjectURL(prepared.file);
+                const awaitingDraft = { proof: prepared, previewUrl };
+                setTaskProofDraft(awaitingDraft);
+                setProofUploadError(null);
+                await uploadAwaitingProofInBackground(taskState.id, awaitingDraft);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : "Could not process proof file.";
+                toast.error(message);
+            } finally {
+                setActionPending("awaitingProofUpload", false);
+            }
+            return;
+        }
         await processPickedProofFile(selectedFile);
     };
 
@@ -620,6 +655,85 @@ export default function TaskDetailClient({
         refreshInBackground();
     };
 
+    const uploadAwaitingProofInBackground = async (
+        taskId: string,
+        draft: TaskProofDraft
+    ) => {
+        const init = await initAwaitingVoucherProofUpload(
+            taskId,
+            getProofIntentFromPreparedProof(draft.proof)
+        );
+        if (init?.error) {
+            setProofUploadError(init.error);
+            toast.error(init.error);
+            refreshInBackground();
+            return;
+        }
+
+        const uploadTarget = (init as { proofUploadTarget?: ProofUploadTarget } | undefined)?.proofUploadTarget;
+        if (!uploadTarget) {
+            const message = "Proof upload target missing.";
+            setProofUploadError(message);
+            toast.error(`Proof upload failed: ${message}`);
+            refreshInBackground();
+            return;
+        }
+
+        const supabase = createBrowserSupabaseClient();
+        const uploadResponse = uploadTarget.uploadToken
+            ? await supabase.storage
+                .from(uploadTarget.bucket)
+                .uploadToSignedUrl(uploadTarget.objectPath, uploadTarget.uploadToken, draft.proof.file, {
+                    contentType: draft.proof.mimeType,
+                    upsert: true,
+                })
+            : await supabase.storage
+                .from(uploadTarget.bucket)
+                .upload(uploadTarget.objectPath, draft.proof.file, {
+                    upsert: true,
+                    contentType: draft.proof.mimeType,
+                    cacheControl: "120",
+                });
+
+        const uploadError = uploadResponse.error;
+        if (uploadError) {
+            console.error("Awaiting-voucher proof upload failed (task detail):", uploadError);
+            const uploadMessage = uploadError.message || "Unknown upload error";
+            setProofUploadError(`Proof upload failed (${uploadMessage}). Task is still awaiting voucher.`);
+            toast.error(`Proof upload failed: ${uploadMessage}`);
+            refreshInBackground();
+            return;
+        }
+
+        const finalize = await finalizeTaskProofUpload(taskId, {
+            mediaKind: draft.proof.mediaKind,
+            mimeType: draft.proof.mimeType,
+            sizeBytes: draft.proof.sizeBytes,
+            durationMs: draft.proof.durationMs,
+            bucket: uploadTarget.bucket,
+            objectPath: uploadTarget.objectPath,
+        });
+
+        if (finalize?.error) {
+            setProofUploadError(finalize.error);
+            toast.error(`Proof finalize failed: ${finalize.error}`);
+            refreshInBackground();
+            return;
+        }
+
+        setTaskState((prev) => ({
+            ...prev,
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
+            updated_at: new Date().toISOString(),
+        }));
+        setTaskProofDraft(null);
+        setProofUploadError(null);
+        toast.success("Proof uploaded successfully.");
+        refreshInBackground();
+    };
+
     const statusColors: Record<string, string> = {
         CREATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
         POSTPONED: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
@@ -675,6 +789,9 @@ export default function TaskDetailClient({
                     status: isSelfVouched ? "COMPLETED" : "AWAITING_VOUCHER",
                     marked_completed_at: now.toISOString(),
                     voucher_response_deadline: isSelfVouched ? null : voucherResponseDeadline.toISOString(),
+                    proof_request_open: false,
+                    proof_requested_at: null,
+                    proof_requested_by: null,
                     updated_at: now.toISOString(),
                 }));
             },
@@ -734,6 +851,9 @@ export default function TaskDetailClient({
                     status: restoredStatus,
                     marked_completed_at: null,
                     voucher_response_deadline: null,
+                    proof_request_open: false,
+                    proof_requested_at: null,
+                    proof_requested_by: null,
                     updated_at: nowIso,
                 }));
             },
@@ -1019,6 +1139,9 @@ export default function TaskDetailClient({
         if (event.event_type === "POMO_COMPLETED") {
             const elapsedSeconds = getPomoElapsedSeconds(event);
             return `Focus session completed (${formatFocusTime(elapsedSeconds)})`;
+        }
+        if (event.event_type === "PROOF_REQUESTED") {
+            return "Voucher requested proof";
         }
         return event.event_type.replace(/_/g, " ");
     };
@@ -1414,7 +1537,7 @@ export default function TaskDetailClient({
                             <Button
                                 type="button"
                                 variant="ghost"
-                                onClick={openProofPicker}
+                                onClick={() => openProofPicker("draft")}
                                 disabled={isActionPending("markComplete")}
                                 className={cn(
                                     "h-9 w-9 p-0 border",
@@ -1551,21 +1674,76 @@ export default function TaskDetailClient({
                     )}
 
                     {taskState.status === "AWAITING_VOUCHER" && (
-                        <div className="w-full p-3 rounded-lg bg-purple-500/10 border border-purple-500/30 flex flex-wrap items-center gap-3">
-                            <p className="text-slate-300">
-                                Waiting for voucher response...
-                            </p>
-                            {isOwner && !isOverdue && (
+                        <div className="w-full p-3 rounded-lg bg-purple-500/10 border border-purple-500/30 space-y-3">
+                            <p className="text-slate-300">Waiting for voucher response...</p>
+                            {hasOpenProofRequest && (
+                                <p className="text-amber-300 text-sm">
+                                    {proofRequestedByLabel} has asked for proof.
+                                </p>
+                            )}
+                            <div className="flex flex-wrap items-center gap-3">
+                                {isOwner && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => openProofPicker("awaiting-upload")}
+                                        disabled={isActionPending("awaitingProofUpload")}
+                                        className="bg-slate-800/60 border-slate-600 text-slate-200 hover:bg-slate-700/60"
+                                    >
+                                        {storedProof ? "Replace Proof" : "Add Proof"}
+                                    </Button>
+                                )}
+                                {isOwner && !isOverdue && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={handleUndoComplete}
+                                        disabled={isActionPending("undoComplete")}
+                                        className="bg-slate-800/60 border-slate-600 text-slate-200 hover:bg-slate-700/60"
+                                    >
+                                        Undo Complete
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {taskState.status === "AWAITING_VOUCHER" && proofDraft && (
+                        <div className="w-full rounded-lg border border-blue-500/20 bg-blue-950/20 p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                                <p className="text-xs text-blue-200 uppercase tracking-wider font-mono">
+                                    Ready to upload ({proofDraft.proof.mediaKind})
+                                </p>
                                 <Button
                                     type="button"
-                                    variant="outline"
-                                    onClick={handleUndoComplete}
-                                    disabled={isActionPending("undoComplete")}
-                                    className="bg-slate-800/60 border-slate-600 text-slate-200 hover:bg-slate-700/60"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-[11px] text-blue-200 hover:text-white hover:bg-blue-900/30"
+                                    onClick={() => setTaskProofDraft(null)}
                                 >
-                                    Undo Complete
+                                    Remove
                                 </Button>
+                            </div>
+                            {proofDraft.proof.mediaKind === "image" ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                    src={proofDraft.previewUrl}
+                                    alt="Selected proof"
+                                    className="max-h-44 rounded-md object-cover"
+                                />
+                            ) : (
+                                <video
+                                    controls
+                                    preload="metadata"
+                                    className="max-h-44 rounded-md"
+                                    src={proofDraft.previewUrl}
+                                />
                             )}
+                        </div>
+                    )}
+
+                    {taskState.status === "AWAITING_VOUCHER" && proofUploadError && (
+                        <div className="w-full rounded-lg border border-red-900/60 bg-red-950/30 p-3">
+                            <p className="text-sm text-red-300">{proofUploadError}</p>
                         </div>
                     )}
 

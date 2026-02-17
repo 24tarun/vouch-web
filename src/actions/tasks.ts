@@ -892,6 +892,9 @@ export async function markTaskCompleteWithProofIntent(
                 status: "COMPLETED",
                 marked_completed_at: nowIso,
                 voucher_response_deadline: null,
+                proof_request_open: false,
+                proof_requested_at: null,
+                proof_requested_by: null,
                 updated_at: nowIso,
             } as any)
             .eq("id", taskId as any)
@@ -922,6 +925,8 @@ export async function markTaskCompleteWithProofIntent(
 
         invalidateActiveTasksCache((user as any).id);
         invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+        revalidatePath("/dashboard");
+        revalidatePath("/dashboard/stats");
         revalidatePath("/dashboard/friends");
         revalidatePath(`/dashboard/tasks/${taskId}`);
         return { success: true };
@@ -941,6 +946,9 @@ export async function markTaskCompleteWithProofIntent(
             status: "AWAITING_VOUCHER",
             marked_completed_at: nowIso,
             voucher_response_deadline: voucherResponseDeadline.toISOString(),
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
             updated_at: nowIso,
         } as any)
         .eq("id", (taskId as any))
@@ -1000,6 +1008,9 @@ export async function markTaskCompleteWithProofIntent(
                     status: (task as any).postponed_at ? "POSTPONED" : "CREATED",
                     marked_completed_at: null,
                     voucher_response_deadline: null,
+                    proof_request_open: false,
+                    proof_requested_at: null,
+                    proof_requested_by: null,
                     updated_at: new Date().toISOString(),
                 } as any)
                 .eq("id", taskId as any)
@@ -1021,6 +1032,9 @@ export async function markTaskCompleteWithProofIntent(
                     status: (task as any).postponed_at ? "POSTPONED" : "CREATED",
                     marked_completed_at: null,
                     voucher_response_deadline: null,
+                    proof_request_open: false,
+                    proof_requested_at: null,
+                    proof_requested_by: null,
                     updated_at: new Date().toISOString(),
                 } as any)
                 .eq("id", taskId as any)
@@ -1059,10 +1073,108 @@ export async function markTaskCompleteWithProofIntent(
 
     invalidateActiveTasksCache((user as any).id);
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
     // Mirror accept/deny behavior so voucher list cache is invalidated on new request.
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true, proofUploadTarget };
+}
+
+export async function initAwaitingVoucherProofUpload(
+    taskId: string,
+    rawProofIntent: TaskProofIntent
+): Promise<MarkTaskCompleteWithProofResult> {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const proofValidation = validateProofIntent(rawProofIntent);
+    if (proofValidation.error || !proofValidation.proofIntent) {
+        return { error: proofValidation.error || INVALID_TASK_PROOF_ERROR };
+    }
+
+    const proofIntent = proofValidation.proofIntent;
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, user_id, voucher_id, status")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if ((task as any).status !== "AWAITING_VOUCHER") {
+        return { error: "Task is no longer awaiting voucher response." };
+    }
+
+    const objectPath = buildTaskProofObjectPath({
+        ownerId: user.id,
+        taskId,
+        mimeType: proofIntent.mimeType,
+    });
+
+    const { data: existingProof } = await (supabase.from("task_completion_proofs") as any)
+        .select("bucket, object_path")
+        .eq("task_id", taskId as any)
+        .maybeSingle();
+
+    if (existingProof?.object_path) {
+        await (supabase.storage.from((existingProof.bucket as string) || TASK_PROOFS_BUCKET) as any)
+            .remove([(existingProof.object_path as string)]);
+    }
+
+    const { error: proofError } = await (supabase.from("task_completion_proofs") as any)
+        .upsert(
+            {
+                task_id: taskId,
+                owner_id: user.id,
+                voucher_id: (task as any).voucher_id,
+                bucket: TASK_PROOFS_BUCKET,
+                object_path: objectPath,
+                media_kind: proofIntent.mediaKind,
+                mime_type: proofIntent.mimeType,
+                size_bytes: proofIntent.sizeBytes,
+                duration_ms: proofIntent.durationMs ?? null,
+                upload_state: "PENDING",
+            },
+            { onConflict: "task_id" }
+        );
+
+    if (proofError) {
+        return { error: proofError.message };
+    }
+
+    const supabaseAdmin = createAdminClient();
+    const { data: signedUpload, error: signedUploadError } = await supabaseAdmin.storage
+        .from(TASK_PROOFS_BUCKET)
+        .createSignedUploadUrl(objectPath);
+
+    if (signedUploadError || !signedUpload?.token) {
+        await (supabase.from("task_completion_proofs") as any)
+            .update({
+                upload_state: "FAILED",
+                updated_at: new Date().toISOString(),
+            } as any)
+            .eq("task_id", taskId as any)
+            .eq("owner_id", user.id as any);
+        return { error: signedUploadError?.message || "Could not create proof upload session." };
+    }
+
+    return {
+        success: true,
+        proofUploadTarget: {
+            bucket: TASK_PROOFS_BUCKET,
+            objectPath,
+            uploadToken: signedUpload.token,
+        },
+    };
 }
 
 export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskProofMetadata) {
@@ -1133,7 +1245,25 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         return { error: updateError.message };
     }
 
+    const nowIso = new Date().toISOString();
+    const { error: clearProofRequestError } = await (supabase.from("tasks") as any)
+        .update({
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
+            updated_at: nowIso,
+        } as any)
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .eq("status", "AWAITING_VOUCHER");
+
+    if (clearProofRequestError) {
+        return { error: clearProofRequestError.message };
+    }
+
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
@@ -1180,6 +1310,9 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
             status: restoredStatus,
             marked_completed_at: null,
             voucher_response_deadline: null,
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
             updated_at: nowIso,
         } as any)
         .eq("id", taskId as any)
@@ -1207,6 +1340,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
     invalidateActiveTasksCache(user.id);
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
 
@@ -1255,6 +1389,9 @@ export async function undoTaskComplete(taskId: string) {
             status: restoredStatus,
             marked_completed_at: null,
             voucher_response_deadline: null,
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
             updated_at: nowIso,
         } as any)
         .eq("id", taskId as any)
@@ -1282,6 +1419,7 @@ export async function undoTaskComplete(taskId: string) {
     invalidateActiveTasksCache(user.id);
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
 

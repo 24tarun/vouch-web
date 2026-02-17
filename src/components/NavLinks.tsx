@@ -8,6 +8,7 @@ import { haptics } from "@/lib/haptics";
 
 interface NavLinksProps {
     vouchCount?: number;
+    statsBadgeCount?: number;
 }
 
 interface NetworkInformationLike {
@@ -20,7 +21,7 @@ type IdleWindow = Window & {
     cancelIdleCallback?: (id: number) => void;
 };
 
-export function NavLinks({ vouchCount = 0 }: NavLinksProps) {
+export function NavLinks({ vouchCount = 0, statsBadgeCount = 0 }: NavLinksProps) {
     const pathname = usePathname();
     const router = useRouter();
     const prefetchedHrefsRef = useRef<Set<string>>(new Set());
@@ -28,12 +29,12 @@ export function NavLinks({ vouchCount = 0 }: NavLinksProps) {
     const links = useMemo(
         () => [
             { href: "/dashboard", label: "Tasks" },
-            { href: "/dashboard/stats", label: "Stats" },
+            { href: "/dashboard/stats", label: "Stats", badge: statsBadgeCount > 0 ? statsBadgeCount : undefined },
             { href: "/dashboard/friends", label: "Friends", badge: vouchCount > 0 ? vouchCount : undefined },
             { href: "/dashboard/ledger", label: "Ledger" },
             { href: "/dashboard/settings", label: "Settings" },
         ],
-        [vouchCount]
+        [statsBadgeCount, vouchCount]
     );
 
     const prefetchLink = useCallback(

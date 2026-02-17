@@ -734,6 +734,16 @@ export function TaskInput({
                                     >
                                         Monthly
                                     </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                        onClick={() => {
+                                            setRecurrenceType("YEARLY");
+                                            setRecurrenceLabel("Yearly");
+                                            setShowCustomRecurrenceInline(false);
+                                        }}
+                                        className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
+                                    >
+                                        Yearly
+                                    </DropdownMenuItem>
                                     <DropdownMenuSeparator className="bg-slate-800" />
                                     <DropdownMenuItem
                                         onSelect={(e) => {

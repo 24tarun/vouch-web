@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny } from "@/actions/voucher";
+import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny, voucherRequestProof } from "@/actions/voucher";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { FriendPomoActivity, TaskWithRelations, VoucherPendingTask } from "@/lib/types";
-import { Check, ChevronDown, ChevronRight, Loader2, Timer, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleHelp, Loader2, Timer, X } from "lucide-react";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { toast } from "sonner";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
@@ -269,6 +269,21 @@ export default function VoucherDashboardClient({
         setTaskInFlight(taskId, false);
     }
 
+    async function handleRequestProof(taskId: string) {
+        if (inFlightIds.has(taskId)) return;
+        setTaskInFlight(taskId, true);
+
+        const result = await voucherRequestProof(taskId);
+        if (result?.error) {
+            toast.error(result.error);
+        } else {
+            toast.success("Proof request sent.");
+            refreshInBackground();
+        }
+
+        setTaskInFlight(taskId, false);
+    }
+
     return (
         <div className="max-w-3xl mx-auto space-y-12 pb-20 mt-12 px-4 md:px-0">
             <TaskDetailPrefetcher tasks={pendingState} />
@@ -319,6 +334,7 @@ export default function VoucherDashboardClient({
                                 task={task}
                                 onAccept={() => handleAccept(task.id)}
                                 onDeny={() => handleDeny(task.id)}
+                                onRequestProof={() => handleRequestProof(task.id)}
                                 isLoading={inFlightIds.has(task.id)}
                             />
                         ))}
@@ -388,11 +404,13 @@ function CompactPendingItem({
     task,
     onAccept,
     onDeny,
+    onRequestProof,
     isLoading,
 }: {
     task: VoucherPendingTask;
     onAccept: () => void;
     onDeny: () => void;
+    onRequestProof: () => void;
     isLoading: boolean;
 }) {
     const [renderTimestamp] = useState(() => Date.now());
@@ -557,6 +575,17 @@ function CompactPendingItem({
                             className="h-9 w-9 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30"
                         >
                             <X className="h-4 w-4" strokeWidth={3} />
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={onRequestProof}
+                            disabled={isLoading}
+                            aria-label={`Request proof for task ${task.title}`}
+                            title="Request proof"
+                            className="h-9 w-9 p-0 text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-500/30"
+                        >
+                            <CircleHelp className="h-4 w-4" strokeWidth={2.5} />
                         </Button>
                     </>
                 )}

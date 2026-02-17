@@ -18,7 +18,16 @@ export default async function DashboardLayout({
         redirect("/login");
     }
 
-    const vouchCount = await getCachedPendingVouchCountForVoucher(user.id);
+    const [vouchCount, proofRequestCountResult] = await Promise.all([
+        getCachedPendingVouchCountForVoucher(user.id),
+        supabase
+            .from("tasks")
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", user.id)
+            .eq("proof_request_open", true)
+            .in("status", ["AWAITING_VOUCHER", "MARKED_COMPLETED"]),
+    ]);
+    const statsBadgeCount = proofRequestCountResult.count || 0;
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-200">
@@ -27,7 +36,7 @@ export default async function DashboardLayout({
             <nav className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 pt-safe">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="h-14 flex items-center">
-                        <NavLinks vouchCount={vouchCount} />
+                        <NavLinks vouchCount={vouchCount} statsBadgeCount={statsBadgeCount} />
                     </div>
                 </div>
             </nav>

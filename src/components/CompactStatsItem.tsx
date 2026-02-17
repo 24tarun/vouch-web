@@ -2,10 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import type { Task } from "@/lib/types";
+import type { TaskWithRelations } from "@/lib/types";
 import { ExternalLink, Timer } from "lucide-react";
 
-type StatsTask = Task & { pomo_total_seconds?: number };
+type StatsTask = TaskWithRelations & { pomo_total_seconds?: number };
 const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
 
 interface CompactStatsItemProps {
@@ -64,6 +64,10 @@ export function CompactStatsItem({
     const pomoTotalSeconds = task.pomo_total_seconds || 0;
     const statusColorClass = statusColors[task.status] || "text-slate-500";
     const isActiveTask = task.status === "CREATED" || task.status === "POSTPONED";
+    const hasOpenProofRequest =
+        Boolean(task.proof_request_open) &&
+        (task.status === "AWAITING_VOUCHER" || task.status === "MARKED_COMPLETED");
+    const proofRequestedByLabel = task.voucher?.username || "Your voucher";
     const shouldPrefetchDetail = PREFETCH_STATUSES.has(task.status);
     const openTaskDetails = () => {
         router.push(detailPath);
@@ -114,6 +118,11 @@ export function CompactStatsItem({
                         ? `Deadline on ${formatDate(task.deadline)}`
                         : `Updated on ${formatDate(task.updated_at)}`}
                 </p>
+                {hasOpenProofRequest && (
+                    <p className="text-xs text-amber-300 mt-2">
+                        {proofRequestedByLabel} has asked for proof.
+                    </p>
+                )}
             </div>
 
             <div className="relative z-20 flex items-center gap-2">

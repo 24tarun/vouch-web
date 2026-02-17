@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { Task } from "@/lib/types";
+import type { TaskWithRelations } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { CompactStatsItem } from "@/components/CompactStatsItem";
 
-type StatsTask = Task & { pomo_total_seconds?: number };
+type StatsTask = TaskWithRelations & { pomo_total_seconds?: number };
 
 const HISTORY_PAGE_SIZE = 10;
 const STATS_HISTORY_OPEN_SESSION_KEY = "stats.history.open";

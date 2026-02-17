@@ -40,6 +40,9 @@ export interface Task {
     recurrence_rule_id: string | null;
     created_at: string;
     updated_at: string;
+    proof_request_open?: boolean;
+    proof_requested_at?: string | null;
+    proof_requested_by?: string | null;
     voucher_timeout_auto_accepted?: boolean;
     pomo_total_seconds?: number;
     subtasks?: TaskSubtask[];

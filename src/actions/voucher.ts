@@ -112,7 +112,12 @@ export async function voucherAccept(taskId: string) {
 
     // @ts-ignore
     const { error } = await (supabase.from("tasks") as any)
-        .update({ status: "COMPLETED" } as any)
+        .update({
+            status: "COMPLETED",
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
+        } as any)
         .eq("id", (taskId as any));
 
     if (error) {
@@ -129,6 +134,8 @@ export async function voucherAccept(taskId: string) {
     });
 
     invalidatePendingVoucherRequestsCache((user as any).id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
@@ -177,7 +184,13 @@ export async function voucherDeleteTask(taskId: string) {
 
     // Update status to DELETED (soft delete)
     const { error } = await (supabase.from("tasks") as any)
-        .update({ status: "DELETED", updated_at: new Date().toISOString() } as any)
+        .update({
+            status: "DELETED",
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
+            updated_at: new Date().toISOString(),
+        } as any)
         .eq("id", (taskId as any))
         .eq("voucher_id", (user as any).id);
 
@@ -215,6 +228,7 @@ export async function voucherDeleteTask(taskId: string) {
     invalidatePendingVoucherRequestsCache((user as any).id);
     revalidatePath("/dashboard/friends");
     revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
 
     return { success: true };
 }
@@ -254,7 +268,12 @@ export async function voucherDeny(taskId: string) {
 
     // @ts-ignore
     const { error } = await (supabase.from("tasks") as any)
-        .update({ status: "FAILED" } as any)
+        .update({
+            status: "FAILED",
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
+        } as any)
         .eq("id", (taskId as any));
 
     if (error) {
@@ -300,6 +319,99 @@ export async function voucherDeny(taskId: string) {
     }
 
     invalidatePendingVoucherRequestsCache((user as any).id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/friends");
+    revalidatePath(`/dashboard/tasks/${taskId}`);
+    return { success: true };
+}
+
+export async function voucherRequestProof(taskId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, title, status, user_id, voucher_id, user:profiles!tasks_user_id_fkey(id, email, username)")
+        .eq("id", taskId as any)
+        .eq("voucher_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found or you are not the voucher" };
+    }
+
+    if ((task as any).voucher_id === (task as any).user_id) {
+        return { error: "Self-vouched tasks do not support proof requests." };
+    }
+
+    if ((task as any).status !== "AWAITING_VOUCHER") {
+        return { error: `Cannot request proof in ${(task as any).status} status` };
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
+        .update({
+            proof_request_open: true,
+            proof_requested_at: nowIso,
+            proof_requested_by: user.id,
+            updated_at: nowIso,
+        } as any)
+        .eq("id", taskId as any)
+        .eq("voucher_id", user.id as any)
+        .eq("status", "AWAITING_VOUCHER")
+        .select("id");
+
+    if (updateError) {
+        return { error: updateError.message };
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task is no longer awaiting voucher response." };
+    }
+
+    await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "PROOF_REQUESTED",
+        actor_id: user.id as any,
+        from_status: "AWAITING_VOUCHER",
+        to_status: "AWAITING_VOUCHER",
+    });
+
+    const owner = (task as any).user as { id?: string; email?: string | null; username?: string | null } | null;
+    if (owner?.id) {
+        const { data: voucherProfile } = await supabase
+            .from("profiles")
+            .select("username")
+            .eq("id", user.id as any)
+            .maybeSingle();
+        const voucherDisplayName = (voucherProfile as { username?: string | null } | null)?.username || "Your voucher";
+
+        await sendNotification({
+            to: owner.email || undefined,
+            userId: owner.id,
+            subject: `Proof requested for: ${(task as any).title}`,
+            title: "Proof requested",
+            text: `${voucherDisplayName} has asked for proof for "${(task as any).title}".`,
+            html: `
+                <h1>Proof requested</h1>
+                <p>Hi ${owner.username || "there"},</p>
+                <p>${voucherDisplayName} has asked for proof for <strong>${(task as any).title}</strong>.</p>
+                <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/tasks/${taskId}">Open task</a></p>
+            `,
+            url: `/dashboard/tasks/${taskId}`,
+            tag: `proof-request-${taskId}`,
+            data: { taskId, kind: "PROOF_REQUESTED" },
+        });
+    }
+
+    invalidatePendingVoucherRequestsCache(user.id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };

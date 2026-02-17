@@ -74,6 +74,9 @@ export function formatRecurrenceSummary(
     const hasValidDeadline = !Number.isNaN(deadline.getTime());
     const atTime = hasValidDeadline ? ` at ${getLocalTimeLabel(deadline, locale)}` : "";
     const localDayOfMonth = hasValidDeadline ? deadline.getDate() : null;
+    const localMonthAndDay = hasValidDeadline
+        ? new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" }).format(deadline)
+        : null;
     const localWeekday = hasValidDeadline ? deadline.getDay() : undefined;
     const frequency = String(config.frequency).toUpperCase();
 
@@ -94,6 +97,13 @@ export function formatRecurrenceSummary(
             return `Repeats monthly on ${toOrdinalDay(localDayOfMonth)}${atTime}`;
         }
         return `Repeats monthly${atTime}`;
+    }
+
+    if (frequency === "YEARLY") {
+        if (localMonthAndDay) {
+            return `Repeats yearly on ${localMonthAndDay}${atTime}`;
+        }
+        return `Repeats yearly${atTime}`;
     }
 
     if (frequency === "CUSTOM") {

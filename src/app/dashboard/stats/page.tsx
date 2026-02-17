@@ -1,8 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
-import type { Task } from "@/lib/types";
+import type { TaskWithRelations } from "@/lib/types";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
 import { StatsActiveTaskList } from "@/components/StatsActiveTaskList";
 import { StatsHistoryTaskList } from "@/components/StatsHistoryTaskList";
+import { Badge } from "@/components/ui/badge";
 
 const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
 
@@ -16,7 +17,7 @@ export default async function OverviewPage() {
     const [tasksResult, pomoSessionsResult] = await Promise.all([
         supabase
             .from("tasks")
-            .select("*")
+            .select("*, voucher:profiles!tasks_voucher_id_fkey(id, username, email)")
             .eq("user_id", userId)
             .order("updated_at", { ascending: false }),
         supabase
@@ -26,9 +27,9 @@ export default async function OverviewPage() {
             .neq("status", "DELETED"),
     ]);
 
-    const rawTasks = (tasksResult.data as Task[] | null) || [];
+    const rawTasks = (tasksResult.data as TaskWithRelations[] | null) || [];
     const taskIds = rawTasks.map((task) => task.id).filter(Boolean);
-    const proofByTaskId = new Map<string, Task["completion_proof"]>();
+    const proofByTaskId = new Map<string, TaskWithRelations["completion_proof"]>();
 
     if (taskIds.length > 0) {
         const { data: proofsResult } = await supabase
@@ -37,7 +38,7 @@ export default async function OverviewPage() {
             .in("task_id", taskIds)
             .eq("upload_state", "UPLOADED");
 
-        for (const row of ((proofsResult as Task["completion_proof"][] | null) || [])) {
+        for (const row of ((proofsResult as TaskWithRelations["completion_proof"][] | null) || [])) {
             if (!row?.task_id) continue;
             proofByTaskId.set(row.task_id, row);
         }
@@ -62,6 +63,10 @@ export default async function OverviewPage() {
         voucher_timeout_auto_accepted: timeoutAcceptedTaskIds.has(task.id),
         completion_proof: proofByTaskId.get(task.id) || null,
     }));
+    const openProofRequestCount = tasks.filter((task) =>
+        Boolean(task.proof_request_open) &&
+        ["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(task.status)
+    ).length;
     const allSessions = (pomoSessionsResult.data as Array<{
         task_id: string;
         elapsed_seconds: number;
@@ -116,6 +121,13 @@ export default async function OverviewPage() {
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Overview</h1>
+                    {openProofRequestCount > 0 && (
+                        <div className="mt-2">
+                            <Badge className="bg-amber-500/20 text-amber-200 border border-amber-500/40">
+                                {openProofRequestCount} proof request{openProofRequestCount === 1 ? "" : "s"}
+                            </Badge>
+                        </div>
+                    )}
                 </div>
                 <HardRefreshButton />
             </div>

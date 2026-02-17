@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import type { Task } from "@/lib/types";
+import type { TaskWithRelations } from "@/lib/types";
 import { CompactStatsItem } from "@/components/CompactStatsItem";
 import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 
-type StatsTask = Task & { pomo_total_seconds?: number };
+type StatsTask = TaskWithRelations & { pomo_total_seconds?: number };
 const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
 
 interface StatsActiveTaskListProps {
