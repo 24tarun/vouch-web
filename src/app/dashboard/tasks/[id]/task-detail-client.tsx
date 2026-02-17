@@ -12,6 +12,7 @@ import {
     markTaskCompleteWithProofIntent,
     ownerTempDeleteTask,
     postponeTask,
+    removeAwaitingVoucherProof,
     replaceTaskReminders,
     revertTaskCompletionAfterProofFailure,
     undoTaskComplete,
@@ -872,6 +873,41 @@ export default function TaskDetailClient({
         setActionPending("undoComplete", false);
     }
 
+    async function handleRemoveStoredProof() {
+        if (isActionPending("removeStoredProof")) return;
+        if (!isOwner || !storedProof) return;
+        if (!["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(taskState.status)) {
+            toast.error("Proof can only be removed while awaiting voucher response.");
+            return;
+        }
+
+        setActionPending("removeStoredProof", true);
+        const nowIso = new Date().toISOString();
+
+        await runOptimisticMutation({
+            captureSnapshot: () => ({ taskState }),
+            applyOptimistic: () => {
+                setTaskState((prev) => ({
+                    ...prev,
+                    completion_proof: null,
+                    updated_at: nowIso,
+                }));
+                setProofUploadError(null);
+            },
+            runMutation: () => removeAwaitingVoucherProof(taskState.id),
+            rollback: (snapshot) => {
+                setTaskState(snapshot.taskState);
+            },
+            onSuccess: () => {
+                void purgeLocalProofMedia(taskState.id);
+                toast.success("Proof removed.");
+                refreshInBackground();
+            },
+        });
+
+        setActionPending("removeStoredProof", false);
+    }
+
     async function handlePostpone() {
         if (isActionPending("postpone")) return;
         if (isOverdue) {
@@ -1143,6 +1179,9 @@ export default function TaskDetailClient({
         if (event.event_type === "PROOF_REQUESTED") {
             return "Voucher requested proof";
         }
+        if (event.event_type === "PROOF_REMOVED") {
+            return "Proof removed";
+        }
         return event.event_type.replace(/_/g, " ");
     };
 
@@ -1271,10 +1310,21 @@ export default function TaskDetailClient({
 
                     {storedProof && storedProofSrc && (
                         <div className="p-3 rounded-lg border border-slate-700 bg-slate-950/40 space-y-2">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-between gap-2">
                                 <p className="text-xs text-slate-300 uppercase tracking-wider font-mono">
                                     Completion proof ({storedProof.media_kind})
                                 </p>
+                                {isOwner && ["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(taskState.status) && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        onClick={handleRemoveStoredProof}
+                                        disabled={isActionPending("removeStoredProof")}
+                                        className="h-7 px-2 text-[11px] text-red-300 hover:text-red-200 hover:bg-red-950/40"
+                                    >
+                                        Remove proof
+                                    </Button>
+                                )}
                             </div>
                             {storedProof.media_kind === "image" ? (
                                 // eslint-disable-next-line @next/next/no-img-element

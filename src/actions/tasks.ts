@@ -1269,6 +1269,51 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     return { success: true };
 }
 
+export async function removeAwaitingVoucherProof(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, user_id, voucher_id, status")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if (!["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes((task as any).status)) {
+        return { error: "Proof can only be removed while awaiting voucher response." };
+    }
+
+    const cleanup = await deleteTaskProof(taskId, "owner_remove_awaiting_proof");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not remove proof media." };
+    }
+
+    await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "PROOF_REMOVED",
+        actor_id: user.id as any,
+        from_status: (task as any).status,
+        to_status: (task as any).status,
+    });
+
+    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/friends");
+    revalidatePath(`/dashboard/tasks/${taskId}`);
+    return { success: true };
+}
+
 export async function revertTaskCompletionAfterProofFailure(taskId: string) {
     const supabase = await createClient();
     const {
