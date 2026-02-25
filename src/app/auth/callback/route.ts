@@ -2,12 +2,20 @@ import { createClient } from "@/lib/supabase/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+function sanitizeNextPath(rawNext: string | null): string {
+    if (!rawNext) return "/dashboard";
+    if (!rawNext.startsWith("/")) return "/dashboard";
+    if (rawNext.startsWith("//")) return "/dashboard";
+    if (rawNext.startsWith("/\\")) return "/dashboard";
+    return rawNext;
+}
+
 export async function GET(request: Request) {
     const { searchParams, origin } = new URL(request.url);
     const code = searchParams.get("code");
     const tokenHash = searchParams.get("token_hash");
     const otpTypeRaw = searchParams.get("type");
-    const next = searchParams.get("next") ?? "/dashboard";
+    const next = sanitizeNextPath(searchParams.get("next"));
     const allowedOtpTypes = new Set<EmailOtpType>([
         "signup",
         "recovery",

@@ -1,4 +1,4 @@
-const SW_VERSION = 'v4';
+const SW_VERSION = 'v5';
 const STATIC_CACHE = `tas-static-${SW_VERSION}`;
 const PAGE_CACHE = `tas-pages-${SW_VERSION}`;
 const RUNTIME_CACHE = `tas-runtime-${SW_VERSION}`;
@@ -56,6 +56,14 @@ function shouldBypass(url, request) {
     return false;
 }
 
+function isSensitivePage(url) {
+    return (
+        url.pathname.startsWith('/dashboard') ||
+        url.pathname.startsWith('/login') ||
+        url.pathname.startsWith('/auth')
+    );
+}
+
 async function staleWhileRevalidate(request, cacheName) {
     const cache = await caches.open(cacheName);
     const cached = await cache.match(request);
@@ -106,6 +114,10 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (isNavigationRequest(request) || isRscRequest(url, request)) {
+        if (isSensitivePage(url)) {
+            event.respondWith(fetch(request));
+            return;
+        }
         event.respondWith(networkFirst(request, PAGE_CACHE));
         return;
     }
