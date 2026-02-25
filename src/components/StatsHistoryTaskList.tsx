@@ -18,7 +18,11 @@ interface StatsHistoryTaskListProps {
 export function StatsHistoryTaskList({ tasks }: StatsHistoryTaskListProps) {
     const [isOpen, setIsOpen] = useState<boolean>(() => {
         if (typeof window === "undefined") return false;
-        return window.sessionStorage.getItem(STATS_HISTORY_OPEN_SESSION_KEY) === "1";
+        try {
+            return window.sessionStorage.getItem(STATS_HISTORY_OPEN_SESSION_KEY) === "1";
+        } catch {
+            return false;
+        }
     });
     const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
 
@@ -26,10 +30,14 @@ export function StatsHistoryTaskList({ tasks }: StatsHistoryTaskListProps) {
         setIsOpen((prev) => {
             const next = !prev;
             if (typeof window !== "undefined") {
-                if (next) {
-                    window.sessionStorage.setItem(STATS_HISTORY_OPEN_SESSION_KEY, "1");
-                } else {
-                    window.sessionStorage.removeItem(STATS_HISTORY_OPEN_SESSION_KEY);
+                try {
+                    if (next) {
+                        window.sessionStorage.setItem(STATS_HISTORY_OPEN_SESSION_KEY, "1");
+                    } else {
+                        window.sessionStorage.removeItem(STATS_HISTORY_OPEN_SESSION_KEY);
+                    }
+                } catch {
+                    // Ignore sessionStorage write failures.
                 }
             }
             return next;

@@ -99,7 +99,11 @@ export default function VoucherDashboardClient({
 
     const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(() => {
         if (typeof window === "undefined") return false;
-        return window.sessionStorage.getItem(VOUCH_HISTORY_OPEN_SESSION_KEY) === "1";
+        try {
+            return window.sessionStorage.getItem(VOUCH_HISTORY_OPEN_SESSION_KEY) === "1";
+        } catch {
+            return false;
+        }
     });
     const [historyLoaded, setHistoryLoaded] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(false);
@@ -239,10 +243,14 @@ export default function VoucherDashboardClient({
         setIsHistoryOpen((prev) => {
             const next = !prev;
             if (typeof window !== "undefined") {
-                if (next) {
-                    window.sessionStorage.setItem(VOUCH_HISTORY_OPEN_SESSION_KEY, "1");
-                } else {
-                    window.sessionStorage.removeItem(VOUCH_HISTORY_OPEN_SESSION_KEY);
+                try {
+                    if (next) {
+                        window.sessionStorage.setItem(VOUCH_HISTORY_OPEN_SESSION_KEY, "1");
+                    } else {
+                        window.sessionStorage.removeItem(VOUCH_HISTORY_OPEN_SESSION_KEY);
+                    }
+                } catch {
+                    // Ignore sessionStorage write failures.
                 }
             }
             return next;

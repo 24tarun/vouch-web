@@ -15,7 +15,11 @@ const DASHBOARD_COMPLETED_OPEN_SESSION_KEY = "dashboard.completed.open";
 export function CollapsibleCompletedList({ tasks }: CollapsibleCompletedListProps) {
     const [isOpen, setIsOpen] = useState<boolean>(() => {
         if (typeof window === "undefined") return false;
-        return window.sessionStorage.getItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY) === "1";
+        try {
+            return window.sessionStorage.getItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY) === "1";
+        } catch {
+            return false;
+        }
     });
 
     if (tasks.length === 0) return null;
@@ -24,10 +28,14 @@ export function CollapsibleCompletedList({ tasks }: CollapsibleCompletedListProp
         setIsOpen((prev) => {
             const next = !prev;
             if (typeof window !== "undefined") {
-                if (next) {
-                    window.sessionStorage.setItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY, "1");
-                } else {
-                    window.sessionStorage.removeItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY);
+                try {
+                    if (next) {
+                        window.sessionStorage.setItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY, "1");
+                    } else {
+                        window.sessionStorage.removeItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY);
+                    }
+                } catch {
+                    // Ignore sessionStorage write failures.
                 }
             }
             return next;
