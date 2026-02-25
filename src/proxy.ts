@@ -22,7 +22,7 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
             "font-src 'self' data: https:",
             "style-src 'self' 'unsafe-inline' https:",
             "script-src 'self' 'unsafe-inline' https:",
-            "connect-src 'self' https:",
+            "connect-src 'self' https: wss:",
             "worker-src 'self' blob:",
             "media-src 'self' blob: https:",
             "manifest-src 'self'",
