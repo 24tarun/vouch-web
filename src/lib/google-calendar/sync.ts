@@ -897,7 +897,8 @@ export async function enqueueGoogleCalendarOutbox(
     const supabase = createAdminClient();
     const connection = await getConnectionByUserId(supabase, userId);
 
-    if (!connection || !connection.sync_enabled || !connection.selected_calendar_id) {
+    // Task sync can operate without a selected calendar id (uses Google Tasks @default).
+    if (!connection || !connection.sync_enabled) {
         return;
     }
 
@@ -1021,7 +1022,7 @@ export async function processGoogleCalendarOutboxItem(outboxId: number): Promise
         }
 
         const connection = await getConnectionByUserId(supabase, userId);
-        if (!connection || !connection.sync_enabled || !connection.selected_calendar_id) {
+        if (!connection || !connection.sync_enabled) {
             await markOutboxDone(supabase, outboxId);
             return;
         }
