@@ -626,6 +626,10 @@ export async function enableGoogleCalendarSyncForUser(userId: string): Promise<v
     if (error) {
         throw new Error(error.message);
     }
+
+    // Run one immediate delta pass so connection health is visible right away
+    // and we don't wait for the first webhook/cron cycle.
+    await processGoogleCalendarDeltaForUser(userId);
 }
 
 export async function disableGoogleCalendarSyncForUser(userId: string): Promise<void> {
@@ -853,11 +857,13 @@ export async function retryPendingGoogleCalendarOutbox(limit: number = 100): Pro
     }
 }
 
-export async function triggerGoogleCalendarSyncConnection(userId: string, reason: string): Promise<void> {
+export async function triggerGoogleCalendarSyncConnection(userId: string, reason: string): Promise<boolean> {
     try {
         await triggerTasks.trigger("google-calendar-sync-connection", { userId, reason });
+        return true;
     } catch (error) {
         console.error("Failed to trigger google-calendar-sync-connection:", error);
+        return false;
     }
 }
 export async function processGoogleCalendarDeltaForUser(userId: string): Promise<void> {

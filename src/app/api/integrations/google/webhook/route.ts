@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
     findUserIdByWatchChannel,
+    processGoogleCalendarDeltaForUser,
     touchGoogleWebhookReceipt,
     triggerGoogleCalendarSyncConnection,
 } from "@/lib/google-calendar/sync";
@@ -29,7 +30,10 @@ export async function POST(request: NextRequest) {
 
     // "sync" is the watch handshake event and carries no actionable change set.
     if (resourceState !== "sync") {
-        await triggerGoogleCalendarSyncConnection(userId, "webhook");
+        const triggered = await triggerGoogleCalendarSyncConnection(userId, "webhook");
+        if (!triggered) {
+            await processGoogleCalendarDeltaForUser(userId);
+        }
     }
 
     return NextResponse.json({ ok: true });

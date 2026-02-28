@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { toast } from "sonner";
 import {
     emitRealtimeTaskChange,
     type RealtimeTaskChange,
@@ -49,6 +50,37 @@ function toRealtimeTaskRow(value: unknown): RealtimeTaskRow | null {
     return row as RealtimeTaskRow;
 }
 
+interface GoogleCalendarOutboxRow {
+    id: number;
+    user_id: string;
+    task_id: string | null;
+    intent: string;
+    status: string;
+    last_error: string | null;
+}
+
+function toGoogleCalendarOutboxRow(value: unknown): GoogleCalendarOutboxRow | null {
+    if (!value || typeof value !== "object") return null;
+
+    const row = value as Partial<GoogleCalendarOutboxRow> & { id?: number | string };
+    const idNumber = typeof row.id === "number" ? row.id : Number(row.id);
+    if (!Number.isFinite(idNumber)) return null;
+    if (typeof row.user_id !== "string") return null;
+    if (typeof row.intent !== "string") return null;
+    if (typeof row.status !== "string") return null;
+    if (row.task_id != null && typeof row.task_id !== "string") return null;
+    if (row.last_error != null && typeof row.last_error !== "string") return null;
+
+    return {
+        id: idNumber,
+        user_id: row.user_id,
+        task_id: row.task_id ?? null,
+        intent: row.intent,
+        status: row.status,
+        last_error: row.last_error ?? null,
+    };
+}
+
 export function RealtimeListener({ userId }: { userId: string }) {
     const router = useRouter();
     const pathname = usePathname();
@@ -57,6 +89,7 @@ export function RealtimeListener({ userId }: { userId: string }) {
     const nextRefreshAtRef = useRef(0);
     const lastRefreshAtRef = useRef(0);
     const friendIdsRef = useRef<Set<string>>(new Set());
+    const seenGoogleOutboxStateRef = useRef<Set<string>>(new Set());
 
     useEffect(() => {
         if (!userId) return;
@@ -118,6 +151,35 @@ export function RealtimeListener({ userId }: { userId: string }) {
             };
             emitRealtimeTaskChange(change);
             return eventType;
+        };
+
+        const handleGoogleOutboxToast = (payload: { new?: unknown; old?: unknown }) => {
+            const outboxRow = toGoogleCalendarOutboxRow(payload.new);
+            if (!outboxRow) return;
+            if (outboxRow.user_id !== userId) return;
+            if (outboxRow.intent !== "UPSERT") return;
+            if (outboxRow.status !== "DONE" && outboxRow.status !== "FAILED") return;
+
+            const dedupeKey = `${outboxRow.id}:${outboxRow.status}`;
+            if (seenGoogleOutboxStateRef.current.has(dedupeKey)) {
+                return;
+            }
+            seenGoogleOutboxStateRef.current.add(dedupeKey);
+            if (seenGoogleOutboxStateRef.current.size > 500) {
+                // Keep memory bounded for long-lived dashboard sessions.
+                const [first] = seenGoogleOutboxStateRef.current;
+                if (first) {
+                    seenGoogleOutboxStateRef.current.delete(first);
+                }
+            }
+
+            if (outboxRow.status === "DONE") {
+                toast.success("Task synced to Google Calendar.");
+                return;
+            }
+
+            const detail = outboxRow.last_error?.trim();
+            toast.error(detail ? `Google Calendar sync failed: ${detail}` : "Google Calendar sync failed.");
         };
 
         // Subscribe to tasks relevant to the current user as owner or voucher.
@@ -237,6 +299,30 @@ export function RealtimeListener({ userId }: { userId: string }) {
                 }
             });
 
+        // Subscribe to Google Calendar outbox updates and emit sync toasts.
+        const googleCalendarOutboxChannel = supabase
+            .channel("realtime:google_calendar_sync_outbox")
+            .on(
+                "postgres_changes",
+                {
+                    event: "UPDATE",
+                    schema: "public",
+                    table: "google_calendar_sync_outbox",
+                    filter: `user_id=eq.${userId}`,
+                },
+                (payload) => {
+                    if (ENABLE_REALTIME_DEBUG_LOGS) {
+                        console.log("[Realtime][google_calendar_sync_outbox]", payload.eventType, payload.new, payload.old);
+                    }
+                    handleGoogleOutboxToast(payload);
+                }
+            )
+            .subscribe((status) => {
+                if (ENABLE_REALTIME_DEBUG_LOGS) {
+                    console.log("[Realtime][google_calendar_sync_outbox] subscription:", status);
+                }
+            });
+
         return () => {
             isActive = false;
             if (refreshTimeoutRef.current) {
@@ -246,6 +332,7 @@ export function RealtimeListener({ userId }: { userId: string }) {
             supabase.removeChannel(tasksChannel);
             supabase.removeChannel(friendsChannel);
             supabase.removeChannel(pomoChannel);
+            supabase.removeChannel(googleCalendarOutboxChannel);
         };
     }, [userId, router, pathname]);
 
