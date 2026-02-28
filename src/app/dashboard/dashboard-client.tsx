@@ -131,6 +131,9 @@ function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
     const formData = new FormData();
     formData.append("title", payload.title);
     formData.append("deadline", payload.deadlineIso);
+    if (payload.eventEndIso) {
+        formData.append("eventEndIso", payload.eventEndIso);
+    }
     formData.append("voucherId", payload.voucherId);
     formData.append("failureCost", payload.failureCost);
     if (payload.subtasks.length > 0) {
@@ -558,6 +561,8 @@ export default function DashboardClient({
             marked_completed_at: null,
             voucher_response_deadline: null,
             recurrence_rule_id: payload.recurrenceType ? "optimistic" : null,
+            google_sync_for_task: Boolean(payload.eventEndIso),
+            google_event_end_at: payload.eventEndIso,
             created_at: nowIso,
             updated_at: nowIso,
             subtasks: payload.subtasks.map((subtaskTitle, index) => ({
@@ -867,6 +872,7 @@ export default function DashboardClient({
                 <div className="space-y-1 px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider">
                     <p>Parser tips:</p>
                     <p>Deadline: use @20:45 or @2045</p>
+                    <p>Events: add -event and end time like end7 or end15:00</p>
                     <p>Timer: use timer 25 (minutes from now)</p>
                     <p>Reminder: use remind 10:00 or remind 1000</p>
                     <p>Pomodoro: use pomo 75</p>

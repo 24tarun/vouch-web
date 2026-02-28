@@ -3,11 +3,9 @@ import { randomBytes, createCipheriv, createDecipheriv, createHash, randomUUID }
 import { tasks as triggerTasks } from "@trigger.dev/sdk/v3";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Database, GoogleCalendarConnection, GoogleCalendarTaskLink, GoogleSyncKind, Task } from "@/lib/types";
+import type { Database, GoogleCalendarConnection, GoogleCalendarTaskLink, Task } from "@/lib/types";
 
 const GOOGLE_API_BASE = "https://www.googleapis.com/calendar/v3";
-const GOOGLE_TASKS_API_BASE = "https://tasks.googleapis.com/tasks/v1";
-const GOOGLE_TASKS_DEFAULT_LIST_ID = "@default";
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -16,13 +14,10 @@ const GOOGLE_SCOPES = [
     "email",
     "profile",
     "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/tasks",
-    "https://www.googleapis.com/auth/tasks.readonly",
 ];
 
 const ACTIVE_SYNC_TASK_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
 const SOFT_DELETEABLE_STATUSES = new Set(["CREATED", "POSTPONED"]);
-const DEFAULT_GOOGLE_SYNC_KIND: GoogleSyncKind = "TASK";
 
 export interface GoogleCalendarListItem {
     id: string;
@@ -77,22 +72,6 @@ interface GoogleConnectionContext {
 interface GoogleCalendarOutboxPayload {
     google_event_id?: string;
     calendar_id?: string;
-    google_item_kind?: GoogleSyncKind;
-    google_item_id?: string;
-    google_container_id?: string;
-}
-
-interface GoogleTaskResource {
-    id?: string;
-    etag?: string;
-    title?: string;
-    notes?: string;
-    due?: string;
-    status?: "needsAction" | "completed";
-    deleted?: boolean;
-    hidden?: boolean;
-    updated?: string;
-    completed?: string;
 }
 
 function getRequiredEnv(name: string): string {
@@ -284,10 +263,6 @@ function parseIsoTimestamp(iso: string | null | undefined): number {
     return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
-function normalizeGoogleSyncKind(raw: unknown, fallback: GoogleSyncKind = DEFAULT_GOOGLE_SYNC_KIND): GoogleSyncKind {
-    return raw === "EVENT" || raw === "TASK" ? raw : fallback;
-}
-
 function getAppBaseUrl(): string {
     const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim().replace(/\/+$/, "");
     return appUrl || "http://localhost:3000";
@@ -295,17 +270,6 @@ function getAppBaseUrl(): string {
 
 function buildVouchTaskUrl(taskId: string): string {
     return `${getAppBaseUrl()}/dashboard/tasks/${taskId}`;
-}
-
-function buildGoogleTaskNotes(task: Pick<Task, "id" | "description">): string {
-    const lines = [
-        task.description?.trim() || "",
-        `Open in Vouch: ${buildVouchTaskUrl(task.id)}`,
-        `Vouch Task ID: ${task.id}`,
-        "Vouch Managed: true",
-    ].filter((line) => line.length > 0);
-
-    return lines.join("\n\n");
 }
 
 function buildGoogleEventDescription(task: Pick<Task, "id" | "description">): string {
@@ -321,11 +285,6 @@ function buildGoogleEventDescription(task: Pick<Task, "id" | "description">): st
 function normalizeGoogleEventTitle(event: GoogleCalendarEvent): string {
     const title = event.summary?.trim();
     return title && title.length > 0 ? title : "Untitled event";
-}
-
-function normalizeGoogleTaskTitle(task: GoogleTaskResource): string {
-    const title = task.title?.trim();
-    return title && title.length > 0 ? title : "Untitled task";
 }
 
 function mapGoogleEventToDeadline(event: GoogleCalendarEvent): string | null {
@@ -347,67 +306,36 @@ function mapGoogleEventToDeadline(event: GoogleCalendarEvent): string | null {
     return null;
 }
 
-function mapGoogleTaskToDeadline(task: GoogleTaskResource): string | null {
-    if (!task.due) return null;
+function mapGoogleEventToEnd(event: GoogleCalendarEvent): string | null {
+    const end = event.end;
+    if (!end) return null;
 
-    const dueDatePart = task.due.slice(0, 10);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDatePart)) return null;
+    if (end.dateTime) {
+        const parsed = new Date(end.dateTime);
+        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    }
 
-    const updated = task.updated ? new Date(task.updated) : null;
-    const hasUpdatedTime = Boolean(updated && !Number.isNaN(updated.getTime()));
-    const hh = hasUpdatedTime ? String(updated!.getUTCHours()).padStart(2, "0") : "23";
-    const mm = hasUpdatedTime ? String(updated!.getUTCMinutes()).padStart(2, "0") : "59";
-    const ss = hasUpdatedTime ? String(updated!.getUTCSeconds()).padStart(2, "0") : "59";
-    const ms = hasUpdatedTime ? String(updated!.getUTCMilliseconds()).padStart(3, "0") : "999";
+    if (end.date) {
+        const dateOnly = end.date.trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return null;
+        const parsed = new Date(`${dateOnly}T23:59:59`);
+        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    }
 
-    const combined = `${dueDatePart}T${hh}:${mm}:${ss}.${ms}Z`;
-    const parsed = new Date(combined);
-    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+    return null;
 }
 
-async function listGoogleTasksDelta(
-    accessToken: string,
-    taskListId: string,
-    updatedMin: string
-): Promise<GoogleTaskResource[]> {
-    const items: GoogleTaskResource[] = [];
-    let pageToken: string | undefined;
-
-    do {
-        const params = new URLSearchParams({
-            showCompleted: "true",
-            showDeleted: "true",
-            showHidden: "true",
-            maxResults: "100",
-            updatedMin,
-        });
-        if (pageToken) {
-            params.set("pageToken", pageToken);
-        }
-
-        const response = await googleFetch<{
-            items?: GoogleTaskResource[];
-            nextPageToken?: string;
-        }>(
-            `${GOOGLE_TASKS_API_BASE}/lists/${encodeURIComponent(taskListId)}/tasks?${params.toString()}`,
-            {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
-            },
-            "Could not fetch Google Tasks delta."
-        );
-
-        items.push(...(response.items || []));
-        pageToken = response.nextPageToken || undefined;
-    } while (pageToken);
-
-    return items;
-}
-
-function buildGoogleEventPayload(task: Pick<Task, "id" | "title" | "description" | "deadline">): GoogleCalendarEvent {
+function buildGoogleEventPayload(task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_end_at">): GoogleCalendarEvent {
     const start = new Date(task.deadline);
-    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const explicitEnd = task.google_event_end_at ? new Date(task.google_event_end_at) : null;
+    const hasValidExplicitEnd = Boolean(
+        explicitEnd &&
+        !Number.isNaN(explicitEnd.getTime()) &&
+        explicitEnd.getTime() > start.getTime()
+    );
+    const end = hasValidExplicitEnd
+        ? explicitEnd as Date
+        : new Date(start.getTime() + 30 * 60 * 1000);
 
     return {
         summary: task.title,
@@ -428,19 +356,10 @@ function buildGoogleEventPayload(task: Pick<Task, "id" | "title" | "description"
     };
 }
 
-function buildGoogleTaskPayload(task: Pick<Task, "id" | "title" | "description" | "deadline">): GoogleTaskResource {
-    return {
-        title: task.title,
-        notes: buildGoogleTaskNotes(task),
-        due: new Date(task.deadline).toISOString(),
-        status: "needsAction",
-    };
-}
-
 async function googleCreateOrUpdateEvent(
     accessToken: string,
     calendarId: string,
-    task: Pick<Task, "id" | "title" | "description" | "deadline">,
+    task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_end_at">,
     existingEventId?: string
 ): Promise<GoogleCalendarEvent> {
     const payload = buildGoogleEventPayload(task);
@@ -462,76 +381,24 @@ async function googleCreateOrUpdateEvent(
     );
 }
 
-async function googleCreateOrUpdateTask(
-    accessToken: string,
-    taskListId: string,
-    task: Pick<Task, "id" | "title" | "description" | "deadline">,
-    existingTaskId?: string
-): Promise<GoogleTaskResource> {
-    const payload = buildGoogleTaskPayload(task);
-    const baseUrl = `${GOOGLE_TASKS_API_BASE}/lists/${encodeURIComponent(taskListId)}/tasks`;
-
-    if (existingTaskId) {
-        try {
-            return await googleFetch<GoogleTaskResource>(
-                `${baseUrl}/${encodeURIComponent(existingTaskId)}`,
-                {
-                    method: "PATCH",
-                    headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify(payload),
-                },
-                "Could not update Google Task."
-            );
-        } catch (error) {
-            const status = (error as Error & { status?: number }).status;
-            if (status !== 404 && status !== 410) {
-                throw error;
-            }
-        }
-    }
-
-    return googleFetch<GoogleTaskResource>(
-        baseUrl,
-        {
-            method: "POST",
-            headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-        },
-        "Could not create Google Task."
-    );
-}
-
-async function googleCompleteTask(accessToken: string, taskListId: string, taskId: string): Promise<void> {
-    const url = `${GOOGLE_TASKS_API_BASE}/lists/${encodeURIComponent(taskListId)}/tasks/${encodeURIComponent(taskId)}`;
-
+async function googleDeleteEvent(accessToken: string, calendarId: string, eventId: string): Promise<void> {
+    const url = `${GOOGLE_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
     try {
-        await googleFetch<GoogleTaskResource>(
+        await googleFetch<null>(
             url,
             {
-                method: "PATCH",
+                method: "DELETE",
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
-                    "Content-Type": "application/json",
                 },
-                body: JSON.stringify({
-                    status: "completed",
-                    completed: new Date().toISOString(),
-                }),
             },
-            "Could not complete Google Task."
+            "Could not delete Google Calendar event."
         );
     } catch (error) {
         const status = (error as Error & { status?: number }).status;
         if (status === 404 || status === 410) {
             return;
         }
-
         throw error;
     }
 }
@@ -855,7 +722,6 @@ export async function enableGoogleCalendarSyncForUser(userId: string): Promise<v
     // Run one immediate delta pass so connection health is visible right away
     // and we don't wait for the first webhook/cron cycle.
     await processGoogleCalendarDeltaForUser(userId);
-    await processGoogleTasksDeltaForUser(userId);
 }
 
 export async function disableGoogleCalendarSyncForUser(userId: string): Promise<void> {
@@ -897,8 +763,35 @@ export async function enqueueGoogleCalendarOutbox(
     const supabase = createAdminClient();
     const connection = await getConnectionByUserId(supabase, userId);
 
-    // Task sync can operate without a selected calendar id (uses Google Tasks @default).
     if (!connection || !connection.sync_enabled) {
+        return;
+    }
+
+    const [taskResult, link] = await Promise.all([
+        (supabase.from("tasks") as any)
+            .select("id, user_id, google_sync_for_task")
+            .eq("id", taskId as any)
+            .eq("user_id", userId as any)
+            .maybeSingle(),
+        getLinkForTask(supabase, taskId),
+    ]);
+    const task = (taskResult.data as { google_sync_for_task?: boolean } | null) || null;
+
+    const rawPayload = payload && typeof payload === "object"
+        ? (payload as Record<string, unknown>)
+        : {};
+    const payloadEventId = typeof rawPayload.google_event_id === "string"
+        ? rawPayload.google_event_id
+        : undefined;
+
+    const hasLink = Boolean(link?.google_event_id);
+    const taskSyncEnabled = Boolean(task?.google_sync_for_task);
+    const hasPayloadEvent = Boolean(payloadEventId);
+
+    if (intent === "UPSERT" && !taskSyncEnabled) {
+        return;
+    }
+    if (intent === "DELETE" && !taskSyncEnabled && !hasLink && !hasPayloadEvent) {
         return;
     }
 
@@ -974,15 +867,9 @@ function parseGoogleCalendarOutboxPayload(payload: unknown): GoogleCalendarOutbo
     }
 
     const row = payload as Record<string, unknown>;
-    const payloadKind = typeof row.google_item_kind === "string"
-        ? normalizeGoogleSyncKind(row.google_item_kind, DEFAULT_GOOGLE_SYNC_KIND)
-        : undefined;
     return {
         google_event_id: typeof row.google_event_id === "string" ? row.google_event_id : undefined,
         calendar_id: typeof row.calendar_id === "string" ? row.calendar_id : undefined,
-        google_item_kind: payloadKind,
-        google_item_id: typeof row.google_item_id === "string" ? row.google_item_id : undefined,
-        google_container_id: typeof row.google_container_id === "string" ? row.google_container_id : undefined,
     };
 }
 
@@ -1031,42 +918,29 @@ export async function processGoogleCalendarOutboxItem(outboxId: number): Promise
         const link = await getLinkForTask(supabase, taskId);
 
         const { data: task } = await (supabase.from("tasks") as any)
-            .select("id, user_id, title, description, deadline, status, updated_at, google_sync_kind")
+            .select("id, user_id, title, description, deadline, status, updated_at, google_sync_for_task, google_event_end_at")
             .eq("id", taskId as any)
             .maybeSingle();
 
+        const calendarId =
+            link?.calendar_id ||
+            outboxPayload.calendar_id ||
+            connection.selected_calendar_id ||
+            null;
+        const googleEventId =
+            link?.google_event_id ||
+            outboxPayload.google_event_id ||
+            null;
+        const taskSyncEnabled = Boolean(task && (task as any).google_sync_for_task);
         const shouldFinalize =
             intent === "DELETE" ||
             !task ||
-            !ACTIVE_SYNC_TASK_STATUSES.has((task as any).status);
-        const linkKind = link?.google_item_kind
-            ? normalizeGoogleSyncKind(link.google_item_kind, DEFAULT_GOOGLE_SYNC_KIND)
-            : undefined;
-        const taskKind = task
-            ? normalizeGoogleSyncKind((task as any).google_sync_kind, DEFAULT_GOOGLE_SYNC_KIND)
-            : undefined;
-        const itemKind =
-            linkKind ||
-            taskKind ||
-            outboxPayload.google_item_kind ||
-            DEFAULT_GOOGLE_SYNC_KIND;
+            !ACTIVE_SYNC_TASK_STATUSES.has((task as any).status) ||
+            !taskSyncEnabled;
 
         if (shouldFinalize) {
-            if (itemKind === "TASK") {
-                const finalizeTaskId =
-                    link?.google_event_id ||
-                    outboxPayload.google_item_id ||
-                    outboxPayload.google_event_id ||
-                    null;
-                const finalizeTaskListId =
-                    link?.calendar_id ||
-                    outboxPayload.google_container_id ||
-                    outboxPayload.calendar_id ||
-                    GOOGLE_TASKS_DEFAULT_LIST_ID;
-
-                if (finalizeTaskId) {
-                    await googleCompleteTask(fresh.accessToken, finalizeTaskListId, finalizeTaskId);
-                }
+            if (intent === "DELETE" && googleEventId && calendarId) {
+                await googleDeleteEvent(fresh.accessToken, calendarId, googleEventId);
             }
 
             await (supabase.from("google_calendar_task_links") as any)
@@ -1077,79 +951,38 @@ export async function processGoogleCalendarOutboxItem(outboxId: number): Promise
             return;
         }
 
-        const upsertTask = task as Pick<Task, "id" | "title" | "description" | "deadline">;
-        if (itemKind === "TASK") {
-            const taskListId =
-                link?.calendar_id ||
-                outboxPayload.google_container_id ||
-                GOOGLE_TASKS_DEFAULT_LIST_ID;
-            const googleTask = await googleCreateOrUpdateTask(
-                fresh.accessToken,
-                taskListId,
-                upsertTask,
-                link?.google_event_id || outboxPayload.google_item_id || outboxPayload.google_event_id
-            );
-
-            if (!googleTask.id) {
-                throw new Error("Google task id missing after upsert.");
-            }
-
-            await (supabase.from("google_calendar_task_links") as any)
-                .upsert(
-                    {
-                        task_id: taskId,
-                        user_id: userId,
-                        calendar_id: taskListId,
-                        google_event_id: googleTask.id,
-                        google_item_kind: "TASK",
-                        last_google_etag: googleTask.etag || null,
-                        last_google_updated_at: googleTask.updated || null,
-                        last_app_updated_at: (task as any).updated_at,
-                        last_origin: "APP",
-                    },
-                    {
-                        onConflict: "task_id",
-                    }
-                );
-        } else {
-            const calendarId =
-                link?.calendar_id ||
-                outboxPayload.google_container_id ||
-                outboxPayload.calendar_id ||
-                connection.selected_calendar_id;
-            if (!calendarId) {
-                throw new Error("Google calendar is not selected.");
-            }
-
-            const event = await googleCreateOrUpdateEvent(
-                fresh.accessToken,
-                calendarId,
-                upsertTask,
-                link?.google_event_id || outboxPayload.google_item_id || outboxPayload.google_event_id
-            );
-
-            if (!event.id) {
-                throw new Error("Google event id missing after upsert.");
-            }
-
-            await (supabase.from("google_calendar_task_links") as any)
-                .upsert(
-                    {
-                        task_id: taskId,
-                        user_id: userId,
-                        calendar_id: calendarId,
-                        google_event_id: event.id,
-                        google_item_kind: "EVENT",
-                        last_google_etag: event.etag || null,
-                        last_google_updated_at: event.updated || null,
-                        last_app_updated_at: (task as any).updated_at,
-                        last_origin: "APP",
-                    },
-                    {
-                        onConflict: "task_id",
-                    }
-                );
+        const upsertTask = task as Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_end_at">;
+        if (!calendarId) {
+            throw new Error("Google calendar is not selected.");
         }
+
+        const event = await googleCreateOrUpdateEvent(
+            fresh.accessToken,
+            calendarId,
+            upsertTask,
+            googleEventId || undefined
+        );
+
+        if (!event.id) {
+            throw new Error("Google event id missing after upsert.");
+        }
+
+        await (supabase.from("google_calendar_task_links") as any)
+            .upsert(
+                {
+                    task_id: taskId,
+                    user_id: userId,
+                    calendar_id: calendarId,
+                    google_event_id: event.id,
+                    last_google_etag: event.etag || null,
+                    last_google_updated_at: event.updated || null,
+                    last_app_updated_at: (task as any).updated_at,
+                    last_origin: "APP",
+                },
+                {
+                    onConflict: "task_id",
+                }
+            );
 
         await markOutboxDone(supabase, outboxId);
     } catch (error) {
@@ -1252,6 +1085,7 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
             if (!deadlineIso) {
                 continue;
             }
+            const eventEndIso = mapGoogleEventToEnd(event);
 
             const googleUpdatedTs = parseIsoTimestamp(event.updated);
 
@@ -1283,7 +1117,8 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                         title: normalizeGoogleEventTitle(event),
                         description: event.description || null,
                         deadline: deadlineIso,
-                        google_sync_kind: "EVENT",
+                        google_event_end_at: eventEndIso,
+                        google_sync_for_task: true,
                         status: SOFT_DELETEABLE_STATUSES.has((task as any).status) ? (task as any).status : "CREATED",
                         updated_at: new Date().toISOString(),
                     } as any)
@@ -1292,7 +1127,6 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
 
                 await (supabase.from("google_calendar_task_links") as any)
                     .update({
-                        google_item_kind: "EVENT",
                         last_google_etag: event.etag || null,
                         last_google_updated_at: event.updated || null,
                         last_origin: "GOOGLE",
@@ -1311,8 +1145,9 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                     description: event.description || null,
                     failure_cost_cents: defaultFailureCostCents,
                     deadline: deadlineIso,
+                    google_event_end_at: eventEndIso,
                     status: "CREATED",
-                    google_sync_kind: "EVENT",
+                    google_sync_for_task: true,
                     postponed_at: null,
                     marked_completed_at: null,
                     voucher_response_deadline: null,
@@ -1349,7 +1184,6 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                 user_id: userId,
                 calendar_id: connection.selected_calendar_id,
                 google_event_id: event.id,
-                google_item_kind: "EVENT",
                 last_google_etag: event.etag || null,
                 last_google_updated_at: event.updated || null,
                 last_app_updated_at: nowIso,
@@ -1393,224 +1227,18 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
     }
 }
 
-export async function processGoogleTasksDeltaForUser(userId: string): Promise<void> {
-    const supabase = createAdminClient();
-    const connection = await getConnectionByUserId(supabase, userId);
-
-    if (!connection || !connection.sync_enabled) {
-        return;
-    }
-
-    const runStartedIso = new Date().toISOString();
-
-    try {
-        const cursor = connection.google_tasks_updated_min || null;
-        if (!cursor) {
-            await (supabase.from("google_calendar_connections") as any)
-                .update({
-                    google_tasks_updated_min: runStartedIso,
-                    last_error: null,
-                } as any)
-                .eq("user_id", userId as any);
-            return;
-        }
-
-        const fresh = await ensureFreshGoogleAccessToken(supabase, connection);
-        const tasksDelta = await listGoogleTasksDelta(
-            fresh.accessToken,
-            GOOGLE_TASKS_DEFAULT_LIST_ID,
-            cursor
-        );
-
-        const { data: profile } = await (supabase.from("profiles") as any)
-            .select("default_voucher_id, default_failure_cost_cents")
-            .eq("id", userId as any)
-            .maybeSingle();
-
-        const defaultFailureCostCents = Number((profile as any)?.default_failure_cost_cents || 50);
-        const voucherId = await ensureValidDefaultVoucherId(
-            supabase,
-            userId,
-            ((profile as any)?.default_voucher_id as string | null) || null
-        );
-
-        for (const googleTask of tasksDelta) {
-            if (!googleTask.id) continue;
-
-            const { data: link } = await (supabase.from("google_calendar_task_links") as any)
-                .select("*")
-                .eq("user_id", userId as any)
-                .eq("calendar_id", GOOGLE_TASKS_DEFAULT_LIST_ID as any)
-                .eq("google_event_id", googleTask.id as any)
-                .maybeSingle();
-
-            const existingLink = (link as GoogleCalendarTaskLink | null) || null;
-            const isRemoved = Boolean(googleTask.deleted) || googleTask.status === "completed";
-
-            if (isRemoved) {
-                if (existingLink?.task_id) {
-                    const { data: task } = await (supabase.from("tasks") as any)
-                        .select("id, status")
-                        .eq("id", existingLink.task_id as any)
-                        .eq("user_id", userId as any)
-                        .maybeSingle();
-
-                    if (task && SOFT_DELETEABLE_STATUSES.has((task as any).status)) {
-                        await (supabase.from("tasks") as any)
-                            .update({
-                                status: "DELETED",
-                                updated_at: new Date().toISOString(),
-                            } as any)
-                            .eq("id", existingLink.task_id as any)
-                            .eq("user_id", userId as any);
-                    }
-
-                    await (supabase.from("google_calendar_task_links") as any)
-                        .delete()
-                        .eq("task_id", existingLink.task_id as any);
-                }
-                continue;
-            }
-
-            const deadlineIso = mapGoogleTaskToDeadline(googleTask);
-            if (!deadlineIso) {
-                continue;
-            }
-
-            const googleUpdatedTs = parseIsoTimestamp(googleTask.updated);
-
-            if (existingLink?.task_id) {
-                const { data: task } = await (supabase.from("tasks") as any)
-                    .select("id, user_id, status, title, description, deadline, updated_at")
-                    .eq("id", existingLink.task_id as any)
-                    .eq("user_id", userId as any)
-                    .maybeSingle();
-
-                if (!task) {
-                    await (supabase.from("google_calendar_task_links") as any)
-                        .delete()
-                        .eq("task_id", existingLink.task_id as any);
-                    continue;
-                }
-
-                const taskUpdatedTs = parseIsoTimestamp((task as any).updated_at as string);
-                if (taskUpdatedTs > googleUpdatedTs && existingLink.last_origin === "APP") {
-                    continue;
-                }
-
-                if (!SOFT_DELETEABLE_STATUSES.has((task as any).status) && !ACTIVE_SYNC_TASK_STATUSES.has((task as any).status)) {
-                    continue;
-                }
-
-                await (supabase.from("tasks") as any)
-                    .update({
-                        title: normalizeGoogleTaskTitle(googleTask),
-                        description: googleTask.notes || null,
-                        deadline: deadlineIso,
-                        google_sync_kind: "TASK",
-                        status: SOFT_DELETEABLE_STATUSES.has((task as any).status) ? (task as any).status : "CREATED",
-                        updated_at: new Date().toISOString(),
-                    } as any)
-                    .eq("id", existingLink.task_id as any)
-                    .eq("user_id", userId as any);
-
-                await (supabase.from("google_calendar_task_links") as any)
-                    .update({
-                        google_item_kind: "TASK",
-                        last_google_etag: googleTask.etag || null,
-                        last_google_updated_at: googleTask.updated || null,
-                        last_origin: "GOOGLE",
-                    } as any)
-                    .eq("task_id", existingLink.task_id as any);
-
-                continue;
-            }
-
-            const nowIso = new Date().toISOString();
-            const { data: insertedTask, error: insertTaskError } = await (supabase.from("tasks") as any)
-                .insert({
-                    user_id: userId,
-                    voucher_id: voucherId,
-                    title: normalizeGoogleTaskTitle(googleTask),
-                    description: googleTask.notes || null,
-                    failure_cost_cents: defaultFailureCostCents,
-                    deadline: deadlineIso,
-                    status: "CREATED",
-                    google_sync_kind: "TASK",
-                    postponed_at: null,
-                    marked_completed_at: null,
-                    voucher_response_deadline: null,
-                    recurrence_rule_id: null,
-                    required_pomo_minutes: null,
-                    proof_request_open: false,
-                    proof_requested_at: null,
-                    proof_requested_by: null,
-                    created_at: nowIso,
-                    updated_at: nowIso,
-                } as any)
-                .select("id, status")
-                .single();
-
-            if (insertTaskError || !insertedTask?.id) {
-                console.error("Failed to import Google task into app task:", insertTaskError);
-                continue;
-            }
-
-            await (supabase.from("task_events") as any).insert({
-                task_id: insertedTask.id,
-                event_type: "CREATED",
-                actor_id: null,
-                from_status: "CREATED",
-                to_status: "CREATED",
-                metadata: {
-                    source: "google_tasks",
-                    google_task_id: googleTask.id,
-                },
-            });
-
-            await (supabase.from("google_calendar_task_links") as any).insert({
-                task_id: insertedTask.id,
-                user_id: userId,
-                calendar_id: GOOGLE_TASKS_DEFAULT_LIST_ID,
-                google_event_id: googleTask.id,
-                google_item_kind: "TASK",
-                last_google_etag: googleTask.etag || null,
-                last_google_updated_at: googleTask.updated || null,
-                last_app_updated_at: nowIso,
-                last_origin: "GOOGLE",
-            } as any);
-
-            // Append Vouch backlink into Google task notes after import.
-            await enqueueGoogleCalendarOutbox(userId, insertedTask.id, "UPSERT");
-        }
-
-        await (supabase.from("google_calendar_connections") as any)
-            .update({
-                google_tasks_updated_min: runStartedIso,
-                last_sync_at: new Date().toISOString(),
-                last_error: null,
-            } as any)
-            .eq("user_id", userId as any);
-    } catch (error) {
-        const message = error instanceof Error ? error.message : "Google Tasks delta sync failed.";
-        await (supabase.from("google_calendar_connections") as any)
-            .update({
-                last_error: message,
-            } as any)
-            .eq("user_id", userId as any);
-    }
-}
-
-export async function syncGoogleTasksForEnabledConnections(limit: number = 200): Promise<void> {
+export async function syncGoogleCalendarForEnabledConnections(limit: number = 200): Promise<void> {
     const supabase = createAdminClient();
 
     const { data: rows } = await (supabase.from("google_calendar_connections") as any)
         .select("user_id")
         .eq("sync_enabled", true as any)
+        .not("selected_calendar_id", "is", null as any)
+        .not("sync_token", "is", null as any)
         .limit(limit);
 
     for (const row of (rows as Array<{ user_id: string }> | null) || []) {
-        await processGoogleTasksDeltaForUser(row.user_id);
+        await processGoogleCalendarDeltaForUser(row.user_id);
     }
 }
 

@@ -2,11 +2,10 @@ import { schedules, task } from "@trigger.dev/sdk/v3";
 import {
     processGoogleCalendarDeltaForUser,
     processGoogleCalendarOutboxItem,
-    processGoogleTasksDeltaForUser,
     reconcileStaleGoogleCalendarConnections,
     renewExpiringGoogleCalendarWatches,
     retryPendingGoogleCalendarOutbox,
-    syncGoogleTasksForEnabledConnections,
+    syncGoogleCalendarForEnabledConnections,
 } from "@/lib/google-calendar/sync";
 
 export const googleCalendarDispatch = task({
@@ -22,16 +21,15 @@ export const googleCalendarSyncConnection = task({
     run: async (payload: { userId: string; reason?: string }) => {
         if (!payload?.userId) return;
         await processGoogleCalendarDeltaForUser(payload.userId);
-        await processGoogleTasksDeltaForUser(payload.userId);
     },
 });
 
 // Single per-minute maintenance sweep for Google integration.
-export const googleTasksSyncSweeper = schedules.task({
-    id: "google-tasks-sync-sweeper",
+export const googleCalendarSyncSweeper = schedules.task({
+    id: "google-calendar-sync-sweeper",
     cron: "* * * * *",
     run: async () => {
-        await syncGoogleTasksForEnabledConnections(200);
+        await syncGoogleCalendarForEnabledConnections(200);
         await retryPendingGoogleCalendarOutbox(200);
         await reconcileStaleGoogleCalendarConnections();
     },

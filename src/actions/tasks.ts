@@ -4,7 +4,7 @@ import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
-import { type Database, type GoogleSyncKind } from "@/lib/types";
+import { type Database } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { sendNotification } from "@/lib/notifications";
 import { DEFAULT_FAILURE_COST_CENTS, MAX_SUBTASKS_PER_TASK } from "@/lib/constants";
@@ -41,6 +41,9 @@ const INVALID_TASK_PROOF_ERROR = "Invalid proof payload.";
 const TASK_PROOF_TOO_LARGE_ERROR = "Proof must be 5MB or less.";
 const TASK_PROOF_VIDEO_TOO_LONG_ERROR = "Video proof must be 15 seconds or less.";
 const TITLE_REQUIRED_ERROR = "Title cannot be empty.";
+const EVENT_END_REQUIRED_ERROR = "Events require an end time (for example: end7 or end15:00).";
+const EVENT_END_INVALID_ERROR = "Event end time is invalid.";
+const EVENT_END_BEFORE_START_ERROR = "Event end time must be after start time.";
 
 function isValidTimeZone(timeZone: string): boolean {
     try {
@@ -129,7 +132,6 @@ async function enqueueGoogleCalendarDelete(
     payload?: {
         google_event_id?: string;
         calendar_id?: string;
-        google_item_kind?: GoogleSyncKind;
     }
 ) {
     try {
@@ -139,17 +141,65 @@ async function enqueueGoogleCalendarDelete(
     }
 }
 
-function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTitle: string; googleSyncKind: GoogleSyncKind } {
+function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTitle: string; googleSyncForTask: boolean } {
     const hasEventToken = /(^|\s)-event(?=\s|$)/i.test(rawTitle);
     const normalizedTitle = rawTitle
         .replace(/(^|\s)-event(?=\s|$)/gi, " ")
+        .replace(/\bend(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
         .replace(/\s+/g, " ")
         .trim();
 
     return {
         normalizedTitle,
-        googleSyncKind: hasEventToken ? "EVENT" : "TASK",
+        googleSyncForTask: hasEventToken,
     };
+}
+
+function parseEventEndTimeToken(token: string): { hours: number; minutes: number } | null {
+    const normalized = token.trim();
+    let hours = Number.NaN;
+    let minutes = Number.NaN;
+
+    const colonMatch = normalized.match(/^(\d{1,2}):(\d{2})$/);
+    if (colonMatch) {
+        hours = Number.parseInt(colonMatch[1], 10);
+        minutes = Number.parseInt(colonMatch[2], 10);
+    } else {
+        const compactFourMatch = normalized.match(/^(\d{4})$/);
+        if (compactFourMatch) {
+            hours = Number.parseInt(compactFourMatch[1].slice(0, 2), 10);
+            minutes = Number.parseInt(compactFourMatch[1].slice(2, 4), 10);
+        } else {
+            const compactThreeMatch = normalized.match(/^(\d{3})$/);
+            if (compactThreeMatch) {
+                hours = Number.parseInt(compactThreeMatch[1].slice(0, 1), 10);
+                minutes = Number.parseInt(compactThreeMatch[1].slice(1, 3), 10);
+            } else {
+                const hourOnlyMatch = normalized.match(/^(\d{1,2})$/);
+                if (hourOnlyMatch) {
+                    hours = Number.parseInt(hourOnlyMatch[1], 10);
+                    minutes = 0;
+                }
+            }
+        }
+    }
+
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+
+    return { hours, minutes };
+}
+
+function parseEventEndFromRawTitle(rawTitle: string, startDate: Date): Date | null {
+    const endTokenMatch = rawTitle.match(/\bend(\d{1,2}:\d{2}|\d{1,4})\b/i);
+    if (!endTokenMatch) return null;
+
+    const parsed = parseEventEndTimeToken(endTokenMatch[1]);
+    if (!parsed) return null;
+
+    const endDate = new Date(startDate);
+    endDate.setHours(parsed.hours, parsed.minutes, 0, 0);
+    return endDate;
 }
 
 function parseAndValidateFutureDeadline(rawDeadline: string): { deadline?: Date; error?: string } {
@@ -491,6 +541,9 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
     if (!normalizedTitle.normalizedTitle) {
         return { error: TITLE_REQUIRED_ERROR };
     }
+    if (normalizedTitle.googleSyncForTask) {
+        return { error: EVENT_END_REQUIRED_ERROR };
+    }
 
     const normalizedSubtasks = normalizeSubtaskTitles(subtasksInput ?? []);
     if (normalizedSubtasks.error) {
@@ -539,7 +592,8 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             failure_cost_cents: defaultFailureCostCents,
             deadline: deadline.toISOString(),
             status: "CREATED",
-            google_sync_kind: normalizedTitle.googleSyncKind,
+            google_sync_for_task: normalizedTitle.googleSyncForTask,
+            google_event_end_at: null,
         })
         .select()
         .single();
@@ -642,6 +696,7 @@ export async function createTask(formData: FormData) {
     const description = formData.get("description") as string;
     const failureCostMajor = Number(formData.get("failureCost"));
     const deadline = formData.get("deadline") as string;
+    const eventEndIsoRaw = formData.get("eventEndIso");
     const voucherId = formData.get("voucherId") as string;
     const subtasksInput = normalizeSubtasksFromFormData(formData.get("subtasks"));
     const requiredPomoInput = parseRequiredPomoMinutesFromFormData(formData.get("requiredPomoMinutes"));
@@ -675,6 +730,27 @@ export async function createTask(formData: FormData) {
         return { error: deadlineValidation.error || INVALID_DEADLINE_ERROR };
     }
     const validatedDeadline = deadlineValidation.deadline;
+    let eventEndAtIso: string | null = null;
+    if (titleSelection.googleSyncForTask) {
+        let parsedEventEnd: Date | null = null;
+        if (typeof eventEndIsoRaw === "string" && eventEndIsoRaw.trim()) {
+            parsedEventEnd = new Date(eventEndIsoRaw);
+            if (Number.isNaN(parsedEventEnd.getTime())) {
+                return { error: EVENT_END_INVALID_ERROR };
+            }
+        } else {
+            parsedEventEnd = parseEventEndFromRawTitle(rawTitle || "", validatedDeadline);
+            if (!parsedEventEnd) {
+                return { error: EVENT_END_REQUIRED_ERROR };
+            }
+        }
+
+        if (parsedEventEnd.getTime() <= validatedDeadline.getTime()) {
+            return { error: EVENT_END_BEFORE_START_ERROR };
+        }
+
+        eventEndAtIso = parsedEventEnd.toISOString();
+    }
     const remindersInput = normalizeRemindersFromFormData(formData.get("reminders"), validatedDeadline);
     if (remindersInput.error) {
         return { error: remindersInput.error };
@@ -683,6 +759,9 @@ export async function createTask(formData: FormData) {
         validatedDeadline,
         remindersInput.reminderDates
     );
+    const eventDurationMinutes = eventEndAtIso
+        ? Math.max(1, Math.round((new Date(eventEndAtIso).getTime() - validatedDeadline.getTime()) / (1000 * 60)))
+        : null;
 
     if (failureCostCents < failureCostBounds.minCents || failureCostCents > failureCostBounds.maxCents) {
         const currencySymbol = getCurrencySymbol(ownerCurrency);
@@ -752,7 +831,8 @@ export async function createTask(formData: FormData) {
                 rule_config: ruleConfig,
                 timezone: userTimezone,
                 active: true,
-                google_sync_kind: titleSelection.googleSyncKind,
+                google_sync_for_rule: titleSelection.googleSyncForTask,
+                google_event_duration_minutes: eventDurationMinutes,
                 manual_reminder_offsets_ms: manualReminderOffsetsMs,
                 // Set last_generated_date to the date part of the deadline in user's timezone
                 // This prevents immediate regeneration of the task we are about to create manually
@@ -783,7 +863,8 @@ export async function createTask(formData: FormData) {
             required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
             deadline: validatedDeadline.toISOString(),
             status: "CREATED",
-            google_sync_kind: titleSelection.googleSyncKind,
+            google_sync_for_task: titleSelection.googleSyncForTask,
+            google_event_end_at: eventEndAtIso,
             recurrence_rule_id: recurrenceRuleId
         })
         .select()
@@ -2133,24 +2214,22 @@ export async function ownerTempDeleteTask(taskId: string) {
     let googleDeletePayload: {
         google_event_id?: string;
         calendar_id?: string;
-        google_item_kind?: GoogleSyncKind;
     } | undefined;
 
     // Snapshot Google identifiers before hard-delete so outbox DELETE can still
     // finalize linked Google items after ON DELETE CASCADE removes task link rows.
     const { data: googleLink, error: googleLinkError } = await (supabaseAdmin.from("google_calendar_task_links") as any)
-        .select("google_event_id, calendar_id, google_item_kind")
+        .select("google_event_id, calendar_id")
         .eq("task_id", taskId as any)
         .eq("user_id", user.id as any)
         .maybeSingle();
 
     if (googleLinkError) {
         console.error("Failed to read Google Calendar link before ownerTempDeleteTask:", googleLinkError);
-    } else if ((googleLink as any)?.google_event_id || (googleLink as any)?.calendar_id || (googleLink as any)?.google_item_kind) {
+    } else if ((googleLink as any)?.google_event_id || (googleLink as any)?.calendar_id) {
         googleDeletePayload = {
             google_event_id: (googleLink as any).google_event_id ?? undefined,
             calendar_id: (googleLink as any).calendar_id ?? undefined,
-            google_item_kind: ((googleLink as any).google_item_kind as GoogleSyncKind | undefined) ?? undefined,
         };
     }
 

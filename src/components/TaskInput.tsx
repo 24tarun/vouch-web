@@ -34,6 +34,9 @@ import {
     toDateTimeLocalValue,
 } from "@/lib/datetime-local";
 
+const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
+const EVENT_END_TOKEN_REGEX = /\bend(\d{1,2}:\d{2}|\d{1,4})\b/i;
+
 function parseTimeToken(token: string, allowHourOnly: boolean) {
     const normalized = token.trim();
     let hours = Number.NaN;
@@ -109,6 +112,22 @@ function formatTimeUntilDeadline(deadline: Date, now: Date = new Date()): string
     return `${parts.join(" ")} until deadline`;
 }
 
+function parseEventEndFromTitle(text: string, startDate: Date): { found: boolean; endDate: Date | null } {
+    const match = text.match(EVENT_END_TOKEN_REGEX);
+    if (!match) {
+        return { found: false, endDate: null };
+    }
+
+    const parsed = parseTimeToken(match[1], true);
+    if (!parsed) {
+        return { found: true, endDate: null };
+    }
+
+    const endDate = new Date(startDate);
+    endDate.setHours(parsed.hours, parsed.minutes, 0, 0);
+    return { found: true, endDate };
+}
+
 interface TaskInputProps {
     friends: Profile[];
     defaultFailureCostEuros: string;
@@ -123,6 +142,7 @@ export interface TaskInputCreatePayload {
     subtasks: string[];
     requiredPomoMinutes: number | null;
     deadlineIso: string;
+    eventEndIso: string | null;
     reminderIsos: string[];
     voucherId: string;
     failureCost: string;
@@ -471,6 +491,7 @@ export function TaskInput({
     const stripMetadata = (text: string) => {
         return text
             .replace(/@(?:\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/g, "")
+            .replace(/\bend(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, "")
             .replace(/\bremind\s+(?:\d{1,2}:\d{2}|\d{4})\b/gi, "")
             .replace(/\b(?:tmrw|tomorrow)\b/gi, "")
             .replace(/vouch\s+\w+/gi, "")
@@ -517,6 +538,23 @@ export function TaskInput({
             setDeadlineError("Deadline must be in the future.");
             return;
         }
+        const isEventTask = EVENT_TOKEN_REGEX.test(title);
+        const parsedEventEnd = isEventTask
+            ? parseEventEndFromTitle(title, deadlineToSubmit)
+            : { found: false, endDate: null as Date | null };
+        if (isEventTask && !parsedEventEnd.found) {
+            setDeadlineError("Events require end time, e.g. -event @6 end7 or end15:00.");
+            return;
+        }
+        if (isEventTask && !parsedEventEnd.endDate) {
+            setDeadlineError("Event end time is invalid. Use end7, end1500, or end15:00.");
+            return;
+        }
+        const eventEndDate = parsedEventEnd.endDate;
+        if (isEventTask && eventEndDate && eventEndDate.getTime() <= deadlineToSubmit.getTime()) {
+            setDeadlineError("Event end time must be after start time.");
+            return;
+        }
 
         const parsedReminderTimes = parseReminderTimesFromTitle(title);
         const parserReminderDates = parsedReminderTimes.map(({ hours, minutes }) =>
@@ -550,6 +588,7 @@ export function TaskInput({
             subtasks,
             requiredPomoMinutes,
             deadlineIso: deadlineToSubmit.toISOString(),
+            eventEndIso: eventEndDate ? eventEndDate.toISOString() : null,
             reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
             voucherId: selectedVoucherId,
             failureCost,
@@ -575,6 +614,9 @@ export function TaskInput({
             const formData = new FormData();
             formData.append("title", payload.title);
             formData.append("deadline", payload.deadlineIso);
+            if (payload.eventEndIso) {
+                formData.append("eventEndIso", payload.eventEndIso);
+            }
             formData.append("voucherId", payload.voucherId);
             formData.append("failureCost", payload.failureCost);
             if (payload.subtasks.length > 0) {

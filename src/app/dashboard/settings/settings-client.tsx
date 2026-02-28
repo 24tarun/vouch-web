@@ -864,7 +864,7 @@ export default function SettingsClient({
                 <CardHeader>
                     <CardTitle className="text-white">Google Calendar</CardTitle>
                     <CardDescription className="text-slate-400">
-                        Optional two-way sync for tasks and calendar events. Disabled by default.
+                        Optional two-way calendar event sync. Use -event when creating a task to sync it with Google Calendar.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">

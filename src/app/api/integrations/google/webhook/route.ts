@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import {
     findUserIdByWatchChannel,
     processGoogleCalendarDeltaForUser,
-    processGoogleTasksDeltaForUser,
     touchGoogleWebhookReceipt,
     triggerGoogleCalendarSyncConnection,
 } from "@/lib/google-calendar/sync";
@@ -34,7 +33,6 @@ export async function POST(request: NextRequest) {
         const triggered = await triggerGoogleCalendarSyncConnection(userId, "webhook");
         if (!triggered) {
             await processGoogleCalendarDeltaForUser(userId);
-            await processGoogleTasksDeltaForUser(userId);
         }
     }
 

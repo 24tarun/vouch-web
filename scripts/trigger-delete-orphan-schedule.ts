@@ -5,13 +5,13 @@
  * Usage:
  *   npx tsx scripts/trigger-delete-orphan-schedule.ts [task-id]
  *
- * Example (delete the old google-calendar-reconcile schedule):
- *   npx tsx scripts/trigger-delete-orphan-schedule.ts google-calendar-reconcile
+ * Example (delete the old google-tasks-sync-sweeper schedule):
+ *   npx tsx scripts/trigger-delete-orphan-schedule.ts google-tasks-sync-sweeper
  *
  * Requires TRIGGER_SECRET_KEY in the environment (from Trigger.dev dashboard → API Keys).
  */
 
-const ORPHAN_TASK_ID = process.argv[2] ?? "google-calendar-reconcile";
+const ORPHAN_TASK_ID = process.argv[2] ?? "google-tasks-sync-sweeper";
 const BASE = "https://api.trigger.dev";
 
 async function main() {
