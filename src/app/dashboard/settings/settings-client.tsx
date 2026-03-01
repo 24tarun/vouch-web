@@ -732,6 +732,9 @@ export default function SettingsClient({
                     <CardDescription className="text-slate-400">
                         Choose default values for new tasks and Pomodoro sessions
                     </CardDescription>
+                    <p className="text-xs text-slate-500">
+                        Parser date shortcuts: 28th, 05/03, 5/3, or 05/03/2026.
+                    </p>
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-4">

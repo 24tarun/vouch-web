@@ -37,6 +37,9 @@ import {
 
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
 const EVENT_END_TOKEN_REGEX = /(?:^|\s)-?end(\d{1,2}:\d{2}|\d{1,4})\b/i;
+const TIME_TOKEN_REGEX = /@(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/i;
+const ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
+const SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
 
 function parseTimeToken(token: string, allowHourOnly: boolean) {
     const normalized = token.trim();
@@ -84,11 +87,60 @@ function parseTimerMinutesToken(text: string): number | null {
 
 const TOMORROW_KEYWORD_REGEX = /\b(?:tmrw|tomorrow)\b/i;
 
-function getTomorrowDefaultDeadline() {
-    const tomorrowDeadline = new Date();
-    tomorrowDeadline.setDate(tomorrowDeadline.getDate() + 1);
-    tomorrowDeadline.setHours(23, 59, 0, 0);
-    return tomorrowDeadline;
+type ParsedDateToken =
+    | { kind: "ordinal"; day: number; index: number }
+    | { kind: "slash"; day: number; month: number; year: number | null; index: number };
+
+function isValidCalendarDate(year: number, month: number, day: number): boolean {
+    const candidate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0));
+    return (
+        candidate.getUTCFullYear() === year &&
+        candidate.getUTCMonth() + 1 === month &&
+        candidate.getUTCDate() === day
+    );
+}
+
+function parseDateTokens(text: string): ParsedDateToken[] {
+    const tokens: ParsedDateToken[] = [];
+
+    const ordinalRegex = new RegExp(ORDINAL_DATE_TOKEN_REGEX.source, "gi");
+    let ordinalMatch: RegExpExecArray | null;
+    while ((ordinalMatch = ordinalRegex.exec(text)) !== null) {
+        const parsedDay = Number.parseInt(ordinalMatch[1], 10);
+        if (parsedDay >= 1 && parsedDay <= 31) {
+            tokens.push({
+                kind: "ordinal",
+                day: parsedDay,
+                index: ordinalMatch.index,
+            });
+        }
+    }
+
+    const slashRegex = new RegExp(SLASH_DATE_TOKEN_REGEX.source, "g");
+    let slashMatch: RegExpExecArray | null;
+    while ((slashMatch = slashRegex.exec(text)) !== null) {
+        const parsedDay = Number.parseInt(slashMatch[1], 10);
+        const parsedMonth = Number.parseInt(slashMatch[2], 10);
+        const parsedYear = slashMatch[3] ? Number.parseInt(slashMatch[3], 10) : null;
+        tokens.push({
+            kind: "slash",
+            day: parsedDay,
+            month: parsedMonth,
+            year: parsedYear,
+            index: slashMatch.index,
+        });
+    }
+
+    return tokens.sort((a, b) => a.index - b.index);
+}
+
+function getDefaultDeadline(now: Date = new Date()): Date {
+    const deadline = new Date(now);
+    deadline.setHours(23, 59, 0, 0);
+    if (deadline.getTime() <= now.getTime()) {
+        deadline.setDate(deadline.getDate() + 1);
+    }
+    return deadline;
 }
 
 function formatTimeUntilDeadline(deadline: Date, now: Date = new Date()): string {
@@ -163,15 +215,6 @@ export function TaskInput({
     onCreateTaskOptimistic,
 }: TaskInputProps) {
     const LAST_VOUCHER_STORAGE_KEY = "task-input:last-voucher-id";
-
-    const getDefaultDeadline = () => {
-        const defaultDeadline = new Date();
-        defaultDeadline.setHours(23, 59, 0, 0);
-        if (defaultDeadline.getTime() <= Date.now()) {
-            defaultDeadline.setDate(defaultDeadline.getDate() + 1);
-        }
-        return defaultDeadline;
-    };
 
     const resolveVoucherSelection = useCallback((candidate: string | null | undefined) => {
         if (candidate === selfUserId) return selfUserId;
@@ -338,6 +381,82 @@ export function TaskInput({
         return results;
     };
 
+    const resolveDeadlineFromTitle = useCallback((text: string) => {
+        const now = new Date();
+        const defaultDeadline = getDefaultDeadline(now);
+        const timerMinutes = parseTimerMinutesToken(text);
+
+        if (timerMinutes !== null) {
+            const timerDeadline = new Date();
+            timerDeadline.setMinutes(timerDeadline.getMinutes() + timerMinutes);
+            return { deadline: timerDeadline, error: null as string | null };
+        }
+
+        const parsedDateTokens = parseDateTokens(text);
+        if (parsedDateTokens.length > 1) {
+            return {
+                deadline: defaultDeadline,
+                error: "Use only one date token (for example: 28th or 05/03).",
+            };
+        }
+
+        const hasTomorrowKeyword = TOMORROW_KEYWORD_REGEX.test(text);
+        const timeMatch = text.match(TIME_TOKEN_REGEX);
+        const parsedTime = timeMatch ? parseTimeToken(timeMatch[1], true) : null;
+
+        if (timeMatch && !parsedTime) {
+            return { deadline: defaultDeadline, error: "Deadline is invalid." };
+        }
+
+        if (parsedDateTokens.length === 1) {
+            const dateToken = parsedDateTokens[0];
+            const year = dateToken.kind === "slash" ? (dateToken.year ?? now.getFullYear()) : now.getFullYear();
+            const month = dateToken.kind === "slash" ? dateToken.month : now.getMonth() + 1;
+            const day = dateToken.day;
+
+            if (!isValidCalendarDate(year, month, day)) {
+                return { deadline: defaultDeadline, error: "Date is invalid. Use 28th, 05/03, or 05/03/2026." };
+            }
+
+            const deadline = new Date(
+                year,
+                month - 1,
+                day,
+                parsedTime?.hours ?? 23,
+                parsedTime?.minutes ?? 59,
+                0,
+                0
+            );
+
+            if (deadline.getTime() <= now.getTime()) {
+                return { deadline, error: "Deadline must be in the future." };
+            }
+
+            return { deadline, error: null as string | null };
+        }
+
+        if (hasTomorrowKeyword) {
+            const deadline = new Date(now);
+            deadline.setDate(deadline.getDate() + 1);
+            deadline.setHours(parsedTime?.hours ?? 23, parsedTime?.minutes ?? 59, 0, 0);
+
+            return { deadline, error: null as string | null };
+        }
+
+        if (parsedTime) {
+            const deadline = new Date(now);
+            deadline.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
+
+            if (deadline.getTime() <= now.getTime()) {
+                return { deadline, error: "Deadline must be in the future." };
+            }
+
+            return { deadline, error: null as string | null };
+        }
+
+        return { deadline: defaultDeadline, error: null as string | null };
+    }, []);
+
     const resetDeadlineToDefault = () => {
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(false);
@@ -348,7 +467,9 @@ export function TaskInput({
     };
 
     const openDateSheet = () => {
-        setDeadlineDraftValue(toDateTimeLocalValue(selectedDate ?? getDefaultDeadline()));
+        setDeadlineDraftValue(
+            toDateTimeLocalValue(selectedDate ?? getDefaultDeadline())
+        );
         setRemindersDraft(reminders.slice().sort((a, b) => a.getTime() - b.getTime()));
         setReminderDraftValue("");
         setIsDateSheetOpen(true);
@@ -442,41 +563,9 @@ export function TaskInput({
 
     useEffect(() => {
         if (!isDeadlineManuallyPicked) {
-            const timerMinutes = parseTimerMinutesToken(title);
-            if (timerMinutes !== null) {
-                // `timer <minutes>` is relative to the user's current local time.
-                const timerDeadline = new Date();
-                timerDeadline.setMinutes(timerDeadline.getMinutes() + timerMinutes);
-                setSelectedDate(timerDeadline);
-                setDeadlineError(null);
-            } else {
-                const hasTomorrowKeyword = TOMORROW_KEYWORD_REGEX.test(title);
-                const timeMatch = title.match(/@(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/);
-                if (hasTomorrowKeyword) {
-                    const tomorrowDeadline = getTomorrowDefaultDeadline();
-                    if (timeMatch) {
-                        const parsed = parseTimeToken(timeMatch[1], true);
-                        if (parsed) {
-                            tomorrowDeadline.setHours(parsed.hours, parsed.minutes, 0, 0);
-                        }
-                    }
-                    setSelectedDate(tomorrowDeadline);
-                    setDeadlineError(null);
-                } else if (timeMatch) {
-                    const parsed = parseTimeToken(timeMatch[1], true);
-                    if (parsed) {
-                        // Always interpret @HH[:MM] and @HHMM as today's local time.
-                        const todayAtParsedTime = new Date();
-                        todayAtParsedTime.setHours(parsed.hours, parsed.minutes, 0, 0);
-                        setSelectedDate(todayAtParsedTime);
-                        if (todayAtParsedTime.getTime() <= Date.now()) {
-                            setDeadlineError("Deadline must be in the future.");
-                        } else {
-                            setDeadlineError(null);
-                        }
-                    }
-                }
-            }
+            const parserResolution = resolveDeadlineFromTitle(title);
+            setSelectedDate(parserResolution.deadline);
+            setDeadlineError(parserResolution.error);
         }
 
         if (/\bvouch\s+(me|self|myself)\b/i.test(title)) {
@@ -495,12 +584,14 @@ export function TaskInput({
                 }
             }
         }
-    }, [title, friends, isDeadlineManuallyPicked, selfUserId]);
+    }, [title, friends, isDeadlineManuallyPicked, selfUserId, resolveDeadlineFromTitle]);
 
     const stripMetadata = (text: string) => {
         return text
             .replace(/@(?:\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/g, "")
             .replace(/(?:^|\s)-?end(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
+            .replace(/\b([12]?\d|3[01])(?:st|nd|rd|th)\b/gi, "")
+            .replace(/\b(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])(?:\/\d{4})?\b/g, "")
             .replace(/\bremind\s+(?:\d{1,2}:\d{2}|\d{4})\b/gi, "")
             .replace(/\b(?:tmrw|tomorrow)\b/gi, "")
             .replace(/vouch\s+\w+/gi, "")
@@ -543,7 +634,13 @@ export function TaskInput({
             return;
         }
 
-        const deadlineToSubmit = selectedDate ?? getDefaultDeadline();
+        const parserResolution = isDeadlineManuallyPicked ? null : resolveDeadlineFromTitle(title);
+        if (parserResolution?.error) {
+            setDeadlineError(parserResolution.error);
+            return;
+        }
+
+        const deadlineToSubmit = parserResolution?.deadline ?? selectedDate ?? getDefaultDeadline();
         if (deadlineToSubmit.getTime() <= Date.now()) {
             setDeadlineError("Deadline must be in the future.");
             return;
@@ -603,7 +700,7 @@ export function TaskInput({
             failureCost,
             recurrenceType: recurrenceType || null,
             recurrenceDays: recurrenceDaysToUse,
-            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         };
         const timeUntilDeadline = formatTimeUntilDeadline(deadlineToSubmit);
 

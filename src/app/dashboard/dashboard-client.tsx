@@ -876,7 +876,9 @@ export default function DashboardClient({
             {!tipsHidden && (
                 <div className="space-y-1 px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider">
                     <p>Parser tips:</p>
-                    <p>Deadline: use @20:45 or @2045</p>
+                    <p>Time: use @20:45, @2045, or @8</p>
+                    <p>Date: use 28th, 05/03, 5/3, or 05/03/2026</p>
+                    <p>If date has no @time, deadline defaults to end of day</p>
                     <p>Events: add -event; end time is optional (end7/end15:00 overrides your default duration)</p>
                     <p>Timer: use timer 25 (minutes from now)</p>
                     <p>Reminder: use remind 10:00 or remind 1000</p>
