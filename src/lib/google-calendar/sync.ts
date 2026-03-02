@@ -4,6 +4,7 @@ import { tasks as triggerTasks } from "@trigger.dev/sdk/v3";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database, GoogleCalendarConnection, GoogleCalendarTaskLink, Task } from "@/lib/types";
+import { resolveTaskWindow } from "@/lib/tasks/time-model";
 
 const GOOGLE_API_BASE = "https://www.googleapis.com/calendar/v3";
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -76,7 +77,7 @@ interface GoogleCalendarOutboxPayload {
 
 type GoogleSyncTaskSnapshot = Pick<
     Task,
-    "id" | "user_id" | "title" | "description" | "deadline" | "status" | "updated_at" | "google_sync_for_task" | "google_event_end_at"
+    "id" | "user_id" | "title" | "description" | "start_at" | "deadline" | "status" | "updated_at" | "google_sync_for_task" | "google_event_end_at"
 >;
 
 function getRequiredEnv(name: string): string {
@@ -301,7 +302,7 @@ function shouldImportGoogleEventByTag(event: GoogleCalendarEvent): boolean {
     return hasEventTagToken(event.summary) || hasEventTagToken(event.description);
 }
 
-function mapGoogleEventToDeadline(event: GoogleCalendarEvent): string | null {
+function mapGoogleEventToStartAt(event: GoogleCalendarEvent): string | null {
     const start = event.start;
     if (!start) return null;
 
@@ -310,19 +311,23 @@ function mapGoogleEventToDeadline(event: GoogleCalendarEvent): string | null {
         return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
     }
 
-    if (start.date) {
-        const dateOnly = start.date.trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return null;
-        const parsed = new Date(`${dateOnly}T23:59:59`);
-        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-    }
-
     return null;
 }
 
-function mapGoogleEventToEnd(event: GoogleCalendarEvent): string | null {
+function mapGoogleEventToDeadline(event: GoogleCalendarEvent): string | null {
     const end = event.end;
-    if (!end) return null;
+    if (!end) {
+        const startAtIso = mapGoogleEventToStartAt(event);
+        if (!startAtIso) {
+            const startDateOnly = event.start?.date?.trim();
+            if (!startDateOnly || !/^\d{4}-\d{2}-\d{2}$/.test(startDateOnly)) return null;
+            const parsedStartDate = new Date(`${startDateOnly}T23:59:59`);
+            return Number.isNaN(parsedStartDate.getTime()) ? null : parsedStartDate.toISOString();
+        }
+        const startDate = new Date(startAtIso);
+        if (Number.isNaN(startDate.getTime())) return null;
+        return new Date(startDate.getTime() + 30 * 60 * 1000).toISOString();
+    }
 
     if (end.dateTime) {
         const parsed = new Date(end.dateTime);
@@ -332,34 +337,42 @@ function mapGoogleEventToEnd(event: GoogleCalendarEvent): string | null {
     if (end.date) {
         const dateOnly = end.date.trim();
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) return null;
-        const parsed = new Date(`${dateOnly}T23:59:59`);
-        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+        const parsed = new Date(`${dateOnly}T00:00:00Z`);
+        if (Number.isNaN(parsed.getTime())) return null;
+        const dueDate = new Date(parsed.getTime() - 1000);
+        return dueDate.toISOString();
     }
 
     return null;
 }
 
-function buildGoogleEventPayload(task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_end_at">): GoogleCalendarEvent {
-    const start = new Date(task.deadline);
-    const explicitEnd = task.google_event_end_at ? new Date(task.google_event_end_at) : null;
-    const hasValidExplicitEnd = Boolean(
-        explicitEnd &&
-        !Number.isNaN(explicitEnd.getTime()) &&
-        explicitEnd.getTime() > start.getTime()
-    );
-    const end = hasValidExplicitEnd
-        ? explicitEnd as Date
-        : new Date(start.getTime() + 30 * 60 * 1000);
+function toDateOnlyUtc(date: Date): string {
+    return date.toISOString().slice(0, 10);
+}
+
+function buildGoogleEventPayload(task: Pick<Task, "id" | "title" | "description" | "start_at" | "deadline" | "google_event_end_at">): GoogleCalendarEvent {
+    const resolved = resolveTaskWindow(task as Task);
+    if (!resolved) {
+        throw new Error("Task window is invalid.");
+    }
 
     return {
         summary: task.title,
         description: buildGoogleEventDescription(task),
-        start: {
-            dateTime: start.toISOString(),
-        },
-        end: {
-            dateTime: end.toISOString(),
-        },
+        start: resolved.startAt
+            ? {
+                dateTime: resolved.startAt.toISOString(),
+            }
+            : {
+                date: toDateOnlyUtc(resolved.endAt),
+            },
+        end: resolved.startAt
+            ? {
+                dateTime: resolved.endAt.toISOString(),
+            }
+            : {
+                date: toDateOnlyUtc(new Date(resolved.endAt.getTime() + 24 * 60 * 60 * 1000)),
+            },
         extendedProperties: {
             private: {
                 vouchManaged: "true",
@@ -373,7 +386,7 @@ function buildGoogleEventPayload(task: Pick<Task, "id" | "title" | "description"
 async function googleCreateOrUpdateEvent(
     accessToken: string,
     calendarId: string,
-    task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_end_at">,
+    task: Pick<Task, "id" | "title" | "description" | "start_at" | "deadline" | "google_event_end_at">,
     existingEventId?: string
 ): Promise<GoogleCalendarEvent> {
     const payload = buildGoogleEventPayload(task);
@@ -924,7 +937,7 @@ async function getTaskSnapshotForGoogleSync(
     userId: string
 ): Promise<GoogleSyncTaskSnapshot | null> {
     const { data } = await (supabase.from("tasks") as any)
-        .select("id, user_id, title, description, deadline, status, updated_at, google_sync_for_task, google_event_end_at")
+        .select("id, user_id, title, description, start_at, deadline, status, updated_at, google_sync_for_task, google_event_end_at")
         .eq("id", taskId as any)
         .eq("user_id", userId as any)
         .maybeSingle();
@@ -1248,17 +1261,17 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                 continue;
             }
 
+            const startAtIso = mapGoogleEventToStartAt(event);
             const deadlineIso = mapGoogleEventToDeadline(event);
             if (!deadlineIso) {
                 continue;
             }
-            const eventEndIso = mapGoogleEventToEnd(event);
 
             const googleUpdatedTs = parseIsoTimestamp(event.updated);
 
             if (existingLink?.task_id) {
                 const { data: task } = await (supabase.from("tasks") as any)
-                    .select("id, user_id, status, title, description, deadline, updated_at")
+                    .select("id, user_id, status, title, description, start_at, deadline, updated_at")
                     .eq("id", existingLink.task_id as any)
                     .eq("user_id", userId as any)
                     .maybeSingle();
@@ -1283,8 +1296,9 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                     .update({
                         title: normalizeGoogleEventTitle(event),
                         description: event.description || null,
+                        start_at: startAtIso,
                         deadline: deadlineIso,
-                        google_event_end_at: eventEndIso,
+                        google_event_end_at: null,
                         google_sync_for_task: true,
                         status: SOFT_DELETEABLE_STATUSES.has((task as any).status) ? (task as any).status : "CREATED",
                         updated_at: new Date().toISOString(),
@@ -1311,8 +1325,9 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                     title: normalizeGoogleEventTitle(event),
                     description: event.description || null,
                     failure_cost_cents: defaultFailureCostCents,
+                    start_at: startAtIso,
                     deadline: deadlineIso,
-                    google_event_end_at: eventEndIso,
+                    google_event_end_at: null,
                     status: "CREATED",
                     google_sync_for_task: true,
                     postponed_at: null,

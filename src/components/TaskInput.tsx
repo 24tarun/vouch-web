@@ -30,13 +30,12 @@ import type { Profile } from "@/lib/types";
 import { getCurrencySymbol, getFailureCostBounds, type SupportedCurrency } from "@/lib/currency";
 import { DEFAULT_EVENT_DURATION_MINUTES } from "@/lib/constants";
 import { toast } from "sonner";
-import {
-    fromDateTimeLocalValue,
-    toDateTimeLocalValue,
-} from "@/lib/datetime-local";
+import { fromDateTimeLocalValue, toDateTimeLocalValue } from "@/lib/datetime-local";
+import { buildCreateTaskFormData, type CreateTaskPayload } from "@/lib/tasks/create-task-form-data";
 
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
 const EVENT_END_TOKEN_REGEX = /(?:^|\s)-?end(\d{1,2}:\d{2}|\d{1,4})\b/i;
+const EVENT_START_TOKEN_REGEX = /(?:^|\s)-?start(\d{1,2}:\d{2}|\d{1,4})\b/i;
 const TIME_TOKEN_REGEX = /@(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/i;
 const ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
 const SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
@@ -189,21 +188,39 @@ interface TaskInputProps {
     defaultEventDurationMinutes: number;
     selfUserId: string;
     onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
+    onCreated?: () => void;
+    prefillStartIso?: string | null;
+    prefillDeadlineIso?: string | null;
+    showEventToggle?: boolean;
+    defaultEventEnabled?: boolean;
 }
 
-export interface TaskInputCreatePayload {
-    title: string;
-    subtasks: string[];
-    requiredPomoMinutes: number | null;
-    deadlineIso: string;
-    eventEndIso: string | null;
-    reminderIsos: string[];
-    voucherId: string;
-    failureCost: string;
-    recurrenceType: string | null;
-    recurrenceDays: number[];
-    userTimezone: string;
+function parseEventStartFromTitle(text: string, deadlineDate: Date): { found: boolean; startDate: Date | null } {
+    const match = text.match(EVENT_START_TOKEN_REGEX);
+    if (!match) {
+        return { found: false, startDate: null };
+    }
+
+    const parsed = parseTimeToken(match[1], true);
+    if (!parsed) {
+        return { found: true, startDate: null };
+    }
+
+    const startDate = new Date(deadlineDate);
+    startDate.setHours(parsed.hours, parsed.minutes, 0, 0);
+    return { found: true, startDate };
 }
+
+function hasParserPriorityTimeTokens(text: string): boolean {
+    if (EVENT_START_TOKEN_REGEX.test(text) || EVENT_END_TOKEN_REGEX.test(text)) return true;
+    if (parseTimerMinutesToken(text) !== null) return true;
+    if (TOMORROW_KEYWORD_REGEX.test(text)) return true;
+    if (TIME_TOKEN_REGEX.test(text)) return true;
+    if (parseDateTokens(text).length > 0) return true;
+    return false;
+}
+
+export type TaskInputCreatePayload = CreateTaskPayload;
 
 export function TaskInput({
     friends,
@@ -213,6 +230,11 @@ export function TaskInput({
     defaultEventDurationMinutes,
     selfUserId,
     onCreateTaskOptimistic,
+    onCreated,
+    prefillStartIso = null,
+    prefillDeadlineIso = null,
+    showEventToggle = false,
+    defaultEventEnabled = false,
 }: TaskInputProps) {
     const LAST_VOUCHER_STORAGE_KEY = "task-input:last-voucher-id";
 
@@ -226,12 +248,15 @@ export function TaskInput({
     const [isLoading, setIsLoading] = useState(false);
     const [hasMounted, setHasMounted] = useState(false);
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [selectedStartDate, setSelectedStartDate] = useState<Date | null>(null);
     const [selectedVoucherId, setSelectedVoucherId] = useState<string>(resolveVoucherSelection(defaultVoucherId));
     const [failureCost, setFailureCost] = useState(defaultFailureCostEuros);
     const [isDeadlineManuallyPicked, setIsDeadlineManuallyPicked] = useState(false);
+    const [isEventTaskEnabled, setIsEventTaskEnabled] = useState(Boolean(defaultEventEnabled));
 
     const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
     const [deadlineDraftValue, setDeadlineDraftValue] = useState("");
+    const [startDraftValue, setStartDraftValue] = useState("");
     const [reminders, setReminders] = useState<Date[]>([]);
     const [remindersDraft, setRemindersDraft] = useState<Date[]>([]);
     const [reminderDraftValue, setReminderDraftValue] = useState("");
@@ -290,18 +315,50 @@ export function TaskInput({
     }, []);
 
     useEffect(() => {
+        setIsEventTaskEnabled(Boolean(defaultEventEnabled));
+    }, [defaultEventEnabled]);
+
+    useEffect(() => {
+        const parsedStart =
+            typeof prefillStartIso === "string" && prefillStartIso.trim().length > 0
+                ? new Date(prefillStartIso)
+                : null;
+        const hasValidStart = parsedStart !== null && !Number.isNaN(parsedStart.getTime());
+        const parsedDeadline =
+            typeof prefillDeadlineIso === "string" && prefillDeadlineIso.trim().length > 0
+                ? new Date(prefillDeadlineIso)
+                : null;
+        const hasValidDeadline = parsedDeadline !== null && !Number.isNaN(parsedDeadline.getTime());
+
+        if (!hasValidStart && !hasValidDeadline) return;
+
+        const nextStart = hasValidStart ? parsedStart : null;
+        let nextDeadline = hasValidDeadline ? parsedDeadline : null;
+        if (!nextDeadline && nextStart) {
+            nextDeadline = new Date(nextStart.getTime() + normalizedDefaultEventDurationMinutes * 60 * 1000);
+        }
+        if (!nextDeadline) return;
+        if (nextStart && nextStart.getTime() >= nextDeadline.getTime()) {
+            nextDeadline = new Date(nextStart.getTime() + normalizedDefaultEventDurationMinutes * 60 * 1000);
+        }
+
+        setSelectedDate(nextDeadline);
+        setSelectedStartDate(nextStart);
+        setIsDeadlineManuallyPicked(true);
+        setReminders([]);
+        setRemindersDraft([]);
+        setReminderDraftValue("");
+        setStartDraftValue(toDateTimeLocalValue(nextStart));
+        setDeadlineError(nextDeadline.getTime() <= Date.now() ? "Deadline must be in the future." : null);
+    }, [prefillDeadlineIso, prefillStartIso, normalizedDefaultEventDurationMinutes]);
+
+    useEffect(() => {
         if (selectedVoucherId === selfUserId) return;
         const isStillFriend = friends.some((friend) => friend.id === selectedVoucherId);
         if (!isStillFriend) {
             setSelectedVoucherId(selfUserId);
         }
     }, [friends, selectedVoucherId, selfUserId]);
-
-    useEffect(() => {
-        const localValue = toDateTimeLocalValue(selectedDate);
-        if (!localValue) return;
-        setDeadlineDraftValue(localValue);
-    }, [selectedDate]);
 
     const getSelectedWeekday = () => {
         return selectedDate?.getDay() ?? new Date().getDay();
@@ -348,17 +405,17 @@ export function TaskInput({
         });
     };
 
-    const getDraftDeadline = () => {
-        if (!deadlineDraftValue) return null;
-        return fromDateTimeLocalValue(deadlineDraftValue);
-    };
-
     const normalizeReminderDates = (values: Date[]) => {
         const deduped = new Map<number, Date>();
         for (const value of values) {
             deduped.set(value.getTime(), value);
         }
         return Array.from(deduped.values()).sort((a, b) => a.getTime() - b.getTime());
+    };
+
+    const getDraftDeadline = () => {
+        if (!deadlineDraftValue) return null;
+        return fromDateTimeLocalValue(deadlineDraftValue);
     };
 
     const buildReminderDateOnDeadlineDay = (deadlineDate: Date, hours: number, minutes: number) => {
@@ -461,15 +518,17 @@ export function TaskInput({
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(false);
         setSelectedDate(getDefaultDeadline());
+        setSelectedStartDate(null);
         setReminders([]);
         setRemindersDraft([]);
+        setDeadlineDraftValue("");
+        setStartDraftValue("");
         setReminderDraftValue("");
     };
 
     const openDateSheet = () => {
-        setDeadlineDraftValue(
-            toDateTimeLocalValue(selectedDate ?? getDefaultDeadline())
-        );
+        setDeadlineDraftValue(toDateTimeLocalValue(selectedDate ?? getDefaultDeadline()));
+        setStartDraftValue(toDateTimeLocalValue(selectedStartDate));
         setRemindersDraft(reminders.slice().sort((a, b) => a.getTime() - b.getTime()));
         setReminderDraftValue("");
         setIsDateSheetOpen(true);
@@ -488,21 +547,37 @@ export function TaskInput({
         openDateSheet();
     };
 
-    const applyDateSheet = () => {
-        const parsed = fromDateTimeLocalValue(deadlineDraftValue);
-        if (!parsed) return;
-        if (parsed.getTime() <= Date.now()) {
+    const resolveDateSheetDraft = () => {
+        const parsedDeadline = fromDateTimeLocalValue(deadlineDraftValue);
+        if (!parsedDeadline) {
+            setDeadlineError("Please choose a valid deadline.");
+            return null;
+        }
+        if (parsedDeadline.getTime() <= Date.now()) {
             setDeadlineError("Deadline must be in the future.");
-            return;
+            return null;
+        }
+
+        const parsedStart =
+            startDraftValue.trim().length > 0
+                ? fromDateTimeLocalValue(startDraftValue.trim())
+                : null;
+        if (startDraftValue.trim().length > 0 && !parsedStart) {
+            setDeadlineError("Please choose a valid start time.");
+            return null;
+        }
+        if (parsedStart && parsedStart.getTime() >= parsedDeadline.getTime()) {
+            setDeadlineError("Start time must be before deadline.");
+            return null;
         }
 
         const pendingReminder =
             reminderDraftValue.trim().length > 0
-                ? fromDateTimeLocalValue(reminderDraftValue)
+                ? fromDateTimeLocalValue(reminderDraftValue.trim())
                 : null;
         if (reminderDraftValue.trim().length > 0 && !pendingReminder) {
             setDeadlineError("Please choose a valid reminder.");
-            return;
+            return null;
         }
 
         const remindersToApply = normalizeReminderDates(
@@ -510,19 +585,39 @@ export function TaskInput({
         );
 
         const hasInvalidReminder = remindersToApply.some(
-            (reminder) => reminder.getTime() <= Date.now() || reminder.getTime() > parsed.getTime()
+            (reminder) => reminder.getTime() <= Date.now() || reminder.getTime() > parsedDeadline.getTime()
         );
         if (hasInvalidReminder) {
             setDeadlineError("Reminders must be in the future and before or at the deadline.");
-            return;
+            return null;
         }
+
+        return {
+            parsedDeadline,
+            parsedStart,
+            remindersToApply,
+        };
+    };
+
+    const applyDateSheet = () => {
+        const resolved = resolveDateSheetDraft();
+        if (!resolved) return false;
 
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(true);
-        setSelectedDate(parsed);
-        setReminders(remindersToApply);
+        setSelectedDate(resolved.parsedDeadline);
+        setSelectedStartDate(resolved.parsedStart);
+        setReminders(resolved.remindersToApply);
         setReminderDraftValue("");
         setIsDateSheetOpen(false);
+        return true;
+    };
+
+    const applyDateSheetAndCreate = () => {
+        if (!applyDateSheet()) return;
+        window.setTimeout(() => {
+            formRef.current?.requestSubmit();
+        }, 0);
     };
 
     const handleAddReminderDraft = () => {
@@ -562,10 +657,61 @@ export function TaskInput({
     };
 
     useEffect(() => {
-        if (!isDeadlineManuallyPicked) {
+        const parserShouldOverride = hasParserPriorityTimeTokens(title);
+        if (!isDeadlineManuallyPicked || parserShouldOverride) {
             const parserResolution = resolveDeadlineFromTitle(title);
-            setSelectedDate(parserResolution.deadline);
-            setDeadlineError(parserResolution.error);
+            if (parserResolution.error) {
+                setSelectedDate(parserResolution.deadline);
+                setSelectedStartDate(null);
+                setDeadlineError(parserResolution.error);
+            } else if (parserShouldOverride) {
+                const hasParserStartToken = EVENT_START_TOKEN_REGEX.test(title);
+                const hasParserEndToken = EVENT_END_TOKEN_REGEX.test(title);
+                const hasParserEventWindow = hasParserStartToken || hasParserEndToken;
+
+                if (!hasParserEventWindow) {
+                    setSelectedDate(parserResolution.deadline);
+                    setSelectedStartDate(null);
+                    setDeadlineError(null);
+                    return;
+                }
+
+                const parsedEventStart = hasParserStartToken
+                    ? parseEventStartFromTitle(title, parserResolution.deadline)
+                    : { found: false, startDate: null as Date | null };
+                if (parsedEventStart.found && !parsedEventStart.startDate) {
+                    setSelectedDate(parserResolution.deadline);
+                    setSelectedStartDate(null);
+                    setDeadlineError("Event start time is invalid. Use start7, start1500, or start15:00.");
+                    return;
+                }
+
+                const eventStartAnchor = parsedEventStart.startDate ?? parserResolution.deadline;
+                const parsedEventEnd = hasParserEndToken
+                    ? parseEventEndFromTitle(title, eventStartAnchor)
+                    : { found: false, endDate: null as Date | null };
+                if (parsedEventEnd.found && !parsedEventEnd.endDate) {
+                    setSelectedDate(parserResolution.deadline);
+                    setSelectedStartDate(null);
+                    setDeadlineError("Event end time is invalid. Use end7, end1500, or end15:00.");
+                    return;
+                }
+
+                const resolvedParserDeadline = parsedEventEnd.endDate ?? parserResolution.deadline;
+                if (resolvedParserDeadline.getTime() <= eventStartAnchor.getTime()) {
+                    setSelectedDate(parserResolution.deadline);
+                    setSelectedStartDate(null);
+                    setDeadlineError("Event end time must be after start time.");
+                    return;
+                }
+
+                setSelectedDate(resolvedParserDeadline);
+                setSelectedStartDate(parsedEventStart.startDate);
+                setDeadlineError(null);
+            } else {
+                setSelectedDate(parserResolution.deadline);
+                setDeadlineError(parserResolution.error);
+            }
         }
 
         if (/\bvouch\s+(me|self|myself)\b/i.test(title)) {
@@ -589,6 +735,8 @@ export function TaskInput({
     const stripMetadata = (text: string) => {
         return text
             .replace(/@(?:\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/g, "")
+            .replace(/(^|\s)-event(?=\s|$)/gi, " ")
+            .replace(/(?:^|\s)-?start(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
             .replace(/(?:^|\s)-?end(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
             .replace(/\b([12]?\d|3[01])(?:st|nd|rd|th)\b/gi, "")
             .replace(/\b(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])(?:\/\d{4})?\b/g, "")
@@ -634,7 +782,8 @@ export function TaskInput({
             return;
         }
 
-        const parserResolution = isDeadlineManuallyPicked ? null : resolveDeadlineFromTitle(title);
+        const parserShouldOverride = hasParserPriorityTimeTokens(title);
+        const parserResolution = isDeadlineManuallyPicked && !parserShouldOverride ? null : resolveDeadlineFromTitle(title);
         if (parserResolution?.error) {
             setDeadlineError(parserResolution.error);
             return;
@@ -645,26 +794,56 @@ export function TaskInput({
             setDeadlineError("Deadline must be in the future.");
             return;
         }
-        const isEventTask = EVENT_TOKEN_REGEX.test(title);
-        const parsedEventEnd = isEventTask
-            ? parseEventEndFromTitle(title, deadlineToSubmit)
+
+        const hasParserStartToken = EVENT_START_TOKEN_REGEX.test(title);
+        const hasParserEndToken = EVENT_END_TOKEN_REGEX.test(title);
+        const parsedEventStart = hasParserStartToken
+            ? parseEventStartFromTitle(title, deadlineToSubmit)
+            : { found: false, startDate: null as Date | null };
+        if (parsedEventStart.found && !parsedEventStart.startDate) {
+            setDeadlineError("Event start time is invalid. Use start7, start1500, or start15:00.");
+            return;
+        }
+
+        const resolvedStart = parsedEventStart.startDate ?? (parserShouldOverride ? null : selectedStartDate);
+        const hasResolvedStartTime = Boolean(resolvedStart);
+        const hasExplicitEventIntent = isEventTaskEnabled || EVENT_TOKEN_REGEX.test(title);
+        const isEventTask =
+            hasExplicitEventIntent ||
+            hasParserStartToken ||
+            hasParserEndToken ||
+            hasResolvedStartTime;
+        const startToSubmit = isEventTask ? (resolvedStart ?? deadlineToSubmit) : null;
+        const parsedEventEnd = isEventTask && hasParserEndToken
+            ? parseEventEndFromTitle(title, startToSubmit ?? deadlineToSubmit)
             : { found: false, endDate: null as Date | null };
         if (isEventTask && parsedEventEnd.found && !parsedEventEnd.endDate) {
             setDeadlineError("Event end time is invalid. Use end7, end1500, or end15:00.");
             return;
         }
-        const eventEndDate =
-            isEventTask && !parsedEventEnd.found
-                ? new Date(deadlineToSubmit.getTime() + normalizedDefaultEventDurationMinutes * 60 * 1000)
-                : parsedEventEnd.endDate;
-        if (isEventTask && eventEndDate && eventEndDate.getTime() <= deadlineToSubmit.getTime()) {
+        const endToSubmit = isEventTask
+            ? (
+                isDeadlineManuallyPicked && !parserShouldOverride
+                    ? deadlineToSubmit
+                    : parsedEventEnd.found
+                        ? parsedEventEnd.endDate
+                        : startToSubmit
+                            ? new Date(startToSubmit.getTime() + normalizedDefaultEventDurationMinutes * 60 * 1000)
+                            : deadlineToSubmit
+            )
+            : deadlineToSubmit;
+        if (!endToSubmit) {
+            setDeadlineError("Deadline must be in the future.");
+            return;
+        }
+        if (startToSubmit && endToSubmit.getTime() <= startToSubmit.getTime()) {
             setDeadlineError("Event end time must be after start time.");
             return;
         }
 
         const parsedReminderTimes = parseReminderTimesFromTitle(title);
         const parserReminderDates = parsedReminderTimes.map(({ hours, minutes }) =>
-            buildReminderDateOnDeadlineDay(deadlineToSubmit, hours, minutes)
+            buildReminderDateOnDeadlineDay(endToSubmit, hours, minutes)
         );
         const remindersToSubmit = normalizeReminderDates([...reminders, ...parserReminderDates]);
 
@@ -675,7 +854,7 @@ export function TaskInput({
         }
 
         const hasReminderAfterDeadline = remindersToSubmit.some(
-            (reminder) => reminder.getTime() > deadlineToSubmit.getTime()
+            (reminder) => reminder.getTime() > endToSubmit.getTime()
         );
         if (hasReminderAfterDeadline) {
             setDeadlineError("Reminders must be before or at the deadline.");
@@ -688,13 +867,18 @@ export function TaskInput({
             recurrenceType === "WEEKLY"
                 ? (customDays.length > 0 ? customDays : [getSelectedWeekday()])
                 : [];
+        // Keep timeblocking (start/end) as timeline UX without forcing event-sync intent.
+        const rawTitle = hasExplicitEventIntent ? `${taskTitle} -event` : taskTitle;
 
         const payload: TaskInputCreatePayload = {
             title: taskTitle,
+            rawTitle,
+            isEventTask,
             subtasks,
             requiredPomoMinutes,
-            deadlineIso: deadlineToSubmit.toISOString(),
-            eventEndIso: eventEndDate ? eventEndDate.toISOString() : null,
+            startIso: startToSubmit ? startToSubmit.toISOString() : null,
+            deadlineIso: endToSubmit.toISOString(),
+            eventEndIso: isEventTask ? endToSubmit.toISOString() : null,
             reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
             voucherId: selectedVoucherId,
             failureCost,
@@ -702,7 +886,7 @@ export function TaskInput({
             recurrenceDays: recurrenceDaysToUse,
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         };
-        const timeUntilDeadline = formatTimeUntilDeadline(deadlineToSubmit);
+        const timeUntilDeadline = formatTimeUntilDeadline(endToSubmit);
 
         if (onCreateTaskOptimistic) {
             onCreateTaskOptimistic(payload);
@@ -711,41 +895,15 @@ export function TaskInput({
             setRecurrenceType("");
             setRecurrenceLabel("");
             setShowCustomRecurrenceInline(false);
+            setIsEventTaskEnabled(Boolean(defaultEventEnabled));
             resetDeadlineToDefault();
+            onCreated?.();
             return;
         }
 
         setIsLoading(true);
         try {
-            const formData = new FormData();
-            formData.append("title", payload.title);
-            formData.append("deadline", payload.deadlineIso);
-            if (payload.eventEndIso) {
-                formData.append("eventEndIso", payload.eventEndIso);
-            }
-            formData.append("voucherId", payload.voucherId);
-            formData.append("failureCost", payload.failureCost);
-            if (payload.subtasks.length > 0) {
-                formData.append("subtasks", JSON.stringify(payload.subtasks));
-            }
-            if (payload.requiredPomoMinutes != null) {
-                formData.append("requiredPomoMinutes", String(payload.requiredPomoMinutes));
-            }
-            if (payload.reminderIsos.length > 0) {
-                formData.append("reminders", JSON.stringify(payload.reminderIsos));
-            }
-
-            if (payload.recurrenceType) {
-                formData.append("recurrenceType", payload.recurrenceType);
-                formData.append("userTimezone", payload.userTimezone);
-                formData.append("recurrenceInterval", "1");
-
-                if (payload.recurrenceType === "WEEKLY" && payload.recurrenceDays.length > 0) {
-                    formData.append("recurrenceDays", JSON.stringify(payload.recurrenceDays));
-                }
-            }
-
-            const result = await createTask(formData);
+            const result = await createTask(buildCreateTaskFormData(payload));
             if (result?.error) {
                 console.error("Failed to create task", result.error);
             } else {
@@ -754,7 +912,9 @@ export function TaskInput({
                 setRecurrenceType("");
                 setRecurrenceLabel("");
                 setShowCustomRecurrenceInline(false);
+                setIsEventTaskEnabled(Boolean(defaultEventEnabled));
                 resetDeadlineToDefault();
+                onCreated?.();
             }
         } catch (error) {
             console.error("Failed to create task", error);
@@ -824,7 +984,7 @@ export function TaskInput({
                                 <Calendar className="h-3.5 w-3.5 shrink-0" />
                                 <span className="text-[10px] font-mono truncate">
                                     {formatDeadlineLabel(selectedDate)}
-                                    {reminders.length > 0 ? ` • ${reminders.length}R` : ""}
+                                    {reminders.length > 0 ? ` | ${reminders.length}R` : ""}
                                 </span>
                             </button>
 
@@ -944,6 +1104,20 @@ export function TaskInput({
                                     )}
                                 </DropdownMenuContent>
                             </DropdownMenu>
+
+                            {showEventToggle && (
+                                <button
+                                    type="button"
+                                    onClick={() => setIsEventTaskEnabled((prev) => !prev)}
+                                    className={cn(
+                                        "h-9 w-9 shrink-0 rounded-lg border border-slate-700/30 bg-slate-800/30 text-slate-400 transition-all hover:bg-slate-700/30 hover:text-slate-200",
+                                        isEventTaskEnabled && "border-blue-500/30 bg-blue-500/10 text-blue-300"
+                                    )}
+                                    title={isEventTaskEnabled ? "Creating as event task" : "Create as event task"}
+                                >
+                                    <Calendar className="mx-auto h-3.5 w-3.5" />
+                                </button>
+                            )}
                         </div>
 
                         <button
@@ -971,14 +1145,25 @@ export function TaskInput({
                     </DialogHeader>
 
                     <div className="space-y-3">
-                        <div className="space-y-1.5">
-                            <label className="text-xs uppercase tracking-wide text-slate-400">Deadline</label>
-                            <input
-                                type="datetime-local"
-                                value={deadlineDraftValue}
-                                onChange={(e) => setDeadlineDraftValue(e.target.value)}
-                                className="h-9 w-full px-3 bg-slate-800/70 border border-slate-600 rounded-md text-white [color-scheme:dark] focus:outline-none focus:border-slate-400"
-                            />
+                        <div className="space-y-2">
+                            <div className="space-y-1.5">
+                                <label className="text-xs uppercase tracking-wide text-slate-400">Start time (optional)</label>
+                                <input
+                                    type="datetime-local"
+                                    value={startDraftValue}
+                                    onChange={(e) => setStartDraftValue(e.target.value)}
+                                    className="h-9 w-full px-3 bg-slate-800/70 border border-slate-600 rounded-md text-white [color-scheme:dark] focus:outline-none focus:border-slate-400"
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-xs uppercase tracking-wide text-slate-400">Deadline</label>
+                                <input
+                                    type="datetime-local"
+                                    value={deadlineDraftValue}
+                                    onChange={(e) => setDeadlineDraftValue(e.target.value)}
+                                    className="h-9 w-full px-3 bg-slate-800/70 border border-slate-600 rounded-md text-white [color-scheme:dark] focus:outline-none focus:border-slate-400"
+                                />
+                            </div>
                         </div>
 
                         <div className="space-y-2">
@@ -1045,6 +1230,15 @@ export function TaskInput({
                             className="h-9 px-3 rounded-md bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30 disabled:opacity-50"
                         >
                             Apply
+                        </button>
+                        <button
+                            type="button"
+                            onClick={applyDateSheetAndCreate}
+                            disabled={!deadlineDraftValue || isLoading}
+                            className="h-9 w-9 shrink-0 rounded-md bg-blue-600/30 border border-blue-400/40 text-blue-200 hover:bg-blue-600/40 disabled:opacity-50 flex items-center justify-center"
+                            title="Apply and create task"
+                        >
+                            <Check className="h-4 w-4" strokeWidth={3} />
                         </button>
                     </DialogFooter>
                 </DialogContent>

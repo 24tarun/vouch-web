@@ -29,6 +29,7 @@ export function NavLinks({ vouchCount = 0, statsBadgeCount = 0 }: NavLinksProps)
     const links = useMemo(
         () => [
             { href: "/dashboard", label: "Tasks" },
+            { href: "/dashboard/calendar", label: "Calendar" },
             { href: "/dashboard/stats", label: "Stats", badge: statsBadgeCount > 0 ? statsBadgeCount : undefined },
             { href: "/dashboard/friends", label: "Friends", badge: vouchCount > 0 ? vouchCount : undefined },
             { href: "/dashboard/ledger", label: "Ledger" },

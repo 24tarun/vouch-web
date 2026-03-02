@@ -30,6 +30,7 @@ export function patchTaskScalars<T extends Task>(localTask: T, incomingRow: Real
         description: incomingRow.description,
         failure_cost_cents: incomingRow.failure_cost_cents,
         required_pomo_minutes: incomingRow.required_pomo_minutes,
+        start_at: incomingRow.start_at,
         deadline: incomingRow.deadline,
         status: incomingRow.status,
         postponed_at: incomingRow.postponed_at,

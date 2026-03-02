@@ -12,7 +12,7 @@ import {
 } from "@/actions/tasks";
 import { setDashboardTipsHidden } from "@/actions/auth";
 import { DashboardHeaderActions, type DashboardSortMode } from "@/components/DashboardHeaderActions";
-import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
+import { TaskInput } from "@/components/TaskInput";
 import { PostponeDeadlineDialog } from "@/components/PostponeDeadlineDialog";
 import { TaskRow } from "@/components/TaskRow";
 import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList";
@@ -30,9 +30,9 @@ import {
 import { purgeLocalProofMedia } from "@/lib/proof-media-warmup";
 import { subscribeRealtimeTaskChanges } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
+import { buildCreateTaskFormData, type CreateTaskPayload } from "@/lib/tasks/create-task-form-data";
 
 const MAX_COMPLETED_TASKS = 10;
-const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
 
 interface TaskProofDraft {
     proof: PreparedTaskProof;
@@ -127,38 +127,6 @@ function sortActiveTasks(tasks: Task[], sortMode: DashboardSortMode): Task[] {
         if (deadlineA !== deadlineB) return deadlineA - deadlineB;
         return 0;
     });
-}
-
-function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
-    const formData = new FormData();
-    formData.append("title", payload.title);
-    formData.append("deadline", payload.deadlineIso);
-    if (payload.eventEndIso) {
-        formData.append("eventEndIso", payload.eventEndIso);
-    }
-    formData.append("voucherId", payload.voucherId);
-    formData.append("failureCost", payload.failureCost);
-    if (payload.subtasks.length > 0) {
-        formData.append("subtasks", JSON.stringify(payload.subtasks));
-    }
-    if (payload.requiredPomoMinutes != null) {
-        formData.append("requiredPomoMinutes", String(payload.requiredPomoMinutes));
-    }
-    if (payload.reminderIsos.length > 0) {
-        formData.append("reminders", JSON.stringify(payload.reminderIsos));
-    }
-
-    if (payload.recurrenceType) {
-        formData.append("recurrenceType", payload.recurrenceType);
-        formData.append("userTimezone", payload.userTimezone);
-        formData.append("recurrenceInterval", "1");
-
-        if (payload.recurrenceType === "WEEKLY" && payload.recurrenceDays.length > 0) {
-            formData.append("recurrenceDays", JSON.stringify(payload.recurrenceDays));
-        }
-    }
-
-    return formData;
 }
 
 export default function DashboardClient({
@@ -547,10 +515,10 @@ export default function DashboardClient({
         refreshInBackground();
     };
 
-    const handleCreateTaskOptimistic = (payload: TaskInputCreatePayload) => {
+    const handleCreateTaskOptimistic = (payload: CreateTaskPayload) => {
         const nowIso = new Date().toISOString();
         const tempTaskId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-        const optimisticIsEventTask = EVENT_TOKEN_REGEX.test(payload.title);
+        const optimisticIsEventTask = /(^|\s)-event(?=\s|$)/i.test(payload.rawTitle);
         const optimisticTask: Task = {
             id: tempTaskId,
             user_id: userId,
@@ -559,6 +527,7 @@ export default function DashboardClient({
             description: null,
             failure_cost_cents: Math.round(Number(payload.failureCost) * 100),
             required_pomo_minutes: payload.requiredPomoMinutes,
+            start_at: payload.startIso,
             deadline: payload.deadlineIso,
             status: "CREATED",
             postponed_at: null,
@@ -566,7 +535,7 @@ export default function DashboardClient({
             voucher_response_deadline: null,
             recurrence_rule_id: payload.recurrenceType ? "optimistic" : null,
             google_sync_for_task: optimisticIsEventTask,
-            google_event_end_at: optimisticIsEventTask ? payload.eventEndIso : null,
+            google_event_end_at: null,
             created_at: nowIso,
             updated_at: nowIso,
             subtasks: payload.subtasks.map((subtaskTitle, index) => ({
@@ -879,7 +848,7 @@ export default function DashboardClient({
                     <p>Time: use @20:45, @2045, or @8</p>
                     <p>Date: use 28th, 05/03, 5/3, or 05/03/2026</p>
                     <p>If date has no @time, deadline defaults to end of day</p>
-                    <p>Events: add -event; end time is optional (end7/end15:00 overrides your default duration)</p>
+                    <p>Events: add -event; optional start/end tokens: start7/start15:00 and end7/end15:00</p>
                     <p>Timer: use timer 25 (minutes from now)</p>
                     <p>Reminder: use remind 10:00 or remind 1000</p>
                     <p>Pomodoro: use pomo 75</p>

@@ -180,6 +180,79 @@
     min-height: env(safe-area-inset-top);
   }
 
+  .calendar-thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .calendar-thin-scroll:hover,
+  .calendar-thin-scroll:focus-within,
+  .calendar-thin-scroll:active {
+    scrollbar-color: rgba(148, 163, 184, 0.45) transparent;
+  }
+
+  .calendar-thin-scroll::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .calendar-thin-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .calendar-thin-scroll::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+    transition: background-color 160ms ease;
+  }
+
+  .calendar-thin-scroll:hover::-webkit-scrollbar-thumb,
+  .calendar-thin-scroll:focus-within::-webkit-scrollbar-thumb,
+  .calendar-thin-scroll:active::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.45);
+  }
+
+  .calendar-thin-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  .tas-calendar-surface {
+    background:
+      radial-gradient(1200px 520px at 15% -25%, rgba(56, 189, 248, 0.14), transparent 55%),
+      radial-gradient(900px 460px at 100% -35%, rgba(168, 85, 247, 0.11), transparent 52%),
+      linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(2, 6, 23, 0.92));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 22px 56px -34px rgba(2, 6, 23, 0.95);
+  }
+
+  .tas-calendar-toolbar {
+    background:
+      linear-gradient(180deg, rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.45));
+    backdrop-filter: blur(6px);
+  }
+
+  .tas-calendar-board {
+    background:
+      linear-gradient(180deg, rgba(2, 6, 23, 0.84), rgba(2, 6, 23, 0.9));
+  }
+
+  @keyframes tas-calendar-fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .tas-calendar-fade-in {
+    animation: tas-calendar-fade-in 240ms ease-out both;
+  }
+
   @keyframes shake {
 
     0%,

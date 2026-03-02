@@ -19,6 +19,7 @@ function isTaskPatchEnabledPath(pathname: string | null): boolean {
     if (!pathname) return false;
     return (
         pathname === "/dashboard" ||
+        pathname === "/dashboard/calendar" ||
         pathname.startsWith("/dashboard/tasks/") ||
         pathname.startsWith("/dashboard/voucher") ||
         pathname.startsWith("/dashboard/friends")

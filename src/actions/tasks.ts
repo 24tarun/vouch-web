@@ -17,6 +17,7 @@ import { activeTasksTag, pendingVoucherRequestsTag } from "@/lib/cache-tags";
 import { getCurrencySymbol, getFailureCostBounds, normalizeCurrency } from "@/lib/currency";
 import { getOwnerDeleteRemainingMs, isOwnerTempDeletableStatus } from "@/lib/task-delete-window";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
+import { resolveTaskWindow } from "@/lib/tasks/time-model";
 import {
     buildDefaultDeadlineReminderRows,
     MANUAL_REMINDER_SOURCE,
@@ -47,6 +48,7 @@ const TASK_PROOF_TOO_LARGE_ERROR = "Proof must be 5MB or less.";
 const TASK_PROOF_VIDEO_TOO_LONG_ERROR = "Video proof must be 15 seconds or less.";
 const TITLE_REQUIRED_ERROR = "Title cannot be empty.";
 const EVENT_END_INVALID_ERROR = "Event end time is invalid.";
+const EVENT_START_INVALID_ERROR = "Event start time is invalid.";
 const EVENT_END_BEFORE_START_ERROR = "Event end time must be after start time.";
 
 function isValidTimeZone(timeZone: string): boolean {
@@ -149,6 +151,7 @@ function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTitle: str
     const hasEventToken = /(^|\s)-event(?=\s|$)/i.test(rawTitle);
     const normalizedTitle = rawTitle
         .replace(/(^|\s)-event(?=\s|$)/gi, " ")
+        .replace(/(?:^|\s)-?start(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
         .replace(/(?:^|\s)-?end(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -204,6 +207,18 @@ function parseEventEndFromRawTitle(rawTitle: string, startDate: Date): { found: 
     const endDate = new Date(startDate);
     endDate.setHours(parsed.hours, parsed.minutes, 0, 0);
     return { found: true, endDate };
+}
+
+function parseEventStartFromRawTitle(rawTitle: string, deadlineDate: Date): { found: boolean; startDate: Date | null } {
+    const startTokenMatch = rawTitle.match(/(?:^|\s)-?start(\d{1,2}:\d{2}|\d{1,4})\b/i);
+    if (!startTokenMatch) return { found: false, startDate: null };
+
+    const parsed = parseEventEndTimeToken(startTokenMatch[1]);
+    if (!parsed) return { found: true, startDate: null };
+
+    const startDate = new Date(deadlineDate);
+    startDate.setHours(parsed.hours, parsed.minutes, 0, 0);
+    return { found: true, startDate };
 }
 
 function parseAndValidateFutureDeadline(rawDeadline: string): { deadline?: Date; error?: string } {
@@ -516,6 +531,7 @@ function revalidateTaskSurfaces(taskId: string, userId: string) {
     invalidateActiveTasksCache(userId);
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/calendar");
     revalidatePath(`/dashboard/tasks/${taskId}`);
 }
 
@@ -589,9 +605,9 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
 
     // Default params: Deadline = End of today
     const deadline = getDefaultTaskDeadline();
-    const eventEndAtIso = normalizedTitle.googleSyncForTask
-        ? new Date(deadline.getTime() + defaultEventDurationMinutes * 60 * 1000).toISOString()
-        : null;
+    const defaultEventEnd = new Date(deadline.getTime() + defaultEventDurationMinutes * 60 * 1000);
+    const startAtIso = normalizedTitle.googleSyncForTask ? deadline.toISOString() : null;
+    const endAtIso = normalizedTitle.googleSyncForTask ? defaultEventEnd.toISOString() : deadline.toISOString();
 
     // @ts-ignore
     const { data: task, error } = await (supabase.from("tasks") as any)
@@ -601,20 +617,22 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             title: normalizedTitle.normalizedTitle,
             description: null,
             failure_cost_cents: defaultFailureCostCents,
-            deadline: deadline.toISOString(),
+            start_at: startAtIso,
+            deadline: endAtIso,
             status: "CREATED",
             google_sync_for_task: normalizedTitle.googleSyncForTask,
-            google_event_end_at: eventEndAtIso,
+            google_event_end_at: null,
         })
         .select()
         .single();
 
     if (error) throw new Error(error.message);
 
+    const reminderDeadline = new Date(endAtIso);
     const seededDefaultReminders = buildDefaultDeadlineReminderRows({
         parentTaskId: (task as any).id,
         userId: user.id,
-        deadline,
+        deadline: reminderDeadline,
         deadlineOneHourWarningEnabled:
             ((profileDefaults as any)?.deadline_one_hour_warning_enabled as boolean | undefined) ?? true,
         deadlineFinalWarningEnabled:
@@ -706,6 +724,7 @@ export async function createTask(formData: FormData) {
     const title = titleSelection.normalizedTitle;
     const description = formData.get("description") as string;
     const failureCostMajor = Number(formData.get("failureCost"));
+    const startIsoRaw = formData.get("startIso");
     const deadline = formData.get("deadline") as string;
     const eventEndIsoRaw = formData.get("eventEndIso");
     const voucherId = formData.get("voucherId") as string;
@@ -740,8 +759,18 @@ export async function createTask(formData: FormData) {
     if (!deadlineValidation.deadline) {
         return { error: deadlineValidation.error || INVALID_DEADLINE_ERROR };
     }
-    const validatedDeadline = deadlineValidation.deadline;
-    let eventEndAtIso: string | null = null;
+    let validatedDeadline = deadlineValidation.deadline;
+    let validatedStart: Date | null = null;
+    if (typeof startIsoRaw === "string" && startIsoRaw.trim()) {
+        const parsedStart = new Date(startIsoRaw);
+        if (Number.isNaN(parsedStart.getTime())) {
+            return { error: INVALID_DEADLINE_ERROR };
+        }
+        validatedStart = parsedStart;
+    }
+    if (validatedStart && validatedStart.getTime() >= validatedDeadline.getTime()) {
+        return { error: EVENT_END_BEFORE_START_ERROR };
+    }
     const defaultEventDurationMinutesRaw = Number(
         (reminderDefaultsProfile as { default_event_duration_minutes?: unknown } | null)?.default_event_duration_minutes
     );
@@ -752,28 +781,41 @@ export async function createTask(formData: FormData) {
             ? defaultEventDurationMinutesRaw
             : DEFAULT_EVENT_DURATION_MINUTES;
 
-    if (titleSelection.googleSyncForTask) {
-        let parsedEventEnd: Date | null = null;
-        if (typeof eventEndIsoRaw === "string" && eventEndIsoRaw.trim()) {
-            parsedEventEnd = new Date(eventEndIsoRaw);
-            if (Number.isNaN(parsedEventEnd.getTime())) {
-                return { error: EVENT_END_INVALID_ERROR };
-            }
-        } else {
-            const parsedEventEndFromTitle = parseEventEndFromRawTitle(rawTitle || "", validatedDeadline);
-            if (parsedEventEndFromTitle.found && !parsedEventEndFromTitle.endDate) {
-                return { error: EVENT_END_INVALID_ERROR };
-            }
-            parsedEventEnd =
-                parsedEventEndFromTitle.endDate ||
-                new Date(validatedDeadline.getTime() + defaultEventDurationMinutes * 60 * 1000);
+    // Backward compatibility path:
+    // legacy clients send deadline=start and eventEndIso=end.
+    if (!validatedStart && typeof eventEndIsoRaw === "string" && eventEndIsoRaw.trim()) {
+        const parsedEventEnd = new Date(eventEndIsoRaw);
+        if (Number.isNaN(parsedEventEnd.getTime())) {
+            return { error: EVENT_END_INVALID_ERROR };
         }
-
         if (parsedEventEnd.getTime() <= validatedDeadline.getTime()) {
             return { error: EVENT_END_BEFORE_START_ERROR };
         }
+        validatedStart = validatedDeadline;
+        validatedDeadline = parsedEventEnd;
+    }
 
-        eventEndAtIso = parsedEventEnd.toISOString();
+    // Event token with no explicit start/end keeps legacy defaults.
+    if (titleSelection.googleSyncForTask && !validatedStart) {
+        const parsedEventStartFromTitle = parseEventStartFromRawTitle(rawTitle || "", validatedDeadline);
+        if (parsedEventStartFromTitle.found && !parsedEventStartFromTitle.startDate) {
+            return { error: EVENT_START_INVALID_ERROR };
+        }
+
+        const resolvedStartFromTitle = parsedEventStartFromTitle.startDate;
+        const eventStartAnchor = resolvedStartFromTitle || validatedDeadline;
+        const parsedEventEndFromTitle = parseEventEndFromRawTitle(rawTitle || "", eventStartAnchor);
+        if (parsedEventEndFromTitle.found && !parsedEventEndFromTitle.endDate) {
+            return { error: EVENT_END_INVALID_ERROR };
+        }
+        const parsedEventEnd =
+            parsedEventEndFromTitle.endDate ||
+            new Date(eventStartAnchor.getTime() + defaultEventDurationMinutes * 60 * 1000);
+        if (parsedEventEnd.getTime() <= eventStartAnchor.getTime()) {
+            return { error: EVENT_END_BEFORE_START_ERROR };
+        }
+        validatedStart = eventStartAnchor;
+        validatedDeadline = parsedEventEnd;
     }
     const remindersInput = normalizeRemindersFromFormData(formData.get("reminders"), validatedDeadline);
     if (remindersInput.error) {
@@ -783,8 +825,8 @@ export async function createTask(formData: FormData) {
         validatedDeadline,
         remindersInput.reminderDates
     );
-    const eventDurationMinutes = eventEndAtIso
-        ? Math.max(1, Math.round((new Date(eventEndAtIso).getTime() - validatedDeadline.getTime()) / (1000 * 60)))
+    const eventDurationMinutes = validatedStart
+        ? Math.max(1, Math.round((validatedDeadline.getTime() - validatedStart.getTime()) / (1000 * 60)))
         : null;
 
     if (failureCostCents < failureCostBounds.minCents || failureCostCents > failureCostBounds.maxCents) {
@@ -821,7 +863,7 @@ export async function createTask(formData: FormData) {
 
     if (recurrenceType && userTimezone) {
         // Calculate time_of_day from initial deadline
-        const initialDeadlineDate = validatedDeadline;
+        const initialStartDate = validatedStart ?? validatedDeadline;
         // We need the time in strict HH:MM format. 
         // Best to use the local time component if we trust the input date was constructed correctly relative to UTC/Local.
         // However, converting to the USER'S timezone to extract HH:MM is safer if we have the timezone.
@@ -833,7 +875,7 @@ export async function createTask(formData: FormData) {
             hour12: false,
             timeZone: userTimezone
         });
-        const timeOfDay = timeFormatter.format(initialDeadlineDate);
+        const timeOfDay = timeFormatter.format(initialStartDate);
 
         const ruleConfig = {
             frequency: recurrenceType,
@@ -865,7 +907,7 @@ export async function createTask(formData: FormData) {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit'
-                }).format(initialDeadlineDate)
+                }).format(initialStartDate)
             })
             .select()
             .single();
@@ -885,10 +927,11 @@ export async function createTask(formData: FormData) {
             description: description || null,
             failure_cost_cents: failureCostCents,
             required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
+            start_at: validatedStart ? validatedStart.toISOString() : null,
             deadline: validatedDeadline.toISOString(),
             status: "CREATED",
             google_sync_for_task: titleSelection.googleSyncForTask,
-            google_event_end_at: eventEndAtIso,
+            google_event_end_at: null,
             recurrence_rule_id: recurrenceRuleId
         })
         .select()
@@ -947,6 +990,7 @@ export async function createTask(formData: FormData) {
         to_status: "CREATED",
         metadata: {
             title,
+            start_at: validatedStart ? validatedStart.toISOString() : null,
             deadline: validatedDeadline.toISOString(),
             failure_cost_cents: failureCostCents,
             recurrence_rule_id: recurrenceRuleId,
@@ -1129,6 +1173,7 @@ export async function markTaskCompleteWithProofIntent(
         await enqueueGoogleCalendarDelete((user as any).id, taskId);
         revalidatePath("/dashboard");
         revalidatePath("/dashboard/stats");
+        revalidatePath("/dashboard/calendar");
         revalidatePath("/dashboard/friends");
         revalidatePath(`/dashboard/tasks/${taskId}`);
         return { success: true };
@@ -1278,6 +1323,7 @@ export async function markTaskCompleteWithProofIntent(
     await enqueueGoogleCalendarUpsert((user as any).id, taskId);
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/calendar");
     // Mirror accept/deny behavior so voucher list cache is invalidated on new request.
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
@@ -1467,6 +1513,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/calendar");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
@@ -1512,6 +1559,7 @@ export async function removeAwaitingVoucherProof(taskId: string) {
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/calendar");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
@@ -1591,6 +1639,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/calendar");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
 
@@ -1672,6 +1721,7 @@ export async function undoTaskComplete(taskId: string) {
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/calendar");
     revalidatePath("/dashboard/friends");
     revalidatePath(`/dashboard/tasks/${taskId}`);
 
@@ -2146,17 +2196,17 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         return { error: INVALID_DEADLINE_ERROR };
     }
 
-    const deadlineValidation = parseAndValidateFutureDeadline(newDeadlineIso);
-    if (!deadlineValidation.deadline) {
-        return { error: deadlineValidation.error || INVALID_DEADLINE_ERROR };
+    const parsedInputDate = parseAndValidateFutureDeadline(newDeadlineIso);
+    if (!parsedInputDate.deadline) {
+        return { error: parsedInputDate.error || INVALID_DEADLINE_ERROR };
     }
-    const newDeadlineDate = deadlineValidation.deadline;
+    const inputDate = parsedInputDate.deadline;
 
-    const currentDeadline = new Date((task as any).deadline);
-    if (Number.isNaN(currentDeadline.getTime())) {
+    const currentWindow = resolveTaskWindow(task as any);
+    if (!currentWindow) {
         return { error: INVALID_DEADLINE_ERROR };
     }
-
+    const currentDeadline = currentWindow.endAt;
     if (Date.now() >= currentDeadline.getTime()) {
         return { error: "Deadline has passed" };
     }
@@ -2171,11 +2221,29 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
 
+    let nextStartAtIso: string | null = null;
+    let nextDeadlineDate = inputDate;
+    if (currentWindow.isTimed && currentWindow.startAt) {
+        const durationMs = currentWindow.endAt.getTime() - currentWindow.startAt.getTime();
+        if (durationMs <= 0) {
+            return { error: EVENT_END_BEFORE_START_ERROR };
+        }
+        const nextStart = inputDate;
+        const nextEnd = new Date(nextStart.getTime() + durationMs);
+        if (nextEnd.getTime() <= nextStart.getTime()) {
+            return { error: EVENT_END_BEFORE_START_ERROR };
+        }
+        nextStartAtIso = nextStart.toISOString();
+        nextDeadlineDate = nextEnd;
+    }
+
     // @ts-ignore
     const { error } = await (supabase.from("tasks") as any)
         .update({
             status: "POSTPONED",
-            deadline: newDeadlineDate.toISOString(),
+            start_at: nextStartAtIso,
+            deadline: nextDeadlineDate.toISOString(),
+            google_event_end_at: null,
             postponed_at: new Date().toISOString(),
         } as any)
         .eq("id", (taskId as any));
@@ -2189,7 +2257,7 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         taskId,
         user.id,
         currentDeadline,
-        newDeadlineDate
+        nextDeadlineDate
     );
     if (reminderRealignment.error) {
         return { error: reminderRealignment.error };
@@ -2201,7 +2269,10 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         actor_id: (user as any).id,
         from_status: (task as any).status,
         to_status: "POSTPONED",
-        metadata: { new_deadline: newDeadlineDate.toISOString() },
+        metadata: {
+            new_start_at: nextStartAtIso,
+            new_deadline: nextDeadlineDate.toISOString(),
+        },
     });
 
     await enqueueGoogleCalendarUpsert(user.id, taskId);
@@ -2285,6 +2356,7 @@ export async function ownerTempDeleteTask(taskId: string) {
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/friends");
     revalidatePath("/dashboard/stats");
+    revalidatePath("/dashboard/calendar");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
 }

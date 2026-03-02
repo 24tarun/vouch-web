@@ -33,6 +33,7 @@ export interface Task {
     description: string | null;
     failure_cost_cents: number;
     required_pomo_minutes: number | null;
+    start_at?: string | null;
     deadline: string;
     status: TaskStatus;
     postponed_at: string | null;

@@ -477,7 +477,16 @@ async function processRule(
             guess -= diff;
         }
 
-        const deadlineIso = new Date(guess).toISOString();
+        const dueAnchorIso = new Date(guess).toISOString();
+        const durationMinutes =
+            Number.isFinite((rule as any).google_event_duration_minutes)
+                ? Number((rule as any).google_event_duration_minutes)
+                : null;
+        const hasTimedWindow = Boolean(durationMinutes && durationMinutes > 0);
+        const startAtIso = hasTimedWindow ? dueAnchorIso : null;
+        const deadlineIso = hasTimedWindow
+            ? new Date(new Date(dueAnchorIso).getTime() + (durationMinutes as number) * 60 * 1000).toISOString()
+            : dueAnchorIso;
 
         // Create Task
         // @ts-ignore
@@ -489,17 +498,11 @@ async function processRule(
                 description: rule.description,
                 failure_cost_cents: rule.failure_cost_cents,
                 required_pomo_minutes: rule.required_pomo_minutes ?? null,
+                start_at: startAtIso,
                 deadline: deadlineIso,
                 status: "CREATED",
                 google_sync_for_task: Boolean(rule.google_sync_for_rule),
-                google_event_end_at:
-                    Boolean(rule.google_sync_for_rule) &&
-                        Number.isFinite((rule as any).google_event_duration_minutes)
-                        ? new Date(
-                            new Date(deadlineIso).getTime() +
-                            Number((rule as any).google_event_duration_minutes) * 60 * 1000
-                        ).toISOString()
-                        : null,
+                google_event_end_at: null,
                 recurrence_rule_id: rule.id
             })
             .select("id, deadline")
