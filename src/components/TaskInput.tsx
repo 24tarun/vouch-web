@@ -43,6 +43,13 @@ const SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(
 const HIGHLIGHT_EVENT_TOKEN_REGEX = /(^|\s)(-event)(?=\s|$)/gi;
 const HIGHLIGHT_TIME_TOKEN_REGEX = /@(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/g;
 const HIGHLIGHT_EVENT_END_TOKEN_REGEX = /(^|\s)(-?end(\d{1,2}:\d{2}|\d{1,4}))\b/gi;
+const HIGHLIGHT_TIMER_TOKEN_REGEX = /\b(timer)\s+(\d+)\b/gi;
+const HIGHLIGHT_POMO_TOKEN_REGEX = /\b(pomo)\s+(\d+)\b/gi;
+const HIGHLIGHT_REMIND_TOKEN_REGEX = /\b(remind)\s+(\d{1,2}:\d{2}|\d{4})\b/gi;
+const HIGHLIGHT_TOMORROW_TOKEN_REGEX = /\b(tmrw|tomorrow)\b/gi;
+const HIGHLIGHT_VOUCH_TOKEN_REGEX = /\b(vouch)\s+(me|self|myself|\w+)\b/gi;
+const HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
+const HIGHLIGHT_SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
 
 interface TitleHighlightSegment {
     text: string;
@@ -193,11 +200,16 @@ function buildTitleHighlightSegments(text: string): TitleHighlightSegment[] {
     if (!text) return [{ text: "", highlighted: false }];
 
     const ranges: Array<{ start: number; end: number }> = [];
+    const pushRange = (start: number, end: number) => {
+        if (start >= 0 && end > start && end <= text.length) {
+            ranges.push({ start, end });
+        }
+    };
 
     for (const match of text.matchAll(HIGHLIGHT_EVENT_TOKEN_REGEX)) {
         if (!match[2]) continue;
         const start = (match.index ?? 0) + (match[1]?.length ?? 0);
-        ranges.push({ start, end: start + match[2].length });
+        pushRange(start, start + match[2].length);
     }
 
     for (const match of text.matchAll(HIGHLIGHT_TIME_TOKEN_REGEX)) {
@@ -205,7 +217,7 @@ function buildTitleHighlightSegments(text: string): TitleHighlightSegment[] {
         const parsed = parseTimeToken(rawToken.slice(1), true);
         if (!parsed) continue;
         const start = match.index ?? 0;
-        ranges.push({ start, end: start + rawToken.length });
+        pushRange(start, start + rawToken.length);
     }
 
     for (const match of text.matchAll(HIGHLIGHT_EVENT_END_TOKEN_REGEX)) {
@@ -213,7 +225,57 @@ function buildTitleHighlightSegments(text: string): TitleHighlightSegment[] {
         const parsed = parseTimeToken(match[3], true);
         if (!parsed) continue;
         const start = (match.index ?? 0) + (match[1]?.length ?? 0);
-        ranges.push({ start, end: start + match[2].length });
+        pushRange(start, start + match[2].length);
+    }
+
+    for (const match of text.matchAll(HIGHLIGHT_TIMER_TOKEN_REGEX)) {
+        if (!match[0] || !match[2]) continue;
+        const parsed = Number.parseInt(match[2], 10);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10000) continue;
+        const start = match.index ?? 0;
+        pushRange(start, start + match[0].length);
+    }
+
+    for (const match of text.matchAll(HIGHLIGHT_POMO_TOKEN_REGEX)) {
+        if (!match[0] || !match[2]) continue;
+        const parsed = Number.parseInt(match[2], 10);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10000) continue;
+        const start = match.index ?? 0;
+        pushRange(start, start + match[0].length);
+    }
+
+    for (const match of text.matchAll(HIGHLIGHT_REMIND_TOKEN_REGEX)) {
+        if (!match[0] || !match[2]) continue;
+        const parsed = parseTimeToken(match[2], false);
+        if (!parsed) continue;
+        const start = match.index ?? 0;
+        pushRange(start, start + match[0].length);
+    }
+
+    for (const match of text.matchAll(HIGHLIGHT_TOMORROW_TOKEN_REGEX)) {
+        if (!match[0]) continue;
+        const start = match.index ?? 0;
+        pushRange(start, start + match[0].length);
+    }
+
+    for (const match of text.matchAll(HIGHLIGHT_VOUCH_TOKEN_REGEX)) {
+        if (!match[0]) continue;
+        const start = match.index ?? 0;
+        pushRange(start, start + match[0].length);
+    }
+
+    for (const match of text.matchAll(HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX)) {
+        if (!match[0] || !match[1]) continue;
+        const parsedDay = Number.parseInt(match[1], 10);
+        if (!Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31) continue;
+        const start = match.index ?? 0;
+        pushRange(start, start + match[0].length);
+    }
+
+    for (const match of text.matchAll(HIGHLIGHT_SLASH_DATE_TOKEN_REGEX)) {
+        if (!match[0]) continue;
+        const start = match.index ?? 0;
+        pushRange(start, start + match[0].length);
     }
 
     if (ranges.length === 0) return [{ text, highlighted: false }];
