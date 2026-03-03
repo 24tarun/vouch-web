@@ -53,6 +53,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
     const supabaseRef = useRef(createSupabaseClient());
     const pomoChannelRef = useRef<RealtimeChannel | null>(null);
+    const locallyStartedSessionIdRef = useRef<string | null>(null);
+    const lastSeenSessionIdRef = useRef<string | null>(null);
 
     const clearPomoChannel = useCallback(() => {
         const channel = pomoChannelRef.current;
@@ -75,13 +77,24 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             }
 
             const sessionData = data.session;
+            const nextSessionId = sessionData?.id || null;
+            const previousSessionId = lastSeenSessionIdRef.current;
             if (sessionData) {
                 setSession(sessionData);
                 setTaskTitle(sessionData.task?.title || "Unknown Task");
+
+                const isNewAttach = previousSessionId !== nextSessionId;
+                if (isNewAttach) {
+                    const startedLocally = locallyStartedSessionIdRef.current === nextSessionId;
+                    setMinimized(!startedLocally);
+                }
             } else {
                 setSession(null);
                 setTaskTitle(null);
+                locallyStartedSessionIdRef.current = null;
             }
+
+            lastSeenSessionIdRef.current = nextSessionId;
         } catch (error) {
             console.error("Failed to fetch pomo session", error);
         } finally {
@@ -140,6 +153,8 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
                 clearPomoChannel();
                 setSession(null);
                 setTaskTitle(null);
+                locallyStartedSessionIdRef.current = null;
+                lastSeenSessionIdRef.current = null;
             }
         });
 
@@ -184,7 +199,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             if (session.task_id !== taskId) {
                 toast.error("One Pomodoro session at a time. Stop the current session first.");
             }
-            setMinimized(false);
             return;
         }
 
@@ -195,11 +209,15 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             if (conflict) {
                 toast.error("One Pomodoro session at a time. Stop the current session first.");
                 await refreshSession();
-                setMinimized(false);
             } else {
                 toast.error(res.error);
             }
         } else {
+            const startedSessionId =
+                typeof (res as { session?: { id?: string } }).session?.id === "string"
+                    ? ((res as { session?: { id?: string } }).session?.id as string)
+                    : null;
+            locallyStartedSessionIdRef.current = startedSessionId;
             await refreshSession();
             setMinimized(false); // Open timer
         }

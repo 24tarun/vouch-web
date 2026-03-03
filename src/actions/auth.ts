@@ -21,7 +21,7 @@ import {
     DEFAULT_POMO_DURATION_MINUTES,
 } from "@/lib/constants";
 
-type PomoAutoEndSource = "sign_in_auto_end" | "sign_out_auto_end";
+type PomoAutoEndSource = "sign_out_auto_end";
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 
 async function autoEndLingeringPomoSession(
@@ -147,8 +147,6 @@ export async function signIn(formData: FormData) {
             error: "Profile not found. Please contact support or try signing up again."
         };
     }
-
-    await autoEndLingeringPomoSession(supabase, data.user.id, "sign_in_auto_end");
 
     revalidatePath("/", "layout");
     redirect("/dashboard");

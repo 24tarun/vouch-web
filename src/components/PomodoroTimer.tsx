@@ -166,7 +166,7 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
 
     if (minimized) {
         return (
-            <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-10 fade-in duration-300">
+            <div className="fixed z-50 animate-in slide-in-from-bottom-10 fade-in duration-300 [left:calc(env(safe-area-inset-left)+1rem)] [bottom:calc(env(safe-area-inset-bottom)+1rem)]">
                 <div
                     onClick={onMinimize}
                     className="group bg-black border border-slate-800 rounded-full h-20 pl-3 pr-6 flex items-center gap-4 shadow-2xl cursor-pointer hover:border-cyan-500/40 transition-all overflow-hidden min-w-[230px]"
