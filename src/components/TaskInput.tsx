@@ -57,10 +57,10 @@ const HIGHLIGHT_TIMER_TOKEN_REGEX = /\b(timer)\s+(\d+)\b/gi;
 const HIGHLIGHT_POMO_TOKEN_REGEX = /\b(pomo)\s+(\d+)\b/gi;
 const HIGHLIGHT_REMIND_TOKEN_REGEX = /\b(remind)\s+(\d{1,2}:\d{2}|\d{4})\b/gi;
 const HIGHLIGHT_TOMORROW_TOKEN_REGEX = /\b(tmrw|tomorrow)\b/gi;
-const HIGHLIGHT_VOUCH_TOKEN_REGEX = /\b(vouch)\s+(me|self|myself|\w+)\b/gi;
+const HIGHLIGHT_VOUCH_TOKEN_REGEX = /(^|\s)(vouch|\.v)\s+(me|self|myself|\w+)\b/gi;
 const HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
 const HIGHLIGHT_SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
-const VALUE_EXPECTING_KEYWORDS = new Set(["-start", "-end", "-color", "remind", "timer", "pomo", "vouch"]);
+const VALUE_EXPECTING_KEYWORDS = new Set(["-start", "-end", "-color", "remind", "timer", "pomo", "vouch", ".v"]);
 const COLOR_COMPLETION_TOKENS = [
     ...GOOGLE_EVENT_COLOR_OPTIONS.map((option) => option.aliasToken),
     ...GOOGLE_EVENT_COLOR_OPTIONS.map((option) => option.nativeToken),
@@ -78,6 +78,7 @@ const PARSER_KEYWORD_COMPLETION_TOKENS = Array.from(new Set([
     "timer",
     "pomo",
     "vouch",
+    ".v",
     "tmrw",
     "tomorrow",
     ...COLOR_COMPLETION_TOKENS,
@@ -315,9 +316,9 @@ function buildTitleHighlightSegments(text: string): TitleHighlightSegment[] {
     }
 
     for (const match of text.matchAll(HIGHLIGHT_VOUCH_TOKEN_REGEX)) {
-        if (!match[0]) continue;
-        const start = match.index ?? 0;
-        applyKeywordRange(start, start + match[0].length);
+        if (!match[2] || !match[3]) continue;
+        const start = (match.index ?? 0) + (match[1]?.length ?? 0);
+        applyKeywordRange(start, start + `${match[2]} ${match[3]}`.length);
     }
 
     for (const match of text.matchAll(HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX)) {
@@ -988,10 +989,10 @@ export function TaskInput({
             setDeadlineError(parserResolution.error);
         }
 
-        if (/\bvouch\s+(me|self|myself)\b/i.test(title)) {
+        if (/(?:\bvouch|\.v)\s+(me|self|myself)\b/i.test(title)) {
             setSelectedVoucherId(selfUserId);
         } else {
-            const vouchMatch = title.match(/vouch\s+(\w+)/i);
+            const vouchMatch = title.match(/(?:\bvouch|\.v)\s+(\w+)/i);
             if (vouchMatch) {
                 const name = vouchMatch[1].toLowerCase();
                 const friend = friends.find(
@@ -1019,7 +1020,7 @@ export function TaskInput({
             .replace(/\b(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])(?:\/\d{4})?\b/g, "")
             .replace(/\bremind\s+(?:\d{1,2}:\d{2}|\d{4})\b/gi, "")
             .replace(/\b(?:tmrw|tomorrow)\b/gi, "")
-            .replace(/vouch\s+\w+/gi, "")
+            .replace(/(?:\bvouch|\.v)\s+\w+/gi, "")
             .replace(/\bpomo\s+\d+\b/gi, "")
             .replace(/\btimer\s+\d+\b/gi, "")
             .replace(/\s+/g, " ")
@@ -1260,7 +1261,7 @@ export function TaskInput({
                         }}
                         onScroll={syncTitleHighlightScroll}
                         enterKeyHint="done"
-                        placeholder="plan sprint -event -start930 -color /write notes remind 1000 vouch bob"
+                        placeholder="plan sprint -event -start930 -color /write notes remind 1000 vouch bob (.v bob)"
                         className={cn(
                             "w-full bg-transparent border-none py-4 px-5 text-white placeholder:text-slate-500/70 focus:outline-none transition-all font-medium text-lg",
                             title.length > 0 && "text-transparent caret-white"
