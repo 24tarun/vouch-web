@@ -83,8 +83,11 @@ export function PomoButton({
                     min="1"
                     max={String(MAX_POMO_DURATION_MINUTES)}
                     step="1"
+                    inputMode="numeric"
                     value={durationInput}
                     onChange={(e) => setDurationInput(e.target.value)}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onClick={(e) => e.currentTarget.select()}
                     disabled={isLoading}
                     onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -92,7 +95,7 @@ export function PomoButton({
                             handleStart();
                         }
                     }}
-                    className="h-full w-16 px-2 bg-transparent text-cyan-300 text-xs font-mono focus:outline-none text-center [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="h-full w-20 px-2 bg-transparent text-cyan-300 text-xs font-mono text-center cursor-text focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     aria-label="Pomodoro duration in minutes"
                 />
             </div>
