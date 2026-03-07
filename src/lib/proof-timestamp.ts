@@ -6,6 +6,11 @@ const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const WEBP_RIFF = "RIFF";
 const WEBP_FILE_TYPE = "WEBP";
 const MP4_EPOCH_OFFSET_MS = Date.UTC(1904, 0, 1, 0, 0, 0, 0);
+const IMAGE_EXIF_TIMESTAMP_KEYS = new Set([
+    "datetime",
+    "datetimedigitized",
+    "datetimeoriginal",
+]);
 
 interface ProofTimestampParts {
     year: number;
@@ -49,6 +54,11 @@ export function normalizeProofTimestampText(value: unknown): string {
     return PROOF_TIMESTAMP_REGEX.test(trimmed) ? trimmed : PROOF_TIMESTAMP_PLACEHOLDER;
 }
 
+function formatDateToProofTimestamp(date: Date, timeZone?: string): string {
+    const resolvedTimeZone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    return formatDateInTimeZone(date, resolvedTimeZone);
+}
+
 function readAscii(bytes: Uint8Array, start: number, length: number): string {
     return String.fromCharCode(...bytes.slice(start, start + length));
 }
@@ -66,6 +76,44 @@ function parseExifDateTime(text: string): ProofTimestampParts | null {
     };
 
     return hasValidParts(parts) ? parts : null;
+}
+
+export function extractProofTimestampTextFromExifLike(value: unknown): string | null {
+    if (!value || typeof value !== "object") return null;
+
+    const queue: unknown[] = [value];
+    const seen = new Set<object>();
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current || typeof current !== "object") continue;
+        if (seen.has(current)) continue;
+        seen.add(current);
+
+        if (Array.isArray(current)) {
+            for (const item of current) queue.push(item);
+            continue;
+        }
+
+        for (const [rawKey, rawValue] of Object.entries(current)) {
+            if (rawValue && typeof rawValue === "object") {
+                queue.push(rawValue);
+                continue;
+            }
+
+            if (typeof rawValue !== "string") continue;
+
+            const normalizedKey = rawKey.replace(/[^a-z]/gi, "").toLowerCase();
+            if (!IMAGE_EXIF_TIMESTAMP_KEYS.has(normalizedKey)) continue;
+
+            const parts = parseExifDateTime(rawValue);
+            if (parts) {
+                return formatProofTimestampParts(parts);
+            }
+        }
+    }
+
+    return null;
 }
 
 function parseIfdAsciiEntry(
@@ -264,6 +312,15 @@ function formatDateInTimeZone(date: Date, timeZone: string): string {
     }
 }
 
+function extractProofTimestampTextFromFileLastModified(file: File, uploaderTimeZone: string): string | null {
+    if (!Number.isFinite(file.lastModified) || file.lastModified <= 0) return null;
+
+    const date = new Date(file.lastModified);
+    if (Number.isNaN(date.getTime())) return null;
+
+    return formatDateToProofTimestamp(date, uploaderTimeZone);
+}
+
 function readAtomSize(view: DataView, offset: number, limit: number): { size: number; headerSize: number } | null {
     if (offset + 8 > limit) return null;
     const size32 = view.getUint32(offset);
@@ -363,8 +420,17 @@ export async function extractProofTimestampText(file: File): Promise<string> {
                         ? extractProofTimestampTextFromVideoBuffer(buffer, uploaderTimeZone)
                         : null;
 
-        return normalizeProofTimestampText(extracted);
+        const normalizedExtracted = normalizeProofTimestampText(extracted);
+        if (normalizedExtracted !== PROOF_TIMESTAMP_PLACEHOLDER) {
+            return normalizedExtracted;
+        }
+
+        return normalizeProofTimestampText(
+            extractProofTimestampTextFromFileLastModified(file, uploaderTimeZone)
+        );
     } catch {
-        return PROOF_TIMESTAMP_PLACEHOLDER;
+        return normalizeProofTimestampText(
+            extractProofTimestampTextFromFileLastModified(file, uploaderTimeZone)
+        );
     }
 }

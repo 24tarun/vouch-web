@@ -4,6 +4,7 @@ import { HardRefreshButton } from "@/components/HardRefreshButton";
 import { StatsActiveTaskList } from "@/components/StatsActiveTaskList";
 import { StatsHistoryTaskList } from "@/components/StatsHistoryTaskList";
 import { Badge } from "@/components/ui/badge";
+import { sortStatsActiveTasks } from "@/lib/stats-active-task-sort";
 
 const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
 
@@ -82,12 +83,7 @@ export default async function OverviewPage() {
     const totalHours = Math.floor(totalSeconds / 3600);
     const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
 
-    const activeTasks = tasks.filter((t) => ACTIVE_SECTION_STATUSES.has(t.status));
-    activeTasks.sort((a, b) => {
-        const deadlineDiff = new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
-        if (deadlineDiff !== 0) return deadlineDiff;
-        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    });
+    const activeTasks = sortStatsActiveTasks(tasks.filter((t) => ACTIVE_SECTION_STATUSES.has(t.status)));
 
     const activeTasksCount = activeTasks.length;
     const pendingVouchCount = tasks.filter((t) =>

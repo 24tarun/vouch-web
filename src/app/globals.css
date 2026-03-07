@@ -151,6 +151,12 @@
       align-items: center;
       justify-content: center;
     }
+
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
   }
 
   /* Handle dynamic viewport height */

@@ -6,6 +6,8 @@ import React from "react";
 import { cleanup, render } from "@testing-library/react";
 import { ProofMedia } from "../../src/components/ProofMedia";
 import {
+    extractProofTimestampText,
+    extractProofTimestampTextFromExifLike,
     extractProofTimestampTextFromJpegBuffer,
     extractProofTimestampTextFromVideoBuffer,
     formatProofTimestampParts,
@@ -177,6 +179,84 @@ test("missing or unreadable image metadata normalizes to the placeholder overlay
     assert.equal(
         normalizeProofTimestampText(extractProofTimestampTextFromJpegBuffer(invalidBuffer)),
         PROOF_TIMESTAMP_PLACEHOLDER
+    );
+});
+
+test("native EXIF-like metadata objects yield the same overlay text as embedded EXIF", () => {
+    /*
+     * What and why this test checks:
+     * This verifies the EXIF-object fallback path for mobile capture flows where the picker exposes timestamp data separately from the file bytes.
+     *
+     * Passing scenario:
+     * A native-style metadata object with DateTimeOriginal returns the exact overlay text the UI should store and render.
+     *
+     * Failing scenario:
+     * If EXIF-object parsing regresses, direct camera captures can still fall back to question marks even when native metadata is available.
+     */
+    assert.equal(
+        extractProofTimestampTextFromExifLike({
+            DateTimeOriginal: "2026:03:07 08:14:59",
+            Orientation: 1,
+        }),
+        "08:14 07/03/26"
+    );
+});
+
+test("HEIC files fall back to the file timestamp when embedded metadata is unavailable", async () => {
+    /*
+     * What and why this test checks:
+     * This covers the unsupported HEIC path where browsers often cannot expose EXIF directly but still provide a reliable file timestamp.
+     *
+     * Passing scenario:
+     * A HEIC file with no parseable media metadata uses lastModified and renders a deterministic overlay instead of the placeholder.
+     *
+     * Failing scenario:
+     * If the fallback is missing, direct mobile HEIC captures will continue to show question marks even though the file timestamp is known.
+     */
+    const localCaptureDate = new Date(2026, 2, 7, 8, 14, 0, 0);
+    const file = new File([new Uint8Array([0x00, 0x11, 0x22, 0x33])], "proof.heic", {
+        type: "image/heic",
+        lastModified: localCaptureDate.getTime(),
+    });
+
+    assert.equal(
+        await extractProofTimestampText(file),
+        formatProofTimestampParts({
+            year: 2026,
+            month: 3,
+            day: 7,
+            hours: 8,
+            minutes: 14,
+        })
+    );
+});
+
+test("metadata-less direct videos fall back to the file timestamp instead of the placeholder", async () => {
+    /*
+     * What and why this test checks:
+     * This verifies the direct-capture fallback for videos whose container metadata is missing or unreadable after mobile camera handoff.
+     *
+     * Passing scenario:
+     * A video file without parseable atoms still returns a formatted overlay based on lastModified.
+     *
+     * Failing scenario:
+     * If the fallback breaks, direct video captures will still surface question marks even though the file timestamp is available.
+     */
+    const localCaptureDate = new Date(2026, 2, 7, 9, 27, 0, 0);
+    const file = new File([new Uint8Array([0x01, 0x02, 0x03, 0x04])], "proof.mp4", {
+        type: "video/mp4",
+        lastModified: localCaptureDate.getTime(),
+    });
+
+    assert.equal(
+        await extractProofTimestampText(file),
+        formatProofTimestampParts({
+            year: 2026,
+            month: 3,
+            day: 7,
+            hours: 9,
+            minutes: 27,
+        })
     );
 });
 
