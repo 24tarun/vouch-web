@@ -48,6 +48,10 @@ import {
     toDateTimeLocalValue,
 } from "@/lib/datetime-local";
 import { parseRequiredPomoFromTitle } from "@/lib/pomodoro";
+import {
+    normalizeReminderDates,
+    resolveDateSheetDraftSubmission,
+} from "@/lib/task-deadline-sheet";
 
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
 const TIME_TOKEN_REGEX = /@(\d{1,2}:\d{2}|\d{3,4}|\d{1,2})\b/i;
@@ -678,14 +682,6 @@ export function TaskInput({
         return fromDateTimeLocalValue(deadlineDraftValue);
     };
 
-    const normalizeReminderDates = (values: Date[]) => {
-        const deduped = new Map<number, Date>();
-        for (const value of values) {
-            deduped.set(value.getTime(), value);
-        }
-        return Array.from(deduped.values()).sort((a, b) => a.getTime() - b.getTime());
-    };
-
     const buildReminderDateOnDeadlineDay = (deadlineDate: Date, hours: number, minutes: number) => {
         const reminderDate = new Date(deadlineDate);
         reminderDate.setHours(hours, minutes, 0, 0);
@@ -887,41 +883,36 @@ export function TaskInput({
         openDateSheet();
     };
 
-    const applyDateSheet = () => {
-        const parsed = fromDateTimeLocalValue(deadlineDraftValue);
-        if (!parsed) return;
-        if (parsed.getTime() <= Date.now()) {
-            setDeadlineError("Deadline must be in the future.");
-            return;
-        }
-
-        const pendingReminder =
-            reminderDraftValue.trim().length > 0
-                ? fromDateTimeLocalValue(reminderDraftValue)
-                : null;
-        if (reminderDraftValue.trim().length > 0 && !pendingReminder) {
-            setDeadlineError("Please choose a valid reminder.");
-            return;
-        }
-
-        const remindersToApply = normalizeReminderDates(
-            pendingReminder ? [...remindersDraft, pendingReminder] : remindersDraft
-        );
-
-        const hasInvalidReminder = remindersToApply.some(
-            (reminder) => reminder.getTime() <= Date.now() || reminder.getTime() > parsed.getTime()
-        );
-        if (hasInvalidReminder) {
-            setDeadlineError("Reminders must be in the future and before or at the deadline.");
-            return;
+    const commitDateSheetDraft = (closeSheet: boolean) => {
+        const result = resolveDateSheetDraftSubmission({
+            deadlineDraftValue,
+            reminderDraftValue,
+            remindersDraft,
+        });
+        if ("error" in result) {
+            setDeadlineError(result.error);
+            return null;
         }
 
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(true);
-        setSelectedDate(parsed);
-        setReminders(remindersToApply);
+        setSelectedDate(result.deadline);
+        setReminders(result.reminders);
         setReminderDraftValue("");
-        setIsDateSheetOpen(false);
+        if (closeSheet) {
+            setIsDateSheetOpen(false);
+        }
+
+        return result;
+    };
+
+    const applyDateSheet = () => {
+        commitDateSheetDraft(true);
+    };
+
+    const handleDateSheetCreate = () => {
+        if (isLoading) return;
+        formRef.current?.requestSubmit();
     };
 
     const handleAddReminderDraft = () => {
@@ -1054,6 +1045,32 @@ export function TaskInput({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        let effectiveIsDeadlineManuallyPicked = isDeadlineManuallyPicked;
+        let effectiveSelectedDate = selectedDate;
+        let effectiveReminders = reminders;
+
+        if (isDateSheetOpen) {
+            const draftResult = resolveDateSheetDraftSubmission({
+                deadlineDraftValue,
+                reminderDraftValue,
+                remindersDraft,
+            });
+            if ("error" in draftResult) {
+                setDeadlineError(draftResult.error);
+                return;
+            }
+
+            setDeadlineError(null);
+            setIsDeadlineManuallyPicked(true);
+            setSelectedDate(draftResult.deadline);
+            setReminders(draftResult.reminders);
+            setReminderDraftValue("");
+            setIsDateSheetOpen(false);
+
+            effectiveIsDeadlineManuallyPicked = true;
+            effectiveSelectedDate = draftResult.deadline;
+            effectiveReminders = draftResult.reminders;
+        }
 
         const { taskTitle, subtasks } = parseTaskTitleAndSubtasks(title);
         const requiredPomoParse = parseRequiredPomoFromTitle(title);
@@ -1078,19 +1095,19 @@ export function TaskInput({
             return;
         }
 
-        const parserResolution = isDeadlineManuallyPicked ? null : resolveDeadlineFromTitle(title);
+        const parserResolution = effectiveIsDeadlineManuallyPicked ? null : resolveDeadlineFromTitle(title);
         if (parserResolution?.error) {
             setDeadlineError(parserResolution.error);
             return;
         }
 
-        let deadlineToSubmit = parserResolution?.deadline ?? selectedDate ?? getDefaultDeadline();
+        let deadlineToSubmit = parserResolution?.deadline ?? effectiveSelectedDate ?? getDefaultDeadline();
         let eventEndDate: Date | null = null;
 
         if (isEventTask) {
-            const anchorDateResolution = isDeadlineManuallyPicked
+            const anchorDateResolution = effectiveIsDeadlineManuallyPicked
                 ? {
-                    anchorDate: selectedDate ?? getDefaultDeadline(),
+                    anchorDate: effectiveSelectedDate ?? getDefaultDeadline(),
                     error: null as string | null,
                 }
                 : resolveEventAnchorDateFromTitle(title);
@@ -1124,7 +1141,7 @@ export function TaskInput({
         const parserReminderDates = parsedReminderTimes.map(({ hours, minutes }) =>
             buildReminderDateOnDeadlineDay(deadlineToSubmit, hours, minutes)
         );
-        const remindersToSubmit = normalizeReminderDates([...reminders, ...parserReminderDates]);
+        const remindersToSubmit = normalizeReminderDates([...effectiveReminders, ...parserReminderDates]);
 
         const hasPastReminder = remindersToSubmit.some((reminder) => reminder.getTime() <= Date.now());
         if (hasPastReminder) {
@@ -1581,6 +1598,20 @@ export function TaskInput({
                             className="h-9 px-3 rounded-md bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30 disabled:opacity-50"
                         >
                             Apply
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleDateSheetCreate}
+                            disabled={isLoading || !deadlineDraftValue}
+                            aria-label="Apply deadline and create task"
+                            title="Apply deadline and create task"
+                            className="h-9 w-9 shrink-0 rounded-md border border-blue-500/30 bg-blue-600/20 text-blue-300 transition-colors hover:bg-blue-600/30 disabled:opacity-50 flex items-center justify-center"
+                        >
+                            {isLoading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                            ) : (
+                                <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                            )}
                         </button>
                     </DialogFooter>
                 </DialogContent>
