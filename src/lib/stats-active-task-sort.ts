@@ -7,11 +7,10 @@ function parseTimestamp(value: string | null | undefined): number | null {
 }
 
 function getRecentActionTimestamp(task: Pick<Task, "marked_completed_at" | "updated_at" | "created_at">): number {
-    return (
-        parseTimestamp(task.marked_completed_at) ??
-        parseTimestamp(task.updated_at) ??
-        parseTimestamp(task.created_at) ??
-        0
+    return Math.max(
+        parseTimestamp(task.marked_completed_at) ?? 0,
+        parseTimestamp(task.updated_at) ?? 0,
+        parseTimestamp(task.created_at) ?? 0
     );
 }
 

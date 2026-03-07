@@ -79,6 +79,41 @@ test("stats active tasks sort by recent completion action first", () => {
     );
 });
 
+test("stats active tasks use the newest timestamp across updated and marked complete", () => {
+    const tasks = [
+        buildTask("newer-marked", {
+            status: "AWAITING_VOUCHER",
+            marked_completed_at: toLocalIso(2026, 2, 7, 12, 0),
+            updated_at: toLocalIso(2026, 2, 7, 10, 0),
+        }),
+        buildTask("newer-updated", {
+            status: "MARKED_COMPLETED",
+            marked_completed_at: toLocalIso(2026, 2, 7, 9, 0),
+            updated_at: toLocalIso(2026, 2, 7, 13, 0),
+        }),
+    ];
+
+    const sorted = sortStatsActiveTasks(tasks);
+
+    /*
+     * What and why this test checks:
+     * This verifies the stats-page sort compares both updated_at and marked_completed_at and uses whichever
+     * timestamp is newer for each task, because the user wants the most recently changed task on top.
+     *
+     * Passing scenario:
+     * A task with the newest updated_at on Mar 7, 2026 sorts above a different task whose newest timestamp is
+     * its marked_completed_at, even though that completion timestamp is also recent.
+     *
+     * Failing scenario:
+     * If the code always prioritizes marked_completed_at over updated_at, or vice versa, the list can show an
+     * older change first and the stats page no longer reflects the latest task change correctly.
+     */
+    assert.deepEqual(
+        sorted.map((task) => task.id),
+        ["newer-updated", "newer-marked"]
+    );
+});
+
 test("stats active tasks fall back to recent updated_at when no completion timestamp exists", () => {
     const tasks = [
         buildTask("older-update", {
