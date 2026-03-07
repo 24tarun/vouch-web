@@ -38,6 +38,7 @@ import {
     validateEventColorUsage,
 } from "@/lib/task-title-event-color";
 import { isValidPomoDurationMinutes } from "@/lib/pomodoro";
+import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
 
 const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
@@ -381,6 +382,7 @@ function validateProofIntent(rawProofIntent?: TaskProofIntent | null): { proofIn
             mimeType: rawProofIntent.mimeType,
             sizeBytes,
             durationMs: mediaKind === "video" ? Number(durationMs) : null,
+            overlayTimestampText: normalizeProofTimestampText(rawProofIntent.overlayTimestampText),
         },
     };
 }
@@ -1229,6 +1231,7 @@ export async function markTaskCompleteWithProofIntent(
                     mime_type: proofIntent.mimeType,
                     size_bytes: proofIntent.sizeBytes,
                     duration_ms: proofIntent.durationMs ?? null,
+                    overlay_timestamp_text: normalizeProofTimestampText(proofIntent.overlayTimestampText),
                     upload_state: "PENDING",
                 },
                 { onConflict: "task_id" }
@@ -1376,6 +1379,7 @@ export async function initAwaitingVoucherProofUpload(
                 mime_type: proofIntent.mimeType,
                 size_bytes: proofIntent.sizeBytes,
                 duration_ms: proofIntent.durationMs ?? null,
+                overlay_timestamp_text: normalizeProofTimestampText(proofIntent.overlayTimestampText),
                 upload_state: "PENDING",
             },
             { onConflict: "task_id" }
@@ -1426,6 +1430,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         mimeType: proofMeta.mimeType,
         sizeBytes: proofMeta.sizeBytes,
         durationMs: proofMeta.durationMs ?? null,
+        overlayTimestampText: proofMeta.overlayTimestampText,
     });
     if (proofValidation.error) {
         return { error: proofValidation.error };
@@ -1469,6 +1474,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
             mime_type: proofMeta.mimeType,
             size_bytes: proofMeta.sizeBytes,
             duration_ms: proofMeta.durationMs ?? null,
+            overlay_timestamp_text: normalizeProofTimestampText(proofMeta.overlayTimestampText),
             upload_state: "UPLOADED",
             updated_at: new Date().toISOString(),
         } as any)

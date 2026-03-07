@@ -528,6 +528,7 @@ export default function DashboardClient({
             mimeType: draft.proof.mimeType,
             sizeBytes: draft.proof.sizeBytes,
             durationMs: draft.proof.durationMs,
+            overlayTimestampText: draft.proof.overlayTimestampText,
             bucket: target.bucket,
             objectPath: target.objectPath,
         });

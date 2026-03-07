@@ -86,6 +86,7 @@ export interface TaskCompletionProof {
     mime_type: string;
     size_bytes: number;
     duration_ms: number | null;
+    overlay_timestamp_text: string;
     upload_state: "PENDING" | "UPLOADED" | "FAILED";
     created_at: string;
     updated_at: string;

@@ -6,6 +6,7 @@ import {
     type TaskProofIntent,
     type TaskProofMediaKind,
 } from "@/lib/task-proof-shared";
+import { extractProofTimestampText, normalizeProofTimestampText } from "@/lib/proof-timestamp";
 
 export interface PreparedTaskProof {
     file: File;
@@ -13,6 +14,7 @@ export interface PreparedTaskProof {
     mimeType: string;
     sizeBytes: number;
     durationMs: number | null;
+    overlayTimestampText: string;
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -215,6 +217,7 @@ export function getProofIntentFromPreparedProof(proof: PreparedTaskProof): TaskP
         mimeType: proof.mimeType,
         sizeBytes: proof.sizeBytes,
         durationMs: proof.durationMs,
+        overlayTimestampText: proof.overlayTimestampText,
     };
 }
 
@@ -229,6 +232,7 @@ export async function prepareTaskProof(file: File): Promise<PreparedTaskProof> {
     }
 
     if (mediaKind === "image") {
+        const overlayTimestampText = normalizeProofTimestampText(await extractProofTimestampText(file));
         const compressed = await compressImageToMaxSize(file, MAX_TASK_PROOF_BYTES);
         if (compressed.size > MAX_TASK_PROOF_BYTES) {
             throw new Error("Image proof must be 5MB or less.");
@@ -239,9 +243,11 @@ export async function prepareTaskProof(file: File): Promise<PreparedTaskProof> {
             mimeType: compressed.type || "image/jpeg",
             sizeBytes: compressed.size,
             durationMs: null,
+            overlayTimestampText,
         };
     }
 
+    const overlayTimestampText = normalizeProofTimestampText(await extractProofTimestampText(file));
     const durationMs = await getVideoDurationMs(file);
     if (durationMs > MAX_TASK_PROOF_VIDEO_DURATION_MS) {
         throw new Error("Video proof must be 15 seconds or less.");
@@ -259,5 +265,6 @@ export async function prepareTaskProof(file: File): Promise<PreparedTaskProof> {
         mimeType: finalVideo.type || "video/mp4",
         sizeBytes: finalVideo.size,
         durationMs,
+        overlayTimestampText,
     };
 }

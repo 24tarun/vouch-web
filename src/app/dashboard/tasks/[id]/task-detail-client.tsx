@@ -50,6 +50,7 @@ import {
     type PreparedTaskProof,
 } from "@/lib/task-proof-client";
 import { getWarmProofSrc, purgeLocalProofMedia } from "@/lib/proof-media-warmup";
+import { ProofMedia } from "@/components/ProofMedia";
 import {
     isDefaultDeadlineReminderSource,
     MANUAL_REMINDER_SOURCE,
@@ -617,6 +618,7 @@ export default function TaskDetailClient({
                     mime_type: prepared.mimeType,
                     size_bytes: prepared.sizeBytes,
                     duration_ms: prepared.durationMs,
+                    overlay_timestamp_text: prepared.overlayTimestampText,
                     upload_state: "UPLOADED" as const,
                     updated_at: new Date().toISOString(),
                 };
@@ -705,6 +707,7 @@ export default function TaskDetailClient({
             mimeType: draft.proof.mimeType,
             sizeBytes: draft.proof.sizeBytes,
             durationMs: draft.proof.durationMs,
+            overlayTimestampText: draft.proof.overlayTimestampText,
             bucket: uploadTarget.bucket,
             objectPath: uploadTarget.objectPath,
         });
@@ -792,6 +795,7 @@ export default function TaskDetailClient({
             mimeType: draft.proof.mimeType,
             sizeBytes: draft.proof.sizeBytes,
             durationMs: draft.proof.durationMs,
+            overlayTimestampText: draft.proof.overlayTimestampText,
             bucket: uploadTarget.bucket,
             objectPath: uploadTarget.objectPath,
         });
@@ -1438,24 +1442,23 @@ export default function TaskDetailClient({
                                     </Button>
                                 )}
                             </div>
-                            {storedProof.media_kind === "image" ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                    src={storedProofSrc}
-                                    alt="Completion proof"
-                                    className="max-h-64 rounded-md object-cover cursor-zoom-in"
-                                    loading="lazy"
-                                    onClick={() => setIsStoredProofFullscreen(true)}
-                                />
-                            ) : (
-                                <video
-                                    controls
-                                    preload="metadata"
-                                    className="max-h-64 rounded-md cursor-zoom-in"
-                                    src={storedProofSrc}
-                                    onClick={() => setIsStoredProofFullscreen(true)}
-                                />
-                            )}
+                            <ProofMedia
+                                mediaKind={storedProof.media_kind}
+                                src={storedProofSrc}
+                                alt="Completion proof"
+                                overlayTimestampText={storedProof.overlay_timestamp_text}
+                                imageClassName="max-h-64 rounded-md object-cover cursor-zoom-in"
+                                videoClassName="max-h-64 rounded-md cursor-zoom-in"
+                                imageProps={{
+                                    loading: "lazy",
+                                    onClick: () => setIsStoredProofFullscreen(true),
+                                }}
+                                videoProps={{
+                                    controls: true,
+                                    preload: "metadata",
+                                    onClick: () => setIsStoredProofFullscreen(true),
+                                }}
+                            />
                         </div>
                     )}
                 </CardContent>
@@ -1740,21 +1743,18 @@ export default function TaskDetailClient({
                                                 Remove
                                             </Button>
                                         </div>
-                                        {proofDraft.proof.mediaKind === "image" ? (
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            <img
-                                                src={proofDraft.previewUrl}
-                                                alt="Selected proof"
-                                                className="max-h-44 rounded-md object-cover"
-                                            />
-                                        ) : (
-                                            <video
-                                                controls
-                                                preload="metadata"
-                                                className="max-h-44 rounded-md"
-                                                src={proofDraft.previewUrl}
-                                            />
-                                        )}
+                                        <ProofMedia
+                                            mediaKind={proofDraft.proof.mediaKind}
+                                            src={proofDraft.previewUrl}
+                                            alt="Selected proof"
+                                            overlayTimestampText={proofDraft.proof.overlayTimestampText}
+                                            imageClassName="max-h-44 rounded-md object-cover"
+                                            videoClassName="max-h-44 rounded-md"
+                                            videoProps={{
+                                                controls: true,
+                                                preload: "metadata",
+                                            }}
+                                        />
                                     </div>
                                 )}
 
@@ -1893,21 +1893,18 @@ export default function TaskDetailClient({
                                         Remove
                                     </Button>
                                 </div>
-                                {proofDraft.proof.mediaKind === "image" ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img
-                                        src={proofDraft.previewUrl}
-                                        alt="Selected proof"
-                                        className="max-h-44 rounded-md object-cover"
-                                    />
-                                ) : (
-                                    <video
-                                        controls
-                                        preload="metadata"
-                                        className="max-h-44 rounded-md"
-                                        src={proofDraft.previewUrl}
-                                    />
-                                )}
+                                <ProofMedia
+                                    mediaKind={proofDraft.proof.mediaKind}
+                                    src={proofDraft.previewUrl}
+                                    alt="Selected proof"
+                                    overlayTimestampText={proofDraft.proof.overlayTimestampText}
+                                    imageClassName="max-h-44 rounded-md object-cover"
+                                    videoClassName="max-h-44 rounded-md"
+                                    videoProps={{
+                                        controls: true,
+                                        preload: "metadata",
+                                    }}
+                                />
                             </div>
                         )}
 
@@ -1989,24 +1986,23 @@ export default function TaskDetailClient({
                         <X className="h-4 w-4 mx-auto" />
                     </button>
 
-                    {storedProof.media_kind === "image" ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            src={storedProofSrc}
-                            alt="Completion proof fullscreen"
-                            className="max-h-[95vh] max-w-[95vw] object-contain rounded-md"
-                            onClick={(event) => event.stopPropagation()}
-                        />
-                    ) : (
-                        <video
-                            controls
-                            autoPlay
-                            preload="auto"
-                            className="max-h-[95vh] max-w-[95vw] rounded-md"
-                            src={storedProofSrc}
-                            onClick={(event) => event.stopPropagation()}
-                        />
-                    )}
+                    <ProofMedia
+                        mediaKind={storedProof.media_kind}
+                        src={storedProofSrc}
+                        alt="Completion proof fullscreen"
+                        overlayTimestampText={storedProof.overlay_timestamp_text}
+                        imageClassName="max-h-[95vh] max-w-[95vw] object-contain rounded-md"
+                        videoClassName="max-h-[95vh] max-w-[95vw] rounded-md"
+                        imageProps={{
+                            onClick: (event) => event.stopPropagation(),
+                        }}
+                        videoProps={{
+                            controls: true,
+                            autoPlay: true,
+                            preload: "auto",
+                            onClick: (event) => event.stopPropagation(),
+                        }}
+                    />
                 </div>
             )}
         </div>

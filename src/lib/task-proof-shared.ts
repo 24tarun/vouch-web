@@ -1,6 +1,7 @@
 export const TASK_PROOFS_BUCKET = "task-proofs";
 export const MAX_TASK_PROOF_BYTES = 5 * 1024 * 1024;
 export const MAX_TASK_PROOF_VIDEO_DURATION_MS = 15_000;
+export const PROOF_TIMESTAMP_PLACEHOLDER = "??:?? ??/??/??";
 
 export type TaskProofMediaKind = "image" | "video";
 export type TaskProofUploadState = "PENDING" | "UPLOADED" | "FAILED";
@@ -10,6 +11,7 @@ export interface TaskProofIntent {
     mimeType: string;
     sizeBytes: number;
     durationMs?: number | null;
+    overlayTimestampText?: string;
 }
 
 export interface TaskProofUploadTarget {

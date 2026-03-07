@@ -16,6 +16,7 @@ import { formatCurrencyFromCents, normalizeCurrency } from "@/lib/currency";
 import { subscribeRealtimeTaskChanges, type RealtimeTaskRow } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
 import { reconcilePendingTasksFromServer } from "@/lib/voucher-pending-reconcile";
+import { ProofMedia } from "@/components/ProofMedia";
 
 interface VoucherDashboardClientProps {
     pendingTasks: VoucherPendingTask[];
@@ -663,30 +664,30 @@ function CompactPendingItem({
                         className="mt-3 rounded-lg border border-slate-800 bg-slate-950/50 p-2 max-w-sm select-none"
                         onContextMenu={blockSaveShortcut}
                     >
-                        {proof.media_kind === "image" ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                                src={proofSrc}
-                                alt="Completion proof"
-                                className="w-full h-auto rounded-md object-cover cursor-zoom-in"
-                                loading="lazy"
-                                draggable={false}
-                                onContextMenu={blockSaveShortcut}
-                                onClick={() => setIsProofFullscreen(true)}
-                            />
-                        ) : (
-                            <video
-                                controls
-                                preload="metadata"
-                                className="w-full rounded-md cursor-zoom-in"
-                                src={proofSrc}
-                                controlsList="nodownload noplaybackrate noremoteplayback"
-                                disablePictureInPicture
-                                disableRemotePlayback
-                                onContextMenu={blockSaveShortcut}
-                                onClick={() => setIsProofFullscreen(true)}
-                            />
-                        )}
+                        <ProofMedia
+                            mediaKind={proof.media_kind}
+                            src={proofSrc}
+                            alt="Completion proof"
+                            overlayTimestampText={proof.overlay_timestamp_text}
+                            wrapperClassName="w-full"
+                            imageClassName="w-full h-auto rounded-md object-cover cursor-zoom-in"
+                            videoClassName="w-full rounded-md cursor-zoom-in"
+                            imageProps={{
+                                loading: "lazy",
+                                draggable: false,
+                                onContextMenu: blockSaveShortcut,
+                                onClick: () => setIsProofFullscreen(true),
+                            }}
+                            videoProps={{
+                                controls: true,
+                                preload: "metadata",
+                                controlsList: "nodownload noplaybackrate noremoteplayback",
+                                disablePictureInPicture: true,
+                                disableRemotePlayback: true,
+                                onContextMenu: blockSaveShortcut,
+                                onClick: () => setIsProofFullscreen(true),
+                            }}
+                        />
                     </div>
                 )}
             </div>
@@ -749,30 +750,29 @@ function CompactPendingItem({
                         <X className="h-4 w-4 mx-auto" />
                     </button>
 
-                    {proof.media_kind === "image" ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                            src={proofSrc}
-                            alt="Completion proof fullscreen"
-                            className="max-h-[95vh] max-w-[95vw] object-contain rounded-md"
-                            draggable={false}
-                            onClick={(event) => event.stopPropagation()}
-                            onContextMenu={blockSaveShortcut}
-                        />
-                    ) : (
-                        <video
-                            controls
-                            autoPlay
-                            preload="auto"
-                            className="max-h-[95vh] max-w-[95vw] rounded-md"
-                            src={proofSrc}
-                            controlsList="nodownload noplaybackrate noremoteplayback"
-                            disablePictureInPicture
-                            disableRemotePlayback
-                            onClick={(event) => event.stopPropagation()}
-                            onContextMenu={blockSaveShortcut}
-                        />
-                    )}
+                    <ProofMedia
+                        mediaKind={proof.media_kind}
+                        src={proofSrc}
+                        alt="Completion proof fullscreen"
+                        overlayTimestampText={proof.overlay_timestamp_text}
+                        imageClassName="max-h-[95vh] max-w-[95vw] object-contain rounded-md"
+                        videoClassName="max-h-[95vh] max-w-[95vw] rounded-md"
+                        imageProps={{
+                            draggable: false,
+                            onClick: (event) => event.stopPropagation(),
+                            onContextMenu: blockSaveShortcut,
+                        }}
+                        videoProps={{
+                            controls: true,
+                            autoPlay: true,
+                            preload: "auto",
+                            controlsList: "nodownload noplaybackrate noremoteplayback",
+                            disablePictureInPicture: true,
+                            disableRemotePlayback: true,
+                            onClick: (event) => event.stopPropagation(),
+                            onContextMenu: blockSaveShortcut,
+                        }}
+                    />
                 </div>
             )}
         </div>

@@ -28,8 +28,8 @@ Object.defineProperty(globalAny, "navigator", {
 });
 globalAny.HTMLElement = dom.window.HTMLElement;
 globalAny.Node = dom.window.Node;
-globalAny.TextEncoder = TextEncoder;
-globalAny.TextDecoder = TextDecoder;
+globalAny.TextEncoder = TextEncoder as unknown as typeof globalAny.TextEncoder;
+globalAny.TextDecoder = TextDecoder as unknown as typeof globalAny.TextDecoder;
 globalAny.IS_REACT_ACT_ENVIRONMENT = true;
 
 test.afterEach(() => {

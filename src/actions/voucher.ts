@@ -586,7 +586,7 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
                     .neq("status", "DELETED"),
                 // @ts-ignore
                 (supabaseAdmin.from("task_completion_proofs") as any)
-                    .select("task_id, media_kind, mime_type, size_bytes, duration_ms, upload_state, updated_at")
+                    .select("task_id, media_kind, mime_type, size_bytes, duration_ms, overlay_timestamp_text, upload_state, updated_at")
                     .in("task_id", taskIds as any)
                     .eq("upload_state", "UPLOADED"),
             ]);
