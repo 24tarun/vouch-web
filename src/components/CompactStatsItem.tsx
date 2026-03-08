@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import type { TaskWithRelations } from "@/lib/types";
 import { ExternalLink, Timer } from "lucide-react";
+import { formatPomoBadge } from "@/lib/format-pomo";
 
 type StatsTask = TaskWithRelations & { pomo_total_seconds?: number };
 const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
@@ -51,14 +52,6 @@ export function CompactStatsItem({
         const hours = d.getHours().toString().padStart(2, "0");
         const minutes = d.getMinutes().toString().padStart(2, "0");
         return `${day}/${month}/${year} at ${hours}:${minutes}`;
-    };
-
-    const formatPomoBadge = (seconds: number) => {
-        if (seconds < 60) return "<1m";
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
     };
 
     const pomoTotalSeconds = task.pomo_total_seconds || 0;

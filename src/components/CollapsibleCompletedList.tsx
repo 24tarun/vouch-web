@@ -1,53 +1,27 @@
 "use client";
 
-import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { TaskRow } from "./TaskRow";
 import type { Task } from "@/lib/types";
 import { Button } from "./ui/button";
+import { useCollapsibleSection } from "@/lib/ui/useCollapsibleSection";
 
 interface CollapsibleCompletedListProps {
     tasks: Task[];
 }
 
-const DASHBOARD_COMPLETED_OPEN_SESSION_KEY = "dashboard.completed.open";
-
 export function CollapsibleCompletedList({ tasks }: CollapsibleCompletedListProps) {
-    const [isOpen, setIsOpen] = useState<boolean>(() => {
-        if (typeof window === "undefined") return false;
-        try {
-            return window.sessionStorage.getItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY) === "1";
-        } catch {
-            return false;
-        }
-    });
+    const [isOpen, toggle] = useCollapsibleSection("dashboard.completed.open");
 
     if (tasks.length === 0) return null;
-
-    const handleToggle = () => {
-        setIsOpen((prev) => {
-            const next = !prev;
-            if (typeof window !== "undefined") {
-                try {
-                    if (next) {
-                        window.sessionStorage.setItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY, "1");
-                    } else {
-                        window.sessionStorage.removeItem(DASHBOARD_COMPLETED_OPEN_SESSION_KEY);
-                    }
-                } catch {
-                    // Ignore sessionStorage write failures.
-                }
-            }
-            return next;
-        });
-    };
 
     return (
         <div className="mt-8">
             <Button
                 variant="ghost"
-                onClick={handleToggle}
+                onClick={toggle}
                 className="group flex items-center gap-2 text-slate-400 hover:text-white px-0 hover:bg-transparent"
+                aria-expanded={isOpen}
             >
                 {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 <span className="font-medium text-sm">Past</span>

@@ -729,18 +729,23 @@ export async function getFailedTasks() {
 
     if (!tasks) return [];
 
-    // Get pass counts for each owner
-    const tasksWithCounts = await Promise.all(tasks.map(async (task: any) => {
+    // Batch pass counts by unique owner
+    const ownerIds = [...new Set((tasks as any[]).map((task) => task.user_id as string).filter(Boolean))];
+    const ownerCountEntries = await Promise.all(ownerIds.map(async (ownerId) => {
         const { count } = await supabase
             .from("rectify_passes" as any)
-            .select("*", { count: 'exact', head: true })
-            .eq("user_id", task.user_id)
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", ownerId as any)
             .eq("period", currentPeriod);
 
-        return { ...task, rectify_passes_used: count || 0 };
+        return [ownerId, count || 0] as const;
     }));
 
-    return tasksWithCounts;
+    const countsByOwner = new Map<string, number>(ownerCountEntries);
+    return (tasks as any[]).map((task) => ({
+        ...task,
+        rectify_passes_used: countsByOwner.get(task.user_id) || 0,
+    }));
 }
 
 const FINAL_HISTORY_STATUSES = ["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"];
@@ -859,19 +864,21 @@ export async function getVouchHistory() {
         timeoutAcceptedTaskIds = new Set(((timeoutEvents as any[]) || []).map((event) => event.task_id as string));
     }
 
-    const tasksWithCounts = await Promise.all(tasks.map(async (task: any) => {
+    const ownerIds = [...new Set((tasks as any[]).map((task) => task.user_id as string).filter(Boolean))];
+    const ownerCountEntries = await Promise.all(ownerIds.map(async (ownerId) => {
         const { count } = await supabase
             .from("rectify_passes" as any)
-            .select("*", { count: 'exact', head: true })
-            .eq("user_id", task.user_id)
+            .select("*", { count: "exact", head: true })
+            .eq("user_id", ownerId as any)
             .eq("period", currentPeriod);
 
-        return {
-            ...task,
-            rectify_passes_used: count || 0,
-            voucher_timeout_auto_accepted: timeoutAcceptedTaskIds.has(task.id),
-        };
+        return [ownerId, count || 0] as const;
     }));
 
-    return tasksWithCounts;
+    const countsByOwner = new Map<string, number>(ownerCountEntries);
+    return (tasks as any[]).map((task) => ({
+        ...task,
+        rectify_passes_used: countsByOwner.get(task.user_id) || 0,
+        voucher_timeout_auto_accepted: timeoutAcceptedTaskIds.has(task.id),
+    }));
 }
