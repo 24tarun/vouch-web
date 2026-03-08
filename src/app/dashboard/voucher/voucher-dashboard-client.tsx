@@ -18,6 +18,8 @@ import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
 import { reconcilePendingTasksFromServer } from "@/lib/voucher-pending-reconcile";
 import { ProofMedia } from "@/components/ProofMedia";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
+import { useCollapsibleSection } from "@/lib/ui/useCollapsibleSection";
+import { formatPomoBadge } from "@/lib/format-pomo";
 
 interface VoucherDashboardClientProps {
     pendingTasks: VoucherPendingTask[];
@@ -101,14 +103,7 @@ export default function VoucherDashboardClient({
     const inFlightIdsRef = useRef<Set<string>>(new Set());
     const suppressedPendingTaskIdsRef = useRef<Set<string>>(new Set());
 
-    const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(() => {
-        if (typeof window === "undefined") return false;
-        try {
-            return window.sessionStorage.getItem(VOUCH_HISTORY_OPEN_SESSION_KEY) === "1";
-        } catch {
-            return false;
-        }
-    });
+    const [isHistoryOpen, handleHistoryToggle] = useCollapsibleSection(VOUCH_HISTORY_OPEN_SESSION_KEY);
     const [historyLoaded, setHistoryLoaded] = useState(false);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyOffset, setHistoryOffset] = useState(0);
@@ -257,24 +252,6 @@ export default function VoucherDashboardClient({
 
         return unsubscribe;
     }, []);
-
-    const handleHistoryToggle = () => {
-        setIsHistoryOpen((prev) => {
-            const next = !prev;
-            if (typeof window !== "undefined") {
-                try {
-                    if (next) {
-                        window.sessionStorage.setItem(VOUCH_HISTORY_OPEN_SESSION_KEY, "1");
-                    } else {
-                        window.sessionStorage.removeItem(VOUCH_HISTORY_OPEN_SESSION_KEY);
-                    }
-                } catch {
-                    // Ignore sessionStorage write failures.
-                }
-            }
-            return next;
-        });
-    };
 
     const handleLoadMore = () => {
         if (historyLoading || !historyHasMore) return;
@@ -563,13 +540,7 @@ function CompactPendingItem({
         event.preventDefault();
     };
 
-    const formatPomoBadge = (seconds: number) => {
-        if (seconds < 60) return "<1m";
-        if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-    };
+
 
     const deadline = (() => {
         if (task.pending_deadline_at) {

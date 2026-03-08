@@ -32,6 +32,7 @@ import { splitDashboardActiveTaskBuckets } from "@/lib/dashboard-task-buckets";
 import { purgeLocalProofMedia } from "@/lib/proof-media-warmup";
 import { subscribeRealtimeTaskChanges } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
+import { getVoucherResponseDeadlineLocal } from "@/lib/voucher-deadline";
 
 const MAX_COMPLETED_TASKS = 10;
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
@@ -45,13 +46,6 @@ interface ProofUploadTarget {
     bucket: string;
     objectPath: string;
     uploadToken?: string;
-}
-
-function getVoucherResponseDeadlineLocal(baseDate: Date = new Date()): Date {
-    const deadline = new Date(baseDate);
-    deadline.setDate(deadline.getDate() + 2);
-    deadline.setHours(23, 59, 59, 999);
-    return deadline;
 }
 
 interface DashboardClientProps {

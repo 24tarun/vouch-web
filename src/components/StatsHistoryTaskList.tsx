@@ -5,44 +5,19 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { TaskWithRelations } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { CompactStatsItem } from "@/components/CompactStatsItem";
+import { useCollapsibleSection } from "@/lib/ui/useCollapsibleSection";
 
 type StatsTask = TaskWithRelations & { pomo_total_seconds?: number };
 
 const HISTORY_PAGE_SIZE = 10;
-const STATS_HISTORY_OPEN_SESSION_KEY = "stats.history.open";
 
 interface StatsHistoryTaskListProps {
     tasks: StatsTask[];
 }
 
 export function StatsHistoryTaskList({ tasks }: StatsHistoryTaskListProps) {
-    const [isOpen, setIsOpen] = useState<boolean>(() => {
-        if (typeof window === "undefined") return false;
-        try {
-            return window.sessionStorage.getItem(STATS_HISTORY_OPEN_SESSION_KEY) === "1";
-        } catch {
-            return false;
-        }
-    });
+    const [isOpen, toggle] = useCollapsibleSection("stats.history.open");
     const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
-
-    const handleToggle = () => {
-        setIsOpen((prev) => {
-            const next = !prev;
-            if (typeof window !== "undefined") {
-                try {
-                    if (next) {
-                        window.sessionStorage.setItem(STATS_HISTORY_OPEN_SESSION_KEY, "1");
-                    } else {
-                        window.sessionStorage.removeItem(STATS_HISTORY_OPEN_SESSION_KEY);
-                    }
-                } catch {
-                    // Ignore sessionStorage write failures.
-                }
-            }
-            return next;
-        });
-    };
 
     const visibleTasks = tasks.slice(0, visibleCount);
     const hasMore = visibleCount < tasks.length;
@@ -51,8 +26,9 @@ export function StatsHistoryTaskList({ tasks }: StatsHistoryTaskListProps) {
         <section className="space-y-4">
             <Button
                 variant="ghost"
-                onClick={handleToggle}
+                onClick={toggle}
                 className="group flex items-center gap-2 text-slate-400 hover:text-white px-0 hover:bg-transparent"
+                aria-expanded={isOpen}
             >
                 {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                 <span className="font-medium text-sm">Task History</span>

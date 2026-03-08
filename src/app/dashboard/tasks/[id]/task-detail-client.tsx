@@ -57,6 +57,7 @@ import {
 } from "@/lib/task-reminder-defaults";
 import { subscribeRealtimeTaskChanges } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
+import { getVoucherResponseDeadlineLocal } from "@/lib/voucher-deadline";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -93,13 +94,6 @@ function getRestoredStatusFromRevertResult(
     if (!result || typeof result !== "object" || !("status" in result)) return null;
     const status = (result as { status?: unknown }).status;
     return status === "CREATED" || status === "POSTPONED" ? status : null;
-}
-
-function getVoucherResponseDeadlineLocal(baseDate: Date = new Date()): Date {
-    const deadline = new Date(baseDate);
-    deadline.setDate(deadline.getDate() + 2);
-    deadline.setHours(23, 59, 59, 999);
-    return deadline;
 }
 
 function sortTaskReminders(reminders: TaskWithRelations["reminders"] | null | undefined) {
