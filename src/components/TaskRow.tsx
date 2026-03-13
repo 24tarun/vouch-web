@@ -370,7 +370,7 @@ export function TaskRow({
             onClick={handleCheck}
             disabled={isCompleteActionDisabled}
             className={cn(
-                `${quickActionButtonClass} group flex items-center justify-center`,
+                `${quickActionButtonClass} group flex items-center justify-center shrink-0`,
                 (hasIncompleteSubtasks || hasIncompletePomoRequirement || hasRunningPomoForTask) && !isActuallyCompleted && "opacity-60 cursor-not-allowed"
             )}
             title={disabledCompleteTitle}
