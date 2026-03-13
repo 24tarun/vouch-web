@@ -372,10 +372,36 @@ function buildTitleHighlightSegments(text: string): TitleHighlightSegment[] {
     return segments;
 }
 
-function getParserKeywordCompletion(text: string, caretIndex: number): ParserKeywordCompletion | null {
+function getParserKeywordCompletion(text: string, caretIndex: number, friends: Profile[]): ParserKeywordCompletion | null {
     if (caretIndex !== text.length) return null;
 
     const leading = text.slice(0, caretIndex);
+
+    // Voucher name completion: detect `vouch <fragment>` or `.v <fragment>` at end of input.
+    const voucherMatch = leading.match(/(?:^|\s)(?:vouch|\.v)\s+([^\s]+)$/i);
+    if (voucherMatch) {
+        const nameFragment = voucherMatch[1];
+        const normalized = nameFragment.toLowerCase();
+        if (!["me", "self", "myself"].includes(normalized)) {
+            const match = friends.find(
+                (f) => f.username.toLowerCase().startsWith(normalized) && f.username.toLowerCase() !== normalized
+            );
+            if (match) {
+                const suffix = match.username.slice(nameFragment.length);
+                if (suffix) {
+                    return {
+                        fragmentStart: caretIndex - nameFragment.length,
+                        fragment: nameFragment,
+                        suggestion: match.username,
+                        suffix,
+                        insertText: match.username,
+                    };
+                }
+            }
+        }
+        return null;
+    }
+
     const tokenMatch = leading.match(/(^|\s)([^\s]+)$/);
     if (!tokenMatch) return null;
 
@@ -502,8 +528,8 @@ export function TaskInput({
     );
     const inlineKeywordCompletion = useMemo(() => {
         if (!isTitleFocused || isColorPickerVisible) return null;
-        return getParserKeywordCompletion(title, titleCaretIndex);
-    }, [isTitleFocused, isColorPickerVisible, title, titleCaretIndex]);
+        return getParserKeywordCompletion(title, titleCaretIndex, friends);
+    }, [isTitleFocused, isColorPickerVisible, title, titleCaretIndex, friends]);
     const showTitleOverlay = shouldRenderTaskTitleOverlay(
         title,
         titleHighlightSegments,
