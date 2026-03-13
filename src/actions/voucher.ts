@@ -79,23 +79,21 @@ function getPendingDeadline(task: {
         : deriveAwaitingDeadline(task);
 }
 
-function sortPendingTasks(tasks: VoucherPendingTask[]): VoucherPendingTask[] {
+export function sortPendingTasks(tasks: VoucherPendingTask[]): VoucherPendingTask[] {
     return [...tasks].sort((a, b) => {
         const aDeadlineTs = parseTimestamp(a.pending_deadline_at);
         const bDeadlineTs = parseTimestamp(b.pending_deadline_at);
-
-        if (aDeadlineTs === null && bDeadlineTs === null) {
-            const aUpdatedTs = parseTimestamp(a.updated_at) || 0;
-            const bUpdatedTs = parseTimestamp(b.updated_at) || 0;
-            return bUpdatedTs - aUpdatedTs;
-        }
-        if (aDeadlineTs === null) return 1;
-        if (bDeadlineTs === null) return -1;
-        if (aDeadlineTs !== bDeadlineTs) return aDeadlineTs - bDeadlineTs;
-
         const aUpdatedTs = parseTimestamp(a.updated_at) || 0;
         const bUpdatedTs = parseTimestamp(b.updated_at) || 0;
-        return bUpdatedTs - aUpdatedTs;
+
+        // Primary sort: most recently updated first.
+        if (aUpdatedTs !== bUpdatedTs) return bUpdatedTs - aUpdatedTs;
+
+        // Tie-breaker: earliest pending deadline first.
+        if (aDeadlineTs === null && bDeadlineTs === null) return 0;
+        if (aDeadlineTs === null) return 1;
+        if (bDeadlineTs === null) return -1;
+        return aDeadlineTs - bDeadlineTs;
     });
 }
 
