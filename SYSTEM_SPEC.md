@@ -713,6 +713,7 @@
 - `getFailedTasks()` **MUST** return assigned failed tasks enriched with owner current-period rectify pass usage count. (Source: `src/actions/voucher.ts::getFailedTasks`)
 - `getVouchHistoryPage(offset,limit)` **MUST** normalize paging, fetch final-status history page, add timeout-auto-accepted and pass-count enrichments, and return `{tasks,hasMore,nextOffset,error?}`. (Source: `src/actions/voucher.ts::getVouchHistoryPage`)
 - `getVouchHistory()` **MUST** return full final-status history with same enrichments. (Source: `src/actions/voucher.ts::getVouchHistory`)
+- `buildProofRequestCountByTaskId` is a pure utility (no `"use server"` boundary) extracted to `src/lib/voucher-proof-request.ts` and imported by `voucher.ts`; it aggregates `PROOF_REQUESTED` task-event rows into a `Map<taskId, count>` used to populate `?N` badges in the voucher UI. (Source: `src/lib/voucher-proof-request.ts`)
 
 #### 6.2.7 `google-calendar.ts`
 
@@ -1153,6 +1154,12 @@
 | `realtime:pomo_sessions:{userId}` | `src/components/PomodoroProvider.tsx` | `8.1` |
 | `vouch:realtime-task-change` | `src/lib/realtime-task-events.ts` | `8.1`, `8.2` |
 | `google_calendar_sync_outbox` (publication) | `supabase/migrations/033` | `3.5` |
+
+### 10.7 Lib utilities
+
+| Export | Source | Covered in sections |
+|---|---|---|
+| `buildProofRequestCountByTaskId` | `src/lib/voucher-proof-request.ts` | `6.2.6` |
 
 ---
 

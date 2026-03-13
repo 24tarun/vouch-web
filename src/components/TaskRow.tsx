@@ -661,30 +661,27 @@ export function TaskRow({
                     </div>
 
                     <div className="md:hidden">
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0 flex items-center gap-2 overflow-hidden">
-                                {renderCheckQuickAction()}
-                                <div className="min-w-0 flex items-center gap-1.5 overflow-hidden">
-                                    <p
-                                        className={cn(
-                                            "text-sm font-medium truncate",
-                                            isActuallyCompleted
-                                                ? cn("line-through", currentStatusColor || "text-slate-400")
-                                                : "text-white"
-                                        )}
-                                        title={task.title}
-                                    >
-                                        {task.title}
-                                    </p>
-                                    {task.recurrence_rule_id && (
-                                        <Repeat className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex items-center gap-1.5 overflow-hidden">
+                                <p
+                                    className={cn(
+                                        "text-sm font-medium truncate",
+                                        isActuallyCompleted
+                                            ? cn("line-through", currentStatusColor || "text-slate-400")
+                                            : "text-white"
                                     )}
-                                    {hasSubtasks && (
-                                        <span className="text-[10px] text-slate-500 font-mono shrink-0">
-                                            {completedSubtasksCount}/{subtasks.length}
-                                        </span>
-                                    )}
-                                </div>
+                                    title={task.title}
+                                >
+                                    {task.title}
+                                </p>
+                                {task.recurrence_rule_id && (
+                                    <Repeat className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                )}
+                                {hasSubtasks && (
+                                    <span className="text-[10px] text-slate-500 font-mono shrink-0">
+                                        {completedSubtasksCount}/{subtasks.length}
+                                    </span>
+                                )}
                             </div>
                             <span suppressHydrationWarning className={cn("text-xs shrink-0", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
                                 {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
@@ -692,7 +689,7 @@ export function TaskRow({
                         </div>
 
                         <div className="mt-2 flex items-center justify-center gap-2">
-                            {renderActiveQuickActions(false)}
+                            {renderActiveQuickActions(true)}
                         </div>
                     </div>
                 </div>
