@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny, voucherRequestProof } from "@/actions/voucher";
+import { sortPendingTasks } from "@/lib/voucher-pending-sort";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +114,7 @@ export default function VoucherDashboardClient({
 }: VoucherDashboardClientProps) {
     const router = useRouter();
     const [, startRefreshTransition] = useTransition();
+    const [pendingListRef] = useAutoAnimate();
 
     const [pendingState, setPendingState] = useState<VoucherPendingTask[]>(pendingTasks);
     const [historyState, setHistoryState] = useState<HistoryTask[]>([]);
@@ -420,7 +423,8 @@ export default function VoucherDashboardClient({
         } else {
             const nowIso = new Date().toISOString();
             setPendingState((prev) => {
-                const next = applyProofRequestSuccessToPendingTasks(prev, taskId, nowIso);
+                const patched = applyProofRequestSuccessToPendingTasks(prev, taskId, nowIso);
+                const next = sortPendingTasks(patched);
                 pendingStateRef.current = next;
                 return next;
             });
@@ -473,7 +477,7 @@ export default function VoucherDashboardClient({
                         <p className="text-slate-500 text-sm">No pending vouch requests</p>
                     </div>
                 ) : (
-                    <div className="flex flex-col">
+                    <div className="flex flex-col" ref={pendingListRef}>
                         {pendingState.map((task) => (
                             <CompactPendingItem
                                 key={task.id}

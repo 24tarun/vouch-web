@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { sortPendingTasks } from "../../src/actions/voucher";
+import { sortPendingTasks } from "../../src/lib/voucher-pending-sort";
 import type { VoucherPendingTask } from "../../src/lib/types";
 
 function buildPendingTask(

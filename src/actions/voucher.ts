@@ -12,6 +12,7 @@ import { deleteTaskProof } from "@/lib/task-proof";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
 import { buildProofRequestCountByTaskId, type ProofRequestEventRow } from "@/lib/voucher-proof-request";
+import { sortPendingTasks } from "@/lib/voucher-pending-sort";
 
 function invalidatePendingVoucherRequestsCache(voucherId: string) {
     revalidateTag(pendingVoucherRequestsTag(voucherId), "max");
@@ -47,12 +48,6 @@ const PENDING_VOUCH_REQUEST_STATUSES: TaskStatus[] = [
 const ACTIVE_PENDING_STATUS_SET = new Set<TaskStatus>(ACTIVE_PENDING_STATUSES);
 
 
-function parseTimestamp(value: string | null | undefined): number | null {
-    if (!value) return null;
-    const ts = new Date(value).getTime();
-    return Number.isNaN(ts) ? null : ts;
-}
-
 function deriveAwaitingDeadline(task: { voucher_response_deadline: string | null; marked_completed_at: string | null }): string | null {
     if (task.voucher_response_deadline) return task.voucher_response_deadline;
     if (!task.marked_completed_at) return null;
@@ -77,24 +72,6 @@ function getPendingDeadline(task: {
     return ACTIVE_PENDING_STATUS_SET.has(task.status)
         ? (task.deadline || null)
         : deriveAwaitingDeadline(task);
-}
-
-export function sortPendingTasks(tasks: VoucherPendingTask[]): VoucherPendingTask[] {
-    return [...tasks].sort((a, b) => {
-        const aDeadlineTs = parseTimestamp(a.pending_deadline_at);
-        const bDeadlineTs = parseTimestamp(b.pending_deadline_at);
-        const aUpdatedTs = parseTimestamp(a.updated_at) || 0;
-        const bUpdatedTs = parseTimestamp(b.updated_at) || 0;
-
-        // Primary sort: most recently updated first.
-        if (aUpdatedTs !== bUpdatedTs) return bUpdatedTs - aUpdatedTs;
-
-        // Tie-breaker: earliest pending deadline first.
-        if (aDeadlineTs === null && bDeadlineTs === null) return 0;
-        if (aDeadlineTs === null) return 1;
-        if (bDeadlineTs === null) return -1;
-        return aDeadlineTs - bDeadlineTs;
-    });
 }
 
 export async function voucherAccept(taskId: string) {
