@@ -24,10 +24,10 @@ export const googleCalendarSyncConnection = task({
     },
 });
 
-// Single per-minute maintenance sweep for Google integration.
+// Single maintenance sweep for Google integration every hour.
 export const googleCalendarSyncSweeper = schedules.task({
     id: "google-calendar-sync-sweeper",
-    cron: "* * * * *",
+    cron: "0 * * * *",
     run: async () => {
         await syncGoogleCalendarForEnabledConnections(200);
         await retryPendingGoogleCalendarOutbox(200);
