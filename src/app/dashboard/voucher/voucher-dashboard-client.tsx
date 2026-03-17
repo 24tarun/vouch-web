@@ -189,8 +189,20 @@ export default function VoucherDashboardClient({
             suppressedPendingTaskIdsRef.current
         );
         suppressedPendingTaskIdsRef.current = reconciled.suppressedPendingTaskIds;
-        setPendingState(reconciled.pendingTasks);
-        pendingStateRef.current = reconciled.pendingTasks;
+
+        // Merge server data with live realtime state — keep whichever has the newer
+        // updated_at per task. This prevents a stale server response (cache not yet
+        // invalidated when the reconcile refresh fires) from reverting a task that
+        // the client already patched via realtime to a newer state (e.g. AWAITING_VOUCHER).
+        const liveById = new Map(pendingStateRef.current.map((t) => [t.id, t]));
+        const merged = reconciled.pendingTasks.map((serverTask) => {
+            const liveTask = liveById.get(serverTask.id);
+            if (!liveTask) return serverTask;
+            return isIncomingNewer(liveTask.updated_at, serverTask.updated_at) ? serverTask : liveTask;
+        });
+
+        setPendingState(merged);
+        pendingStateRef.current = merged;
     }, [pendingTasks]);
 
     useEffect(() => {
