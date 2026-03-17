@@ -10,6 +10,7 @@ import { normalizeCurrency } from "@/lib/currency";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
 import DashboardClient from "@/app/dashboard/dashboard-client";
 import { getCachedActiveTasksForUser } from "@/actions/tasks";
+import { getUserReputationScore } from "@/actions/reputation";
 import { BuildStamp } from "@/components/BuildStamp";
 
 export default async function DashboardPage() {
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
 
     const finalStatuses = ["COMPLETED", "AWAITING_VOUCHER", "RECTIFIED", "SETTLED", "FAILED", "DELETED"];
 
-    const [friends, rawProfileDefaults, activeTasks, completedTasksResult] = await Promise.all([
+    const [friends, rawProfileDefaults, activeTasks, completedTasksResult, reputationScore] = await Promise.all([
         getFriends(),
         supabase
             .from("profiles")
@@ -37,6 +38,7 @@ export default async function DashboardPage() {
             .in("status", finalStatuses)
             .order("updated_at", { ascending: false })
             .limit(10),
+        getUserReputationScore(userId || ""),
     ]);
 
     const profileDefaults = rawProfileDefaults as {
@@ -140,6 +142,7 @@ export default async function DashboardPage() {
                     userId={userId || ""}
                     username={username}
                     initialHideTips={initialHideTips}
+                    reputationScore={reputationScore}
                 />
             </div>
             <div className="pt-6 pb-safe">

@@ -11,6 +11,7 @@ import {
     revertTaskCompletionAfterProofFailure,
 } from "@/actions/tasks";
 import { setDashboardTipsHidden } from "@/actions/auth";
+import { getUserReputationScore } from "@/actions/reputation";
 import { DashboardHeaderActions, type DashboardSortMode } from "@/components/DashboardHeaderActions";
 import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
 import { PostponeDeadlineDialog } from "@/components/PostponeDeadlineDialog";
@@ -29,6 +30,8 @@ import {
     type PreparedTaskProof,
 } from "@/lib/task-proof-client";
 import { splitDashboardActiveTaskBuckets } from "@/lib/dashboard-task-buckets";
+import { ReputationBar } from "@/components/ReputationBar";
+import type { ReputationScoreData } from "@/lib/reputation/types";
 import { purgeLocalProofMedia } from "@/lib/proof-media-warmup";
 import { subscribeRealtimeTaskChanges } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
@@ -59,6 +62,7 @@ interface DashboardClientProps {
     userId: string;
     username: string;
     initialHideTips: boolean;
+    reputationScore: ReputationScoreData | null;
 }
 
 function isDashboardActiveStatus(status: Task["status"]): boolean {
@@ -173,6 +177,7 @@ export default function DashboardClient({
     userId,
     username,
     initialHideTips,
+    reputationScore,
 }: DashboardClientProps) {
     const router = useRouter();
     const [, startRefreshTransition] = useTransition();
@@ -189,6 +194,7 @@ export default function DashboardClient({
     const [tipsHidden, setTipsHidden] = useState(initialHideTips);
     const [isTogglingTips, setIsTogglingTips] = useState(false);
     const [sortMode, setSortMode] = useState<DashboardSortMode>("deadline_asc");
+    const [liveReputationScore, setLiveReputationScore] = useState<ReputationScoreData | null>(reputationScore);
     const proofInputRef = useRef<HTMLInputElement>(null);
     const proofByTaskIdRef = useRef<Record<string, TaskProofDraft>>({});
     const proofPickerTaskIdRef = useRef<string | null>(null);
@@ -274,6 +280,12 @@ export default function DashboardClient({
     const refreshInBackground = () => {
         startRefreshTransition(() => {
             router.refresh();
+        });
+    };
+
+    const refreshReputation = () => {
+        getUserReputationScore(userId).then((score) => {
+            if (score) setLiveReputationScore(score);
         });
     };
 
@@ -423,6 +435,11 @@ export default function DashboardClient({
             }
 
             clearTaskTransientState(taskId);
+
+            const finalStatuses = new Set(["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"]);
+            if (finalStatuses.has(patchedTask.status)) {
+                refreshReputation();
+            }
         });
 
         return unsubscribe;
@@ -912,8 +929,13 @@ export default function DashboardClient({
     return (
         <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0 pb-14">
             <TaskDetailPrefetcher tasks={[...activeDueSoonTasks, ...futureTasks, ...completedTasks]} />
-            <div className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2">{`Hi ${username}`}</h1>
+            <div className="flex items-center gap-4 mb-8">
+                <h1 className="text-2xl font-bold text-white flex items-center gap-2 shrink-0">{`Hi ${username}`}</h1>
+                {liveReputationScore !== null && (
+                    <div className="flex-1 min-w-0">
+                        <ReputationBar data={liveReputationScore} />
+                    </div>
+                )}
                 <DashboardHeaderActions
                     tipsVisible={!tipsHidden}
                     onToggleTips={() => {

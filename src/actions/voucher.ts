@@ -108,6 +108,7 @@ export async function voucherAccept(taskId: string) {
     const { error } = await (supabase.from("tasks") as any)
         .update({
             status: "COMPLETED",
+            has_proof: cleanup.deleted,
             proof_request_open: false,
             proof_requested_at: null,
             proof_requested_by: null,
