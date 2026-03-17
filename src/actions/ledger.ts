@@ -4,6 +4,46 @@ import { createClient } from "@/lib/supabase/server";
 import { sendNotification } from "@/lib/notifications";
 import { formatCurrencyFromCents, normalizeCurrency } from "@/lib/currency";
 
+export async function getLedgerPeriods(): Promise<string[]> {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const currentPeriod = new Date().toISOString().slice(0, 7);
+
+    // @ts-ignore
+    const { data } = await supabase
+        .from("ledger_entries")
+        .select("period")
+        .eq("user_id", user.id)
+        .neq("period", currentPeriod);
+
+    if (!data) return [];
+    const unique = [...new Set((data as any[]).map((r) => r.period as string))];
+    return unique.sort((a, b) => b.localeCompare(a));
+}
+
+export async function getLedgerEntriesForPeriod(period: string) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { entries: [], totalCents: 0 };
+
+    // @ts-ignore
+    const { data: entries } = await supabase
+        .from("ledger_entries")
+        .select(`*, task:tasks(*)`)
+        .eq("user_id", user.id)
+        .eq("period", period)
+        .order("created_at", { ascending: false });
+
+    const totalCents = (entries as any[])?.reduce(
+        (sum: number, e: any) => sum + e.amount_cents,
+        0
+    ) ?? 0;
+
+    return { entries: (entries ?? []) as any[], totalCents };
+}
+
 function formatLedgerEntryType(entryType: string): string {
     if (entryType === "voucher_timeout_penalty") return "Voucher Timeout Penalty";
     if (entryType === "force_majeure") return "Force Majeure";

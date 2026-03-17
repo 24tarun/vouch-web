@@ -105,11 +105,11 @@ export default async function OverviewPage() {
             <div className="grid grid-cols-3 gap-4 md:flex md:items-baseline md:justify-between md:gap-8">
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Active</p>
-                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-white">{activeTasksCount}</p>
+                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.6)]">{activeTasksCount}</p>
                 </div>
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Time Focused</p>
-                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-white whitespace-nowrap">
+                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)] whitespace-nowrap">
                         {totalHours}
                         <span className="text-base sm:text-lg md:text-xl text-slate-500 ml-1">h</span>{" "}
                         {totalMinutes}
@@ -118,19 +118,19 @@ export default async function OverviewPage() {
                 </div>
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Pending Vouches</p>
-                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-purple-400">{pendingVouchCount}</p>
+                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-purple-400 drop-shadow-[0_0_8px_rgba(192,132,252,0.6)]">{pendingVouchCount}</p>
                 </div>
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Accepted</p>
-                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-lime-300">{acceptedCount}</p>
+                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-lime-300 drop-shadow-[0_0_8px_rgba(190,242,100,0.6)]">{acceptedCount}</p>
                 </div>
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Failed</p>
-                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-red-500">{failedCount}</p>
+                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]">{failedCount}</p>
                 </div>
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Denied</p>
-                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-red-500">{deniedCount}</p>
+                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]">{deniedCount}</p>
                 </div>
             </div>
 

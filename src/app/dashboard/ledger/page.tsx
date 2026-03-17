@@ -6,6 +6,8 @@ import { HardRefreshButton } from "@/components/HardRefreshButton";
 import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { formatCurrencyFromCents, normalizeCurrency } from "@/lib/currency";
+import { getLedgerPeriods } from "@/actions/ledger";
+import { PreviousMonthsAccordion } from "@/components/PreviousMonthsAccordion";
 
 export default async function LedgerPage() {
     const supabase = await createClient();
@@ -19,7 +21,8 @@ export default async function LedgerPage() {
         .maybeSingle();
     const currency = normalizeCurrency((profile as { currency?: string | null } | null)?.currency);
 
-    const currentPeriod = new Date().toISOString().slice(0, 7);
+    const now = new Date();
+    const currentPeriod = now.toISOString().slice(0, 7);
 
     // @ts-ignore
     const { data: entries } = await supabase
@@ -39,12 +42,23 @@ export default async function LedgerPage() {
         .eq("user_id", user?.id as any)
         .eq("period", currentPeriod);
 
+    const periodStart = `${currentPeriod}-01`;
+    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10);
+
     // @ts-ignore
-    const { count: forceCount } = await supabase
-        .from("force_majeure")
-        .select("*", { count: "exact", head: true })
+    const { data: completedTasks } = await supabase
+        .from("tasks")
+        .select("failure_cost_cents")
         .eq("user_id", user?.id as any)
-        .eq("period", currentPeriod);
+        .eq("status", "COMPLETED")
+        .gte("deadline", periodStart)
+        .lt("deadline", periodEnd);
+
+    const costSavedCents = (completedTasks as any[])?.reduce(
+        (sum: number, t: any) => sum + (t.failure_cost_cents ?? 0),
+        0
+    ) ?? 0;
+    const costSavedLabel = formatCurrencyFromCents(costSavedCents, currency);
 
     const totalAmount =
         (entries as any)?.reduce(
@@ -56,18 +70,16 @@ export default async function LedgerPage() {
     const failedCount =
         entries?.filter((e: LedgerEntry) => e.entry_type === "failure").length || 0;
 
-    const now = new Date();
     const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const settleDateStr = `${nextMonthDate.getDate().toString().padStart(2, '0')}/${(nextMonthDate.getMonth() + 1).toString().padStart(2, '0')}/${nextMonthDate.getFullYear().toString().slice(-2)}`;
+
+    const pastPeriods = await getLedgerPeriods();
 
     return (
         <div className="max-w-4xl mx-auto space-y-12 pb-20 mt-12 px-4 md:px-0">
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Ledger</h1>
-                    <p className="text-slate-400 mt-1">
-                        Track your accountability and commitment to change.
-                    </p>
                 </div>
                 <HardRefreshButton />
             </div>
@@ -76,29 +88,20 @@ export default async function LedgerPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
                 <div className="space-y-1">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Projected Donation</p>
-                    <p className="text-4xl font-light text-pink-500">{totalAmountLabel}</p>
+                    <p className="text-4xl font-light text-pink-500 drop-shadow-[0_0_8px_rgba(236,72,153,0.6)]">{totalAmountLabel}</p>
                 </div>
                 <div className="space-y-1">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Rectify Passes</p>
-                    <p className="text-4xl font-light text-orange-400">{rectifyCount || 0}/5</p>
+                    <p className="text-4xl font-light text-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]">{rectifyCount || 0}/5</p>
                 </div>
                 <div className="space-y-1">
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Force Majeure</p>
-                    <p className={`text-4xl font-light ${(forceCount || 0) > 0 ? "text-yellow-500" : "text-slate-200"}`}>
-                        {(forceCount || 0) > 0 ? "1/1" : "0/1"}
-                    </p>
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Kept</p>
+                    <p className="text-4xl font-light text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.6)]">{costSavedLabel}</p>
                 </div>
                 <div className="space-y-1">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Failures</p>
-                    <p className="text-4xl font-light text-red-500">{failedCount}</p>
+                    <p className="text-4xl font-light text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]">{failedCount}</p>
                 </div>
-            </div>
-
-            {/* Donation Message */}
-            <div className="bg-purple-900/10 border border-purple-500/20 rounded-xl p-6 text-center">
-                <p className="text-purple-300/80 text-sm">
-                    Current charitable commitment for <span className="text-purple-200 font-bold">{new Date().toLocaleString('default', { month: 'long' })}</span>: <span className="text-white">{totalAmountLabel}</span>
-                </p>
             </div>
 
             {/* Ledger List */}
@@ -114,7 +117,7 @@ export default async function LedgerPage() {
                         <p className="text-slate-600 text-sm italic">No entries for this period yet.</p>
                     </div>
                 ) : (
-                    <div className="flex flex-col border-t border-slate-900/50">
+                    <div className="flex flex-col">
                         {(entries as any).map((entry: any) => {
                             const taskId = entry.task?.id || entry.task_id || null;
                             const absAmountLabel = formatCurrencyFromCents(Math.abs(entry.amount_cents), currency);
@@ -176,6 +179,8 @@ export default async function LedgerPage() {
             <p className="text-[10px] text-slate-700 text-center uppercase tracking-[0.2em] pt-8">
                 settles at the {settleDateStr} • Automatic donation flow coming soon
             </p>
+
+            <PreviousMonthsAccordion periods={pastPeriods} currency={currency} />
         </div>
     );
 }

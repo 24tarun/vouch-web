@@ -452,9 +452,6 @@ export default function VoucherDashboardClient({
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Friends</h1>
-                    <p className="text-slate-400 mt-1">
-                        Review vouch requests and see who is currently focusing
-                    </p>
                 </div>
                 <HardRefreshButton />
             </div>
@@ -619,7 +616,7 @@ export function CompactPendingItem({
         : "bg-purple-500/10 text-purple-300 border-purple-500/30 text-[10px]";
     const deadlineClass = !hasValidDeadline
         ? "bg-slate-500/10 text-slate-400 border-slate-500/20 text-[10px]"
-        : (hoursLeft < 6
+        : (hoursLeft < 1
             ? "bg-red-500/10 text-red-500 border-red-500/30 text-[10px]"
             : "bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px]");
     const proof = task.completion_proof;

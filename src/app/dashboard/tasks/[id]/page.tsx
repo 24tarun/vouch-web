@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getTask, getTaskEvents, getTaskPomoSummary } from "@/actions/tasks";
+import { getPotentialRpGain } from "@/actions/reputation";
 import TaskDetailClient from "./task-detail-client";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
@@ -23,9 +24,14 @@ export default async function TaskPage({ params }: TaskPageProps) {
         notFound();
     }
 
-    const [events, pomoSummary] = await Promise.all([
+    const isActiveOwnerTask =
+        task.user_id === user?.id &&
+        (task.status === "CREATED" || task.status === "POSTPONED");
+
+    const [events, pomoSummary, potentialRp] = await Promise.all([
         getTaskEvents(id),
         getTaskPomoSummary(id),
+        isActiveOwnerTask ? getPotentialRpGain(id, user!.id) : Promise.resolve(null),
     ]);
 
     // @ts-ignore
@@ -49,6 +55,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
             defaultPomoDurationMinutes={defaultPomoDurationMinutes}
             viewerId={user?.id || ""}
             viewerCurrency={viewerCurrency}
+            potentialRp={potentialRp}
         />
     );
 }

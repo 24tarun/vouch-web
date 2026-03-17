@@ -1,5 +1,6 @@
 "use client";
 
+import { fireCompletionConfetti } from "@/lib/confetti";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -71,6 +72,7 @@ interface TaskDetailClientProps {
     defaultPomoDurationMinutes: number;
     viewerId: string;
     viewerCurrency: SupportedCurrency;
+    potentialRp: number | null;
 }
 
 interface TaskProofDraft {
@@ -102,6 +104,7 @@ function sortTaskReminders(reminders: TaskWithRelations["reminders"] | null | un
     );
 }
 
+
 export default function TaskDetailClient({
     task,
     events,
@@ -109,6 +112,7 @@ export default function TaskDetailClient({
     defaultPomoDurationMinutes,
     viewerId,
     viewerCurrency,
+    potentialRp,
 }: TaskDetailClientProps) {
     const router = useRouter();
     const { session } = usePomodoro();
@@ -868,6 +872,7 @@ export default function TaskDetailClient({
         }
         setActionPending("markComplete", true);
         setProofUploadError(null);
+        fireCompletionConfetti();
 
         const now = new Date();
         const voucherResponseDeadline = getVoucherResponseDeadlineLocal(now);
@@ -903,6 +908,9 @@ export default function TaskDetailClient({
                     void purgeLocalProofMedia(taskState.id);
                 } else if (!proofIntent) {
                     void purgeLocalProofMedia(taskState.id);
+                }
+                if (potentialRp !== null && potentialRp > 0) {
+                    toast.success(`You may earn +${potentialRp} RP`);
                 }
                 refreshInBackground();
             },
@@ -1687,6 +1695,15 @@ export default function TaskDetailClient({
                                 )}
                             </div>
                         </div>
+                    )}
+
+                    {isOwner && isActiveParentTask && potentialRp !== null && potentialRp > 0 && (
+                        <p
+                            className="text-xs font-mono"
+                            style={{ color: "rgba(251,146,60,0.85)" }}
+                        >
+                            You may earn +{potentialRp} RP
+                        </p>
                     )}
 
                     <div className="flex flex-wrap items-center gap-3">

@@ -1,5 +1,5 @@
 export const SCORE_BASE = 400;
-export const BAYESIAN_BASE_WEIGHT = 20;
+export const BAYESIAN_BASE_WEIGHT = 8;
 
 export const WEIGHT_DELIVERY = 0.35;
 export const WEIGHT_DISCIPLINE = 0.25;

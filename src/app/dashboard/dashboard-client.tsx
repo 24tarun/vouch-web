@@ -1,5 +1,6 @@
 "use client";
 
+import { fireCompletionConfetti } from "@/lib/confetti";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -701,6 +702,7 @@ export default function DashboardClient({
         }
 
         setTaskCompleting(task.id, true);
+        fireCompletionConfetti();
 
         const now = new Date();
         const voucherResponseDeadline = getVoucherResponseDeadlineLocal(now);
@@ -929,22 +931,22 @@ export default function DashboardClient({
     return (
         <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0 pb-14">
             <TaskDetailPrefetcher tasks={[...activeDueSoonTasks, ...futureTasks, ...completedTasks]} />
-            <div className="flex items-center gap-4 mb-8">
-                <h1 className="text-2xl font-bold text-white flex items-center gap-2 shrink-0">{`Hi ${username}`}</h1>
+            <div className="mb-8 space-y-3">
+                <div className="flex items-center justify-between">
+                    <h1 className="text-2xl font-bold text-white">{`Hi ${username}`}</h1>
+                    <DashboardHeaderActions
+                        tipsVisible={!tipsHidden}
+                        onToggleTips={() => {
+                            void handleToggleTips();
+                        }}
+                        isTogglingTips={isTogglingTips}
+                        sortMode={sortMode}
+                        onSortModeChange={setSortMode}
+                    />
+                </div>
                 {liveReputationScore !== null && (
-                    <div className="flex-1 min-w-0">
-                        <ReputationBar data={liveReputationScore} />
-                    </div>
+                    <ReputationBar data={liveReputationScore} />
                 )}
-                <DashboardHeaderActions
-                    tipsVisible={!tipsHidden}
-                    onToggleTips={() => {
-                        void handleToggleTips();
-                    }}
-                    isTogglingTips={isTogglingTips}
-                    sortMode={sortMode}
-                    onSortModeChange={setSortMode}
-                />
             </div>
 
             <TaskInput
