@@ -2,9 +2,7 @@ export const SCORE_BASE = 400;
 export const BAYESIAN_BASE_WEIGHT = 8;
 
 export const WEIGHT_DELIVERY = 0.35;
-export const WEIGHT_DISCIPLINE = 0.25;
 export const WEIGHT_ACCOUNTABILITY = 0.20;
-export const WEIGHT_PROOF_QUALITY = 0.10;
 export const WEIGHT_COMMUNITY = 0.10;
 
 export const STREAK_MULTIPLIERS: { minDays: number; mult: number }[] = [
@@ -18,7 +16,7 @@ export const CONSECUTIVE_FAILURE_MULTIPLIERS = [1.0, 1.5, 2.0, 2.5];
 
 export const ACCOUNTABILITY_FAILURE_PENALTY = 80;
 export const ACCOUNTABILITY_POSTPONE_PENALTY = 25;
-export const ACCOUNTABILITY_DECAY_HALF_LIFE_DAYS = 90;
+export const ACCOUNTABILITY_DECAY_HALF_LIFE_DAYS = 15;
 export const ACCOUNTABILITY_CONSECUTIVE_WINDOW_DAYS = 30;
 
 export const DISCIPLINE_HEAVY_BREAK_THRESHOLD_DAYS = 15;
