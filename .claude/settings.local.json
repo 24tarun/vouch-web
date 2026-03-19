@@ -17,7 +17,9 @@
       "Read(**)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(rm /c/LocalFiles/coding/vouch/src/app/pomo-demo/page.tsx)",
+      "Bash(rmdir /c/LocalFiles/coding/vouch/src/app/pomo-demo)"
     ]
   }
 }
