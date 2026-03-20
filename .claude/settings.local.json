@@ -23,7 +23,14 @@
       "Bash(xargs wc:*)",
       "Bash(rm /c/LocalFiles/coding/vouch/src/components/CommitmentDetailClient.tsx)",
       "Bash(rm /c/LocalFiles/coding/vouch/src/app/dashboard/commitments/[id]/page.tsx)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "WebSearch",
+      "Skill(update-config)",
+      "mcp__supabase__get_project_url",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__apply_migration"
     ]
   }
 }

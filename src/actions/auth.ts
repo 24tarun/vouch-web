@@ -680,7 +680,6 @@ export async function updateUserDefaults(formData: FormData) {
 
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard");
-    revalidatePath("/dashboard/tasks/new");
     revalidatePath("/dashboard/ledger");
     revalidatePath("/dashboard/friends");
     return { success: true };

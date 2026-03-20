@@ -124,6 +124,10 @@ Core domain object.
 - `proof_request_open`, `proof_requested_at`, `proof_requested_by`
 - `voucher_timeout_auto_accepted` (bool)
 - `is_event`, `google_sync_for_task`, `google_event_end_at`, `google_event_color_id`
+- `resubmit_count` (int), `ai_vouch_calls_count` (int) — AI voucher resubmit tracking
+
+### `ai_vouch_denials`
+Denial history for AI voucher. `id`, `task_id`, `attempt_number`, `reason`, `denied_at`. Tracks all AI voucher denials for user resubmission and final decision tracking.
 
 ### `task_events`
 Immutable audit log. `task_id`, `event_type`, `actor_id`, `created_at`.
@@ -192,6 +196,7 @@ CREATED â”€â”€â”€â”€â”€â”€â”€â”€â”€
 - Self-vouched tasks skip AWAITING_VOUCHER â†’ go directly to COMPLETED
 - Voucher timeout auto-accepts (â†’ COMPLETED) and charges voucher 30 cents, not the owner
 - Owner can postpone once per task
+- **AI Voucher resubmit:** When Orca denies proof, task goes AWAITING_VOUCHER -> AWAITING_USER. Owner can resubmit up to 3 times; on 3rd denial, task -> FAILED. Ledger penalty only charged on final failure. Can escalate to human voucher at any resubmit stage.
 - Failure cost charged on: FAILED (via deny or missed deadline). Rectify creates negative ledger entry to cancel it.
 - `SETTLED` state is sent in settlement email but tasks aren't DB-updated to SETTLED
 - Commitment guards: `cancelRepetition` is blocked for DRAFT/ACTIVE linked commitments; owner temp-delete unlinks DRAFT links and blocks ACTIVE links; voucher delete blocks ACTIVE links.

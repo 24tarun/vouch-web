@@ -1,7 +1,6 @@
 "use client";
 
 import {
-    MAX_TASK_PROOF_BYTES,
     MAX_TASK_PROOF_VIDEO_DURATION_MS,
     type TaskProofIntent,
     type TaskProofMediaKind,
@@ -47,7 +46,7 @@ function replaceExtension(name: string, extension: string): string {
     return `${trimmed}.${extension}`;
 }
 
-export async function compressImageToMaxSize(file: File, maxBytes = MAX_TASK_PROOF_BYTES): Promise<File> {
+export async function compressImageToMaxSize(file: File, maxBytes = Infinity): Promise<File> {
     const normalizedType = (file.type || "").toLowerCase();
     const canKeepOriginalMime = normalizedType === "image/jpeg" || normalizedType === "image/png" || normalizedType === "image/webp";
     const mustTranscodeToJpeg = !canKeepOriginalMime;
@@ -94,7 +93,7 @@ export async function compressImageToMaxSize(file: File, maxBytes = MAX_TASK_PRO
         URL.revokeObjectURL(imageUrl);
     }
 
-    throw new Error("Image could not be compressed below 5MB");
+    throw new Error("Image could not be transcoded.");
 }
 
 export async function getVideoDurationMs(file: File): Promise<number> {
@@ -121,7 +120,6 @@ export async function getVideoDurationMs(file: File): Promise<number> {
 }
 
 async function bestEffortCompressVideo(file: File, durationMs: number): Promise<File | null> {
-    if (file.size <= MAX_TASK_PROOF_BYTES) return file;
     if (typeof window === "undefined") return null;
     if (!("MediaRecorder" in window)) return null;
     if (!HTMLCanvasElement.prototype.captureStream) return null;
@@ -156,7 +154,7 @@ async function bestEffortCompressVideo(file: File, durationMs: number): Promise<
         if (!ctx) return null;
 
         const stream = canvas.captureStream(24);
-        const targetBitsPerSecond = Math.max(150_000, Math.min(900_000, Math.floor((MAX_TASK_PROOF_BYTES * 8) / (durationMs / 1000))));
+        const targetBitsPerSecond = Math.max(150_000, Math.min(900_000, Math.floor((50 * 1024 * 1024 * 8) / (durationMs / 1000))));
         const recorder = new MediaRecorder(stream, {
             mimeType: preferredMimeType,
             videoBitsPerSecond: targetBitsPerSecond,
@@ -200,10 +198,6 @@ async function bestEffortCompressVideo(file: File, durationMs: number): Promise<
         if (recorder.state !== "inactive") recorder.stop();
         const compressed = await recordingDone;
 
-        if (compressed.size > MAX_TASK_PROOF_BYTES) {
-            return null;
-        }
-
         return compressed;
     } finally {
         sourceVideo.pause();
@@ -233,10 +227,7 @@ export async function prepareTaskProof(file: File): Promise<PreparedTaskProof> {
 
     if (mediaKind === "image") {
         const overlayTimestampText = normalizeProofTimestampText(await extractProofTimestampText(file));
-        const compressed = await compressImageToMaxSize(file, MAX_TASK_PROOF_BYTES);
-        if (compressed.size > MAX_TASK_PROOF_BYTES) {
-            throw new Error("Image proof must be 5MB or less.");
-        }
+        const compressed = await compressImageToMaxSize(file);
         return {
             file: compressed,
             mediaKind,
@@ -255,9 +246,6 @@ export async function prepareTaskProof(file: File): Promise<PreparedTaskProof> {
 
     const compressedVideo = await bestEffortCompressVideo(file, durationMs);
     const finalVideo = compressedVideo || file;
-    if (finalVideo.size > MAX_TASK_PROOF_BYTES) {
-        throw new Error("Video proof must be 5MB or less after compression.");
-    }
 
     return {
         file: finalVideo,

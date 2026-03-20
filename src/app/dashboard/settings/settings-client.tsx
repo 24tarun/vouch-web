@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { deleteAccount, getActiveVoucherTasks, updateUserDefaults, updateUsername } from "@/actions/auth";
-import { addFriend, getFriends, removeFriend } from "@/actions/friends";
+import { addFriend, getFriends, removeFriend, setOrcaAsFriendEnabled } from "@/actions/friends";
 import {
     disconnectGoogleCalendar,
     listGoogleCalendarsForSettings,
@@ -42,6 +42,7 @@ import {
     DEFAULT_POMO_DURATION_MINUTES,
     MAX_POMO_DURATION_MINUTES,
 } from "@/lib/constants";
+import { AI_VOUCHER_DISPLAY_NAME, ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
@@ -76,6 +77,10 @@ export default function SettingsClient({
     const [isFriendsLoading, setIsFriendsLoading] = useState(false);
     const [friendsError, setFriendsError] = useState<string | null>(null);
     const [friendsSuccess, setFriendsSuccess] = useState<string | null>(null);
+    const [orcaFriendEnabled, setOrcaFriendEnabled] = useState(profile.orca_friend_opt_in ?? false);
+    const [isOrcaFriendLoading, setIsOrcaFriendLoading] = useState(false);
+    const [orcaFriendError, setOrcaFriendError] = useState<string | null>(null);
+    const [orcaFriendSuccess, setOrcaFriendSuccess] = useState<string | null>(null);
 
     const [username, setUsername] = useState(profile.username);
     const [isUsernameLoading, setIsUsernameLoading] = useState(false);
@@ -331,6 +336,44 @@ export default function SettingsClient({
             setFriendsError("Failed to remove friend.");
         } finally {
             setIsFriendsLoading(false);
+        }
+    }
+
+    async function handleOrcaFriendToggle(nextEnabled: boolean) {
+        if (isOrcaFriendLoading) return;
+
+        const previousEnabled = orcaFriendEnabled;
+        setOrcaFriendEnabled(nextEnabled);
+        setIsOrcaFriendLoading(true);
+        setOrcaFriendError(null);
+        setOrcaFriendSuccess(null);
+
+        try {
+            const result = await setOrcaAsFriendEnabled(nextEnabled);
+
+            if (result.error) {
+                setOrcaFriendEnabled(previousEnabled);
+                setOrcaFriendError(result.error);
+                return;
+            }
+
+            const resolvedEnabled = result.enabled ?? nextEnabled;
+            setOrcaFriendEnabled(resolvedEnabled);
+            if (!resolvedEnabled && defaultVoucherId === ORCA_PROFILE_ID) {
+                setDefaultVoucherId(profile.id);
+            }
+            setOrcaFriendSuccess(
+                resolvedEnabled
+                    ? `${AI_VOUCHER_DISPLAY_NAME} added as a friend.`
+                    : `${AI_VOUCHER_DISPLAY_NAME} removed from your friends.`
+            );
+            await refreshFriendsList();
+        } catch (error) {
+            console.error(error);
+            setOrcaFriendEnabled(previousEnabled);
+            setOrcaFriendError("Failed to update Orca friend setting.");
+        } finally {
+            setIsOrcaFriendLoading(false);
         }
     }
 
@@ -845,16 +888,20 @@ export default function SettingsClient({
                                         <p className="text-xs text-slate-500 truncate">{friend.email}</p>
                                     </div>
                                 </div>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleRemoveFriend(friend.id)}
-                                    disabled={isFriendsLoading}
-                                    className="text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                                >
-                                    Remove
-                                </Button>
+                                {friend.id === ORCA_PROFILE_ID ? (
+                                    <span className="text-xs text-slate-500">Managed in AI Features</span>
+                                ) : (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleRemoveFriend(friend.id)}
+                                        disabled={isFriendsLoading}
+                                        className="text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                                    >
+                                        Remove
+                                    </Button>
+                                )}
                             </div>
                         ))}
                     </div>
@@ -1133,6 +1180,37 @@ export default function SettingsClient({
                         <p className="text-sm text-green-400">Defaults updated!</p>
                     )}
                 </div>
+            </section>
+
+            <section className="space-y-4 border-b border-slate-900 pb-8">
+                <div className="space-y-1">
+                    <h2 className="text-xl font-semibold text-white">AI Features</h2>
+                    <p className="text-sm text-slate-400">
+                        Opt in to AI-powered helpers.
+                    </p>
+                </div>
+                <div className="border-b border-slate-900 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-1">
+                            <Label htmlFor="orcaFriendEnabled" className="text-slate-200">
+                                Add Orca as a friend
+                            </Label>
+                            <p className="text-xs text-slate-400">
+                                When enabled, {AI_VOUCHER_DISPLAY_NAME} is added to your friends list and appears in voucher pickers.
+                            </p>
+                        </div>
+                        <input
+                            id="orcaFriendEnabled"
+                            type="checkbox"
+                            checked={orcaFriendEnabled}
+                            disabled={isOrcaFriendLoading}
+                            onChange={(e) => handleOrcaFriendToggle(e.target.checked)}
+                            className="h-4 w-4 accent-cyan-400"
+                        />
+                    </div>
+                </div>
+                {orcaFriendError && <p className="text-sm text-red-400">{orcaFriendError}</p>}
+                {orcaFriendSuccess && <p className="text-sm text-green-400">{orcaFriendSuccess}</p>}
             </section>
 
             <section className="space-y-4 border-b border-slate-900 pb-8">
@@ -1434,3 +1512,4 @@ function urlBase64ToUint8Array(base64String: string) {
     }
     return outputArray;
 }
+

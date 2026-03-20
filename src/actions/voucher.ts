@@ -817,3 +817,141 @@ export async function getVouchHistoryPage(offsetInput: number, limitInput: numbe
     };
 }
 
+/**
+ * Escalate an AI-denied task to a human voucher for a second opinion.
+ * The task must be in FAILED status and originally AI-vouched.
+ * Creates a negative ledger entry to cancel the AI denial penalty.
+ * Sets ai_escalated_from = true so the 0.5× weight applies even if human approves.
+ */
+export async function escalateToHumanVoucher(
+    taskId: string,
+    newVoucherId: string
+): Promise<{ success?: boolean; error?: string }> {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    // Fetch the task
+    // @ts-ignore
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("*, user:profiles!tasks_user_id_fkey(id, email, username)")
+        .eq("id", (taskId as any))
+        .eq("user_id", (user as any).id)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    // Verify preconditions
+    if ((task as any).status !== "FAILED" && (task as any).status !== "AWAITING_USER") {
+        return { error: `Cannot escalate task in ${(task as any).status} status` };
+    }
+
+    // Check that the task is currently AI-vouched and has not already been escalated.
+    const { ORCA_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
+    if ((task as any).voucher_id !== ORCA_PROFILE_ID || Boolean((task as any).ai_escalated_from)) {
+        return { error: "This task was not AI-vouched and cannot be escalated" };
+    }
+
+    // Validate new voucher is self or a friend
+    if (newVoucherId !== user.id) {
+        const { data: friendship } = await (supabase.from("friendships") as any)
+            .select("friend_id")
+            .eq("user_id", (user as any).id)
+            .eq("friend_id", (newVoucherId as any))
+            .maybeSingle();
+        if (!friendship) {
+            return { error: "New voucher must be yourself or a friend" };
+        }
+    }
+
+    // Fetch new voucher's profile for notification
+    const { data: newVoucher } = await (supabase.from("profiles") as any)
+        .select("id, email, username")
+        .eq("id", (newVoucherId as any))
+        .maybeSingle();
+
+    // Change voucher to human, set ai_escalated_from flag, reset to AWAITING_VOUCHER
+    // @ts-ignore
+    const { error: updateError } = await (supabase.from("tasks") as any)
+        .update({
+            voucher_id: (newVoucherId as any),
+            ai_escalated_from: true,
+            status: "AWAITING_VOUCHER" as any,
+            voucher_response_deadline: getVoucherResponseDeadline(),
+        } as any)
+        .eq("id", (taskId as any))
+        .eq("user_id", (user as any).id);
+
+    if (updateError) {
+        return { error: updateError.message };
+    }
+
+    // Create negative ledger entry to cancel the AI-denial penalty (only if task was FAILED)
+    if ((task as any).status === "FAILED") {
+        const currentPeriod = new Date().toISOString().slice(0, 7);
+        await (supabase.from("ledger_entries" as any) as any).insert({
+            user_id: (task as any).user_id,
+            task_id: (taskId as any),
+            period: currentPeriod,
+            amount_cents: -((task as any).failure_cost_cents),
+            entry_type: "rectified",
+        });
+    }
+
+    // Write task event
+    await (supabase.from("task_events") as any).insert({
+        task_id: (taskId as any),
+        event_type: "AI_ESCALATE_TO_HUMAN",
+        actor_id: (user as any).id,
+        from_status: (task as any).status,
+        to_status: "AWAITING_VOUCHER",
+        metadata: { new_voucher_id: (newVoucherId as any) },
+    });
+
+    // Notify the new voucher
+    if (newVoucher?.email) {
+        await sendNotification({
+            to: newVoucher.email,
+            userId: (newVoucherId as any),
+            subject: `Appeal: ${(task as any).title} has been escalated to you`,
+            title: "Task escalated",
+            text: `Your friend ${(task as any).user?.username || "a friend"} is appealing the Orca's denial of "${(task as any).title}".`,
+            html: `
+                <h1>Task escalated to you</h1>
+                <p>Hi ${newVoucher.username || "there"},</p>
+                <p><strong>${(task as any).user?.username || "A friend"}</strong> is appealing the Orca's denial of <strong>"${(task as any).title}"</strong>.</p>
+                <p>The Orca's denial reason can be found in the task details. Your decision will be final.</p>
+                <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/voucher">Review appealed task</a></p>
+            `,
+            url: "/dashboard/voucher",
+            tag: `task-escalated-${taskId}`,
+            data: { taskId, kind: "TASK_ESCALATED_TO_VOUCHER" },
+        });
+    }
+
+    // Invalidate caches
+    invalidateOwnerActiveTasksCache((task as any).user_id);
+    invalidatePendingVoucherRequestsCache((newVoucherId as any));
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/voucher");
+    revalidatePath(`/dashboard/tasks/${taskId}`);
+
+    return { success: true };
+}
+
+function getVoucherResponseDeadline(): string {
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + 2);
+    deadline.setHours(23, 59, 59, 999);
+    return deadline.toISOString();
+}
+
+
+

@@ -6,6 +6,10 @@ export const WEIGHT_DELIVERY = 0.35;
 export const WEIGHT_ACCOUNTABILITY = 0.20;
 export const WEIGHT_COMMUNITY = 0.10;
 
+// AI Voucher: tasks approved by Orca count at 0.5× delivery weight
+// (AI can be fooled, human vouchers know the user better)
+export const AI_VOUCHER_REPUTATION_MULTIPLIER = 0.5;
+
 export const STREAK_MULTIPLIERS: { minDays: number; mult: number }[] = [
     { minDays: 30, mult: 2.0 },
     { minDays: 14, mult: 1.6 },
@@ -42,3 +46,4 @@ export const SCORE_TIERS: { minScore: number; label: string }[] = [
     { minScore: 200, label: "Struggling" },
     { minScore: 0, label: "Unreliable" },
 ];
+

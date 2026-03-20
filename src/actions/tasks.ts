@@ -26,7 +26,6 @@ import {
 import {
     buildTaskProofObjectPath,
     deleteTaskProof,
-    MAX_TASK_PROOF_BYTES,
     MAX_TASK_PROOF_VIDEO_DURATION_MS,
     TASK_PROOFS_BUCKET,
     type TaskProofIntent,
@@ -44,6 +43,7 @@ import {
 } from "@/lib/task-title-parser";
 import { isValidPomoDurationMinutes } from "@/lib/pomodoro";
 import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
+import { aiEvaluationLimiter, checkRateLimit } from "@/lib/rate-limit";
 
 const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
@@ -63,7 +63,6 @@ const EVENT_END_NOT_AFTER_START_ERROR = "Event end time must be after start time
 const INVALID_REQUIRED_POMO_ERROR =
     `Required pomodoro minutes must be an integer between 1 and ${MAX_POMO_DURATION_MINUTES}.`;
 const INVALID_TASK_PROOF_ERROR = "Invalid proof payload.";
-const TASK_PROOF_TOO_LARGE_ERROR = "Proof must be 5MB or less.";
 const TASK_PROOF_VIDEO_TOO_LONG_ERROR = "Video proof must be 15 seconds or less.";
 const REQUIRED_PROOF_FOR_COMPLETION_ERROR = "Attach proof before marking this task complete.";
 const INVALID_REQUIRES_PROOF_ERROR = "Invalid requires-proof payload.";
@@ -414,10 +413,6 @@ function validateProofIntent(rawProofIntent?: TaskProofIntent | null): { proofIn
         return { error: INVALID_TASK_PROOF_ERROR };
     }
 
-    if (sizeBytes > MAX_TASK_PROOF_BYTES) {
-        return { error: TASK_PROOF_TOO_LARGE_ERROR };
-    }
-
     const durationMs = rawProofIntent.durationMs ?? null;
     if (mediaKind === "video") {
         if (durationMs == null || !Number.isFinite(durationMs) || durationMs <= 0) {
@@ -613,6 +608,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             defaultEventDurationMinutesRaw <= 720
             ? defaultEventDurationMinutesRaw
             : DEFAULT_EVENT_DURATION_MINUTES;
+    const { ORCA_PROFILE_ID: ORCA_ID_SIMPLE } = await import("@/lib/ai-voucher/constants");
 
     // Default params: Deadline = End of today
     let deadline = getDefaultTaskDeadline();
@@ -641,6 +637,9 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             eventResolution.endDate.getTime() <= creationNow.getTime();
     }
 
+    // Force requires_proof = true for AI voucher (AI can't vouch without evidence)
+    const finalRequiresProofSimple = defaultVoucherId === ORCA_ID_SIMPLE ? true : requiresProof;
+
     // @ts-ignore
     const { data: task, error } = await (supabase.from("tasks") as any)
         .insert({
@@ -649,7 +648,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             title: normalizedTitle.normalizedTitle,
             description: null,
             failure_cost_cents: defaultFailureCostCents,
-            requires_proof: requiresProof,
+            requires_proof: finalRequiresProofSimple,
             deadline: deadline.toISOString(),
             status: shouldAutoCompletePastEvent ? "COMPLETED" : "CREATED",
             marked_completed_at: shouldAutoCompletePastEvent ? creationNowIso : null,
@@ -919,7 +918,10 @@ export async function createTask(formData: FormData) {
         };
     }
 
-    // Verify voucher is self or a friend.
+    // Verify voucher is self or a friend (Orca qualifies only when friendship exists).
+    const { ORCA_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
+    const isAiVoucher = voucherId === ORCA_PROFILE_ID;
+
     if (voucherId !== (user as any).id) {
         // @ts-ignore
         const { data: friendship } = await supabase
@@ -933,6 +935,9 @@ export async function createTask(formData: FormData) {
             return { error: "You can only assign yourself or friends as vouchers" };
         }
     }
+
+    // Force requires_proof = true for AI voucher
+    const finalRequiresProof = isAiVoucher ? true : requiresProofInput.requiresProof;
 
     const recurrenceType = formData.get("recurrenceType") as string;
     const recurrenceInterval = parseInt(formData.get("recurrenceInterval") as string || "1");
@@ -977,7 +982,7 @@ export async function createTask(formData: FormData) {
                 description: description || null,
                 failure_cost_cents: failureCostCents,
                 required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
-                requires_proof: requiresProofInput.requiresProof,
+                requires_proof: finalRequiresProof,
                 rule_config: ruleConfig,
                 timezone: userTimezone,
                 google_sync_for_rule: titleSelection.googleSyncForTask,
@@ -1011,7 +1016,7 @@ export async function createTask(formData: FormData) {
             description: description || null,
             failure_cost_cents: failureCostCents,
             required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
-            requires_proof: requiresProofInput.requiresProof,
+            requires_proof: finalRequiresProof,
             deadline: validatedDeadline.toISOString(),
             status: shouldAutoCompletePastEvent ? "COMPLETED" : "CREATED",
             marked_completed_at: shouldAutoCompletePastEvent ? creationNowIso : null,
@@ -1085,7 +1090,7 @@ export async function createTask(formData: FormData) {
             recurrence_rule_id: recurrenceRuleId,
             reminder_count: remindersInput.reminderDates.length,
             required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
-            requires_proof: requiresProofInput.requiresProof,
+            requires_proof: finalRequiresProof,
         },
     }];
     if (shouldAutoCompletePastEvent) {
@@ -1485,7 +1490,7 @@ export async function initAwaitingVoucherProofUpload(
         return { error: "Task not found" };
     }
 
-    if ((task as any).status !== "AWAITING_VOUCHER") {
+    if ((task as any).status !== "AWAITING_VOUCHER" && (task as any).status !== "AWAITING_USER") {
         return { error: "Task is no longer awaiting voucher response." };
     }
 
@@ -1528,6 +1533,18 @@ export async function initAwaitingVoucherProofUpload(
     }
 
     const supabaseAdmin = createAdminClient();
+
+    // If task was in AWAITING_USER (resubmit), transition back to AWAITING_VOUCHER for AI evaluation
+    if ((task as any).status === "AWAITING_USER") {
+        const { error: transitionError } = await (supabaseAdmin.from("tasks") as any)
+            .update({ status: "AWAITING_VOUCHER" })
+            .eq("id", taskId)
+            .eq("status", "AWAITING_USER");
+
+        if (transitionError) {
+            return { error: "Another resubmit is already in progress" };
+        }
+    }
     const { data: signedUpload, error: signedUploadError } = await supabaseAdmin.storage
         .from(TASK_PROOFS_BUCKET)
         .createSignedUploadUrl(objectPath);
@@ -1637,6 +1654,35 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
 
     if (clearProofRequestError) {
         return { error: clearProofRequestError.message };
+    }
+
+    // AI Voucher: trigger evaluation for image proofs inline, video proofs async
+    const { ORCA_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
+    if ((task as any).voucher_id === ORCA_PROFILE_ID) {
+        const { limited } = await checkRateLimit(aiEvaluationLimiter, `ai-eval:${user.id}`);
+        if (limited) {
+            return { error: "Too many AI proof evaluations right now. Please wait a bit and try again." };
+        }
+
+        if (proofMeta.mediaKind === "image") {
+            // Image evaluation is fast (<3s), evaluate inline
+            const { processAiVoucherDecision } = await import("@/lib/ai-voucher/evaluate");
+            try {
+                await processAiVoucherDecision(taskId);
+            } catch (error) {
+                console.error(`AI voucher evaluation failed: ${error}`);
+                // Leave task in AWAITING_VOUCHER; user can retry or escalate
+            }
+        } else {
+            // Video evaluation is async; trigger Trigger.dev job
+            try {
+                const { tasks: triggerTasks } = await import("@trigger.dev/sdk/v3");
+                await triggerTasks.trigger("ai-voucher-evaluate", { taskId });
+            } catch (error) {
+                console.error(`Failed to queue AI voucher video evaluation: ${error}`);
+                // Leave task in AWAITING_VOUCHER for manual handling
+            }
+        }
     }
 
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
@@ -2679,7 +2725,7 @@ export async function getTask(taskId: string) {
 
         if (isOwner || isVoucher) {
             const supabaseAdmin = createAdminClient();
-            const [{ data: proof }, { data: googleLink, error: googleLinkError }] = await Promise.all([
+            const [{ data: proof }, { data: googleLink, error: googleLinkError }, { data: denials }] = await Promise.all([
                 (supabase.from("task_completion_proofs") as any)
                     .select("*")
                     .eq("task_id", taskId as any)
@@ -2689,6 +2735,10 @@ export async function getTask(taskId: string) {
                     .eq("task_id", taskId as any)
                     .eq("user_id", (task as any).user_id as any)
                     .maybeSingle(),
+                (supabaseAdmin.from("ai_vouch_denials") as any)
+                    .select("*")
+                    .eq("task_id", taskId as any)
+                    .order("attempt_number", { ascending: true }),
             ]);
 
             if (googleLinkError) {
@@ -2704,6 +2754,7 @@ export async function getTask(taskId: string) {
             (task as any).completion_proof = proof || null;
             (task as any).google_sync_linked = Boolean(googleLink);
             (task as any).google_sync_last_origin = lastOrigin;
+            (task as any).ai_vouch_denials = (denials as any[]) || [];
         }
 
         if (isOwner || isVoucher) {
@@ -3092,3 +3143,4 @@ export async function getActivePomoSession() {
 
     return { session: session || null, serverNow };
 }
+

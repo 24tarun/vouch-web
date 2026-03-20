@@ -6,11 +6,13 @@
  * 2) Aggregates pending request counts per voucher.
  * 3) Sends each voucher a digest notification about pending vouch requests.
  * 4) Writes/uses voucher_reminder_logs to avoid sending more than one digest per voucher per UTC day.
+ * 5) Skips AI-vouched tasks (Orca is not a human voucher, no reminder needed).
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";
 import { type Database } from "@/lib/types";
+import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
 
 interface PendingVoucherTask {
     voucher_id: string;
@@ -42,6 +44,7 @@ export const voucherDeadlineWarning = schedules.task({
                 voucher:profiles!tasks_voucher_id_fkey(id, email, username)
             `)
             .eq("status", "AWAITING_VOUCHER")
+            .neq("voucher_id", ORCA_PROFILE_ID)
             .gt("voucher_response_deadline", nowIso);
 
         if (response.error) {
@@ -139,4 +142,6 @@ export const voucherDeadlineWarning = schedules.task({
         }
     },
 });
+
+
 

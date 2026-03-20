@@ -12,6 +12,7 @@ export interface ReputationTaskInput {
     voucher_timeout_auto_accepted: boolean | null;
     has_uploaded_proof: boolean;
     pomo_total_seconds: number;
+    ai_escalated_from?: boolean;
 }
 
 export interface CategoryScores {

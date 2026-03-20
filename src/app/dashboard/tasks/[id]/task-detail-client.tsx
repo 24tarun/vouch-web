@@ -19,6 +19,7 @@ import {
     undoTaskComplete,
     toggleTaskSubtask,
 } from "@/actions/tasks";
+import { escalateToHumanVoucher } from "@/actions/voucher";
 import { Button } from "@/components/ui/button";
 import { Camera, Check, ChevronDown, Plus, Repeat, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -33,6 +34,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { PostponeDeadlineDialog } from "@/components/PostponeDeadlineDialog";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import type { TaskWithRelations, TaskEvent } from "@/lib/types";
 import { PomoButton } from "@/components/ui/PomoButton";
 import { localDateTimeToIso } from "@/lib/datetime-local";
@@ -134,6 +142,10 @@ export default function TaskDetailClient({
     const [proofUploadError, setProofUploadError] = useState<string | null>(null);
     const [isStoredProofFullscreen, setIsStoredProofFullscreen] = useState(false);
     const [isPostponeDialogOpen, setIsPostponeDialogOpen] = useState(false);
+    const [showEscalationPicker, setShowEscalationPicker] = useState(false);
+    const [escalationPending, setEscalationPending] = useState(false);
+    const [friends, setFriends] = useState<Array<{ id: string; username: string | null; email: string }>>([]);
+    const [friendsLoading, setFriendsLoading] = useState(false);
     const newSubtaskInputRef = useRef<HTMLInputElement>(null);
     const proofInputRef = useRef<HTMLInputElement>(null);
     const proofPreviewUrlRef = useRef<string | null>(null);
@@ -143,7 +155,7 @@ export default function TaskDetailClient({
     const deadline = new Date(taskState.deadline);
     const isOverdue =
         deadline < new Date() &&
-        !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"].includes(taskState.status);
+        !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "AWAITING_USER"].includes(taskState.status);
 
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
@@ -164,6 +176,15 @@ export default function TaskDetailClient({
     const canManageActionChildren = isOwner && isActiveParentTask;
     const ownerCurrency = normalizeCurrency(taskState.user?.currency ?? viewerCurrency);
     const formattedFailureCost = formatCurrencyFromCents(taskState.failure_cost_cents, ownerCurrency);
+
+    // AI Voucher resubmit state
+    const ORCA_ID = "00000000-0000-0000-0000-000000000001";
+    const isAiVouched = taskState.voucher_id === ORCA_ID;
+    const resubmitCount = taskState.resubmit_count ?? 0;
+    const MAX_RESUBMITS = 3;
+    const canResubmit = taskState.status === "AWAITING_USER" && resubmitCount < MAX_RESUBMITS;
+    const denials = taskState.ai_vouch_denials ?? [];
+    const latestDenial = denials.at(-1) ?? null;
 
     const formatDateDdMmYy = (value: Date | string) =>
         new Date(value).toLocaleDateString("en-GB", {
@@ -207,7 +228,7 @@ export default function TaskDetailClient({
     }, [taskState.recurrence_rule, taskState.deadline]);
     const iterationNumber = taskState.iteration_number ?? null;
     const canViewStoredProof =
-        taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED";
+        taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED" || taskState.status === "AWAITING_USER";
     const hasOpenProofRequest =
         Boolean(taskState.proof_request_open) &&
         (taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED");
@@ -827,6 +848,7 @@ export default function TaskDetailClient({
         POSTPONED: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
         MARKED_COMPLETED: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
         AWAITING_VOUCHER: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
+        AWAITING_USER: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
         COMPLETED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
         FAILED: "bg-red-500/20 text-red-300 border border-red-500/30",
         RECTIFIED: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
@@ -1273,6 +1295,45 @@ export default function TaskDetailClient({
         refreshInBackground();
         router.push("/dashboard");
         setActionPending("tempDelete", false);
+    }
+
+    async function loadFriendsForEscalation() {
+        setFriendsLoading(true);
+        try {
+            const supabase = createBrowserSupabaseClient();
+            const { data, error } = await supabase
+                .from("friendships")
+                .select("friend_id, friend:profiles!friendships_friend_id_fkey(id, username, email)")
+                .eq("user_id", viewerId);
+
+            if (!error && data) {
+                const friendsList = data
+                    .map((f) => (f.friend as any))
+                    .filter((f) => f && f.id);
+                setFriends(friendsList);
+            }
+        } catch (error) {
+            console.error("Failed to load friends:", error);
+        } finally {
+            setFriendsLoading(false);
+        }
+    }
+
+    async function handleEscalateToFriend(friendId: string) {
+        if (escalationPending) return;
+        setEscalationPending(true);
+
+        const result = await escalateToHumanVoucher(taskState.id, friendId);
+
+        if (result?.error) {
+            toast.error(result.error);
+        } else if (result?.success) {
+            toast.success("Task escalated to friend for review");
+            setShowEscalationPicker(false);
+            refreshInBackground();
+        }
+
+        setEscalationPending(false);
     }
 
     const formatFocusTime = (seconds: number) => {
@@ -1847,14 +1908,31 @@ export default function TaskDetailClient({
                         )}
 
                         {taskState.status === "FAILED" && (
-                            <Button
-                                variant="ghost"
-                                onClick={handleForceMajeure}
-                                disabled={isActionPending("forceMajeure")}
-                                className="bg-slate-800/40 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/40"
-                            >
-                                Use Force Majeure
-                            </Button>
+                            <div className="flex gap-2 flex-wrap">
+                                {taskState.voucher_id === "00000000-0000-0000-0000-000000000001" && taskState.marked_completed_at && (
+                                    <Button
+                                        variant="ghost"
+                                        onClick={() => {
+                                            if (!friends.length && !friendsLoading) {
+                                                loadFriendsForEscalation();
+                                            }
+                                            setShowEscalationPicker(true);
+                                        }}
+                                        disabled={escalationPending}
+                                        className="bg-blue-800/40 border border-blue-700 text-blue-300 hover:text-blue-100 hover:bg-blue-700/40"
+                                    >
+                                        Escalate to Friend
+                                    </Button>
+                                )}
+                                <Button
+                                    variant="ghost"
+                                    onClick={handleForceMajeure}
+                                    disabled={isActionPending("forceMajeure")}
+                                    className="bg-slate-800/40 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/40"
+                                >
+                                    Use Force Majeure
+                                </Button>
+                            </div>
                         )}
 
                         {(taskState.recurrence_rule_id || isRepetitionStopped) && (
@@ -1942,6 +2020,67 @@ export default function TaskDetailClient({
                             </div>
                         )}
 
+                        {taskState.status === "AWAITING_USER" && isAiVouched && (
+                            <div className="space-y-3">
+                                {latestDenial && (
+                                    <div className="w-full p-3 rounded-lg bg-orange-500/10 border border-orange-500/30">
+                                        <div className="flex justify-between items-start gap-2 mb-2">
+                                            <p className="text-sm font-semibold text-orange-300">
+                                                Proof Denied (Attempt {latestDenial.attempt_number}/3)
+                                            </p>
+                                        </div>
+                                        <p className="text-sm text-orange-200">{latestDenial.reason}</p>
+                                    </div>
+                                )}
+
+                                {denials.length > 1 && (
+                                    <details className="w-full">
+                                        <summary className="cursor-pointer text-sm text-orange-300 hover:text-orange-200 font-medium">
+                                            View all denial reasons ({denials.length})
+                                        </summary>
+                                        <div className="mt-2 space-y-2 ml-2 border-l border-orange-500/30 pl-3">
+                                            {denials.map((denial) => (
+                                                <div key={denial.id} className="text-xs">
+                                                    <p className="text-orange-300 font-mono">Attempt {denial.attempt_number}:</p>
+                                                    <p className="text-orange-200">{denial.reason}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </details>
+                                )}
+
+                                <div className="flex flex-wrap gap-2">
+                                    {canResubmit && isOwner && (
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={() => openProofPicker("awaiting-upload")}
+                                            disabled={isActionPending("awaitingProofUpload")}
+                                            className="bg-orange-800/40 border-orange-600 text-orange-300 hover:bg-orange-700/40 hover:text-orange-100"
+                                        >
+                                            <Camera className="mr-2 h-4 w-4" />
+                                            Upload New Proof
+                                        </Button>
+                                    )}
+                                    {isOwner && (
+                                        <Button
+                                            variant="ghost"
+                                            onClick={() => {
+                                                if (!friends.length && !friendsLoading) {
+                                                    loadFriendsForEscalation();
+                                                }
+                                                setShowEscalationPicker(true);
+                                            }}
+                                            disabled={escalationPending}
+                                            className="bg-blue-800/40 border border-blue-700 text-blue-300 hover:text-blue-100 hover:bg-blue-700/40"
+                                        >
+                                            Escalate to Friend
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {taskState.status === "COMPLETED" && (
                             <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 w-full">
                                 <p className="text-green-300">Task completed successfully.</p>
@@ -1949,12 +2088,29 @@ export default function TaskDetailClient({
                         )}
 
                         {taskState.status === "FAILED" && (
-                            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 w-full">
-                                <p className="text-red-300">
-                                    {taskState.marked_completed_at
-                                        ? "Denied by voucher."
-                                        : "Deadline missed. Failure cost:"} {formattedFailureCost} added to ledger.
-                                </p>
+                            <div className="space-y-3">
+                                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 w-full">
+                                    <p className="text-red-300">
+                                        {taskState.marked_completed_at
+                                            ? (isAiVouched && latestDenial?.reason
+                                                ? `Denied by AI voucher: ${latestDenial.reason}`
+                                                : "Denied by voucher.")
+                                            : "Deadline missed. Failure cost:"} {formattedFailureCost} added to ledger.
+                                    </p>
+                                </div>
+                                {isAiVouched && denials.length > 0 && (
+                                    <div className="w-full p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                                        <p className="text-sm font-semibold text-red-300 mb-2">AI Voucher Denial History</p>
+                                        <div className="space-y-2">
+                                            {denials.map((denial) => (
+                                                <div key={denial.id} className="text-xs">
+                                                    <p className="text-red-300 font-mono">Attempt {denial.attempt_number}:</p>
+                                                    <p className="text-red-200">{denial.reason}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -2032,6 +2188,36 @@ export default function TaskDetailClient({
                         }}
                     />
                 </div>
+            )}
+
+            {showEscalationPicker && (
+                <Dialog open={showEscalationPicker} onOpenChange={setShowEscalationPicker}>
+                    <DialogContent className="bg-slate-900 border-slate-800 text-slate-300">
+                        <DialogHeader>
+                            <DialogTitle>Escalate to a Friend</DialogTitle>
+                            <DialogDescription>Choose a friend to review the Orca's decision</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                            {friendsLoading ? (
+                                <p className="text-slate-400 text-sm py-4">Loading friends...</p>
+                            ) : friends.length === 0 ? (
+                                <p className="text-slate-400 text-sm py-4">No friends available to escalate to</p>
+                            ) : (
+                                friends.map((friend) => (
+                                    <button
+                                        key={friend.id}
+                                        onClick={() => handleEscalateToFriend(friend.id)}
+                                        disabled={escalationPending}
+                                        className="w-full text-left p-3 rounded-lg bg-slate-800/40 hover:bg-slate-800/60 border border-slate-700 text-slate-300 hover:text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <div className="font-medium">{friend.username || friend.email}</div>
+                                        {friend.username && <div className="text-xs text-slate-400">{friend.email}</div>}
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    </DialogContent>
+                </Dialog>
             )}
         </div>
     );

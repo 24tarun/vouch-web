@@ -6,6 +6,7 @@ export type TaskStatus =
     | "POSTPONED"
     | "MARKED_COMPLETED"
     | "AWAITING_VOUCHER"
+    | "AWAITING_USER"
     | "COMPLETED"
     | "FAILED"
     | "RECTIFIED"
@@ -155,11 +156,27 @@ export const taskMachine = setup({
                     actions: ["updateTimestamp"],
                 },
                 VOUCHER_DENY: {
-                    target: "FAILED",
+                    target: "AWAITING_USER",
                     actions: ["updateTimestamp"],
                 },
                 TIMEOUT_24H: {
                     target: "COMPLETED",
+                    actions: ["updateTimestamp"],
+                },
+                VOUCHER_DELETE: {
+                    target: "DELETED",
+                    actions: ["updateTimestamp"],
+                },
+            },
+        },
+        AWAITING_USER: {
+            on: {
+                VOUCHER_ACCEPT: {
+                    target: "AWAITING_VOUCHER",
+                    actions: ["updateTimestamp"],
+                },
+                VOUCHER_DENY: {
+                    target: "FAILED",
                     actions: ["updateTimestamp"],
                 },
                 VOUCHER_DELETE: {
@@ -212,6 +229,7 @@ export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
         POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
         MARKED_COMPLETED: [], // Auto-transitions to AWAITING_VOUCHER
         AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_24H", "VOUCHER_DELETE"],
+        AWAITING_USER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "VOUCHER_DELETE"],
         COMPLETED: ["MONTH_CLOSE"],
         FAILED: ["RECTIFY", "MONTH_CLOSE"],
         RECTIFIED: ["MONTH_CLOSE"],

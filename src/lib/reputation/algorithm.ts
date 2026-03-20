@@ -18,8 +18,10 @@ import {
     POMO_BONUS_MAX,
     VELOCITY_LOOKBACK_DAYS,
     SCORE_TIERS,
+    AI_VOUCHER_REPUTATION_MULTIPLIER,
 } from "./constants";
 import type { ReputationTaskInput, CategoryScores, ReputationScoreData } from "./types";
+import { ORCA_PROFILE_ID, isAiVouchedOrEscalated } from "@/lib/ai-voucher/constants";
 
 const SUCCESS_STATUSES = new Set(["COMPLETED", "RECTIFIED", "SETTLED"]);
 const FINALIZED_STATUSES = new Set(["COMPLETED", "RECTIFIED", "SETTLED", "FAILED"]);
@@ -49,8 +51,22 @@ function getStreakMultiplier(streakDays: number): number {
 function computeDelivery(tasks: ReputationTaskInput[]): number | null {
     const finalized = tasks.filter((t) => FINALIZED_STATUSES.has(t.status));
     if (finalized.length === 0) return null;
-    const completed = finalized.filter((t) => SUCCESS_STATUSES.has(t.status) && t.marked_completed_at != null);
-    return (completed.length / finalized.length) * 1000;
+
+    // Count completed tasks, applying 0.5x only to successful AI approvals.
+    // Denials keep full denominator weight.
+    let weightedCompletedCount = 0;
+    let weightedTotalCount = 0;
+
+    for (const t of finalized) {
+        weightedTotalCount += 1;
+
+        if (SUCCESS_STATUSES.has(t.status) && t.marked_completed_at != null) {
+            const successWeight = isAiVouchedOrEscalated(t) ? AI_VOUCHER_REPUTATION_MULTIPLIER : 1.0;
+            weightedCompletedCount += successWeight;
+        }
+    }
+
+    return (weightedCompletedCount / weightedTotalCount) * 1000;
 }
 
 function computeDiscipline(tasks: ReputationTaskInput[]): number | null {
@@ -269,3 +285,5 @@ export function computeFullReputationScore(
         computedAt: new Date().toISOString(),
     };
 }
+
+

@@ -15,14 +15,14 @@ export async function getUserReputationScore(userId: string): Promise<Reputation
             supabase
                 .from("tasks")
                 .select(
-                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, has_proof"
+                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, ai_escalated_from, has_proof"
                 )
                 .eq("user_id", userId)
                 .neq("status", "DELETED"),
             supabase
                 .from("tasks")
                 .select(
-                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, has_proof"
+                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, ai_escalated_from, has_proof"
                 )
                 .eq("voucher_id", userId)
                 .neq("user_id", userId)
@@ -53,6 +53,7 @@ export async function getUserReputationScore(userId: string): Promise<Reputation
             postponed_at: (t.postponed_at as string | null) ?? null,
             recurrence_rule_id: (t.recurrence_rule_id as string | null) ?? null,
             voucher_timeout_auto_accepted: (t.voucher_timeout_auto_accepted as boolean | null) ?? null,
+            ai_escalated_from: (t.ai_escalated_from as boolean | null) ?? false,
             has_uploaded_proof: (t.has_proof as boolean | null) ?? false,
             pomo_total_seconds: pomoByTask.get(t.id as string) ?? 0,
         });
@@ -76,14 +77,14 @@ export async function getPotentialRpGain(taskId: string, userId: string): Promis
             supabase
                 .from("tasks")
                 .select(
-                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, has_proof"
+                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, ai_escalated_from, has_proof"
                 )
                 .eq("user_id", userId)
                 .neq("status", "DELETED"),
             supabase
                 .from("tasks")
                 .select(
-                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, has_proof"
+                    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, ai_escalated_from, has_proof"
                 )
                 .eq("voucher_id", userId)
                 .neq("user_id", userId)
@@ -114,6 +115,7 @@ export async function getPotentialRpGain(taskId: string, userId: string): Promis
             postponed_at: (t.postponed_at as string | null) ?? null,
             recurrence_rule_id: (t.recurrence_rule_id as string | null) ?? null,
             voucher_timeout_auto_accepted: (t.voucher_timeout_auto_accepted as boolean | null) ?? null,
+            ai_escalated_from: (t.ai_escalated_from as boolean | null) ?? false,
             has_uploaded_proof: (t.has_proof as boolean | null) ?? false,
             pomo_total_seconds: pomoByTask.get(t.id as string) ?? 0,
         });

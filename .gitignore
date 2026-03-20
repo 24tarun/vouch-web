@@ -53,3 +53,7 @@ PRD.md
 .cursor/
 SYSTEM_SPEC.md
 agent.md
+
+.mcp.json
+
+context/

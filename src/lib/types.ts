@@ -15,6 +15,7 @@ export interface Profile {
     deadline_final_warning_enabled: boolean;
     voucher_can_view_active_tasks: boolean;
     mobile_notifications_enabled?: boolean;
+    orca_friend_opt_in?: boolean;
     hide_tips: boolean;
     created_at: string;
 }
@@ -56,6 +57,10 @@ export interface Task {
     pomo_total_seconds?: number;
     subtasks?: TaskSubtask[];
     completion_proof?: TaskCompletionProof | null;
+    ai_escalated_from?: boolean;
+    resubmit_count?: number;
+    ai_vouch_calls_count?: number;
+    ai_vouch_denials?: AiVouchDenial[];
 }
 
 export interface TaskSubtask {
@@ -97,6 +102,13 @@ export interface TaskCompletionProof {
     updated_at: string;
 }
 
+export interface AiVouchDenial {
+    id: string;
+    task_id: string;
+    attempt_number: number;
+    reason: string;
+    denied_at: string;
+}
 
 export interface TaskEvent {
     id: string;
@@ -319,7 +331,7 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "hide_tips"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "hide_tips">>
+                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "orca_friend_opt_in" | "hide_tips"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "orca_friend_opt_in" | "hide_tips">>
                 Update: Partial<Profile>
             }
             friendships: {
