@@ -9,7 +9,8 @@ function parseTimestamp(value: string | Date): Date | null {
 }
 
 export function formatDateOnlyDDMMYYYY(value: string): string {
-    const parts = value.split("-");
+    const datePart = value.split("T")[0];
+    const parts = datePart.split("-");
     if (parts.length === 3) {
         const [year, month, day] = parts;
         if (year && month && day) {

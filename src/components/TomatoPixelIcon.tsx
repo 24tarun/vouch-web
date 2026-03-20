@@ -29,8 +29,8 @@ function getInternalRes(size: number): number {
     return 40;
 }
 
-function buildPixelTomato(gradMap: THREE.DataTexture): THREE.Group {
-    const group = new THREE.Group();
+function buildPixelTomato(gradMap: THREE.DataTexture): { rotGroup: THREE.Group; hlMesh: THREE.Mesh } {
+    const rotGroup = new THREE.Group();
 
     const bodyGeo = new THREE.SphereGeometry(0.72, 28, 18);
     const pos = bodyGeo.attributes.position as THREE.BufferAttribute;
@@ -59,18 +59,19 @@ function buildPixelTomato(gradMap: THREE.DataTexture): THREE.Group {
     pos.needsUpdate = true;
     bodyGeo.computeVertexNormals();
 
-    group.add(new THREE.Mesh(bodyGeo, new THREE.MeshToonMaterial({
+    rotGroup.add(new THREE.Mesh(bodyGeo, new THREE.MeshToonMaterial({
         color: 0xff3a1a,
         gradientMap: gradMap,
     })));
 
+    // hlMesh is returned separately so it lives outside the rotating group,
+    // keeping the highlight fixed at the front of the tomato at all times.
     const hlMesh = new THREE.Mesh(
         new THREE.SphereGeometry(1, 6, 5),
         new THREE.MeshBasicMaterial({ color: 0xffcfc0, transparent: true, opacity: 0.72 })
     );
     hlMesh.scale.set(0.155, 0.115, 0.055);
     hlMesh.position.set(-0.36, 0.28, 0.54);
-    group.add(hlMesh);
 
     // Stalk — taller, thicker, brighter green, more sides for roundness
     const stemMesh = new THREE.Mesh(
@@ -79,7 +80,7 @@ function buildPixelTomato(gradMap: THREE.DataTexture): THREE.Group {
     );
     stemMesh.position.set(0.07, 0.90, 0);
     stemMesh.rotation.z = 0.16;
-    group.add(stemMesh);
+    rotGroup.add(stemMesh);
 
     // Calyx collar — a flat disc where the stalk meets the body
     const collarMesh = new THREE.Mesh(
@@ -87,7 +88,7 @@ function buildPixelTomato(gradMap: THREE.DataTexture): THREE.Group {
         new THREE.MeshToonMaterial({ color: 0x3aad20, gradientMap: gradMap })
     );
     collarMesh.position.set(0.04, 0.68, 0);
-    group.add(collarMesh);
+    rotGroup.add(collarMesh);
 
     // Sepals — wider, longer, more spread out
     const sepalMat = new THREE.MeshToonMaterial({
@@ -101,11 +102,11 @@ function buildPixelTomato(gradMap: THREE.DataTexture): THREE.Group {
         mesh.position.set(Math.cos(a) * 0.28, 0.66, Math.sin(a) * 0.28);
         mesh.rotation.y = -a;
         mesh.rotation.z = 0.50;
-        group.add(mesh);
+        rotGroup.add(mesh);
     }
 
-    group.rotation.x = -0.20;
-    return group;
+    rotGroup.rotation.x = -0.20;
+    return { rotGroup, hlMesh };
 }
 
 export function TomatoPixelIcon({ size = 16, speed = 1.0, glow = 1.0, className }: TomatoPixelIconProps) {
@@ -157,20 +158,31 @@ export function TomatoPixelIcon({ size = 16, speed = 1.0, glow = 1.0, className 
         scene.add(fill);
 
         const gradMap = makeToonGradient();
-        const group = buildPixelTomato(gradMap);
-        scene.add(group);
+        const { rotGroup, hlMesh } = buildPixelTomato(gradMap);
+
+        // outer group handles bobbing; rotGroup inside handles Y rotation.
+        // hlMesh lives on outer so it stays fixed at the front — no more
+        // "disappears for 8 seconds" orbiting effect.
+        const outer = new THREE.Group();
+        outer.add(rotGroup);
+        outer.add(hlMesh);
+        scene.add(outer);
+
+        // ROT_SPEED in rad/s — matches the old 0.022/frame @ ~60 fps
+        const ROT_SPEED = 0.022 * 60; // ≈ 1.32 rad/s
+        const BOB_SPEED = 0.022 * 60; // same frequency for bobbing
 
         let animId: number;
-        let frame = 0;
         let visible = true;
 
         function loop() {
             animId = requestAnimationFrame(loop);
             if (!visible) return;
-            frame++;
+            // Use wall-clock time so every instance rotates in lock-step
+            const t = performance.now() / 1000;
             const spd = live.current.speed * (live.current.hovered ? 2.2 : 1.0);
-            group.rotation.y += 0.022 * spd;
-            group.position.y = Math.sin(frame * 0.022) * 0.038;
+            rotGroup.rotation.y = t * ROT_SPEED * spd;
+            outer.position.y = Math.sin(t * BOB_SPEED) * 0.038;
             renderer.render(scene, cam);
         }
 
