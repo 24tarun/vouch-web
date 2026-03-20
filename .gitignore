@@ -25,7 +25,7 @@
 *.pem
 
 # supabase local config
-/supabase/
+
 
 # debug
 npm-debug.log*
