@@ -50,6 +50,7 @@ export interface Task {
     google_event_color_id?: string | null;
     created_at: string;
     updated_at: string;
+    has_proof?: boolean;
     proof_request_open?: boolean;
     proof_requested_at?: string | null;
     proof_requested_by?: string | null;

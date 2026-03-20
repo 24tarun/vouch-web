@@ -175,8 +175,7 @@ async function approveTask(taskId: string, task: any): Promise<void> {
   }
 
   // Update task to COMPLETED
-  const { error: updateError } = await adminClient
-    .from("tasks")
+  const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
       status: "COMPLETED",
       has_proof: cleanup.deleted,
@@ -192,7 +191,7 @@ async function approveTask(taskId: string, task: any): Promise<void> {
   }
 
   // Write task event
-  await adminClient.from("task_events").insert({
+  await (adminClient.from("task_events") as any).insert({
     task_id: taskId,
     event_type: "AI_APPROVE",
     actor_id: ORCA_PROFILE_ID,
@@ -371,8 +370,7 @@ async function failTask(
   await deleteTaskProof(taskId, "ai_voucher_fail");
 
   // Update task to FAILED
-  const { error: updateError } = await adminClient
-    .from("tasks")
+  const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
       status: "FAILED",
       proof_request_open: false,
@@ -388,7 +386,7 @@ async function failTask(
 
   // Create ledger entry
   const currentPeriod = new Date().toISOString().slice(0, 7);
-  await adminClient.from("ledger_entries").insert({
+  await (adminClient.from("ledger_entries") as any).insert({
     user_id: task.user_id,
     task_id: taskId,
     period: currentPeriod,
@@ -397,7 +395,7 @@ async function failTask(
   });
 
   // Write task event
-  await adminClient.from("task_events").insert({
+  await (adminClient.from("task_events") as any).insert({
     task_id: taskId,
     event_type: "AI_DENY",
     actor_id: ORCA_PROFILE_ID,
