@@ -64,14 +64,14 @@ export async function processAiVoucherDecision(
       return;
     }
 
-    if (!task.task_completion_proofs || task.task_completion_proofs.length === 0) {
+    const proof = (task.task_completion_proofs ?? []).find((p: any) => p?.object_path);
+
+    if (!proof) {
       console.error(`No proof found for task ${taskId}`);
       // Mark as failed since AI can't vouch without evidence
       await failTask(taskId, task, "No proof submitted");
       return;
     }
-
-    const proof = task.task_completion_proofs[0];
 
     // 3. Download proof binary from storage
     console.log(`Downloading proof for task ${taskId}`);
