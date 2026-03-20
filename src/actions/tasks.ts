@@ -201,6 +201,71 @@ function parseAndValidateFutureDeadline(rawDeadline: string): { deadline?: Date;
     return { deadline: parsedDeadline };
 }
 
+function toDateOnlyFromTimestamp(timestamp: string): string | null {
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+}
+
+type CommitmentProofRequirementResult = {
+    required: boolean;
+    error?: string;
+};
+
+async function getCommitmentProofRequirementForTask(
+    supabase: SupabaseClient<Database>,
+    userId: string,
+    task: { id: string; deadline: string; recurrence_rule_id?: string | null }
+): Promise<CommitmentProofRequirementResult> {
+    const deadlineDateOnly = toDateOnlyFromTimestamp(task.deadline);
+    if (!deadlineDateOnly) {
+        return { required: false };
+    }
+
+    const directLinkResult = await (supabase.from("commitment_task_links") as any)
+        .select("id, commitments!inner(user_id, status)")
+        .eq("task_id", task.id as any)
+        .eq("commitments.user_id", userId as any)
+        .eq("commitments.status", "ACTIVE" as any)
+        .limit(1);
+
+    if (directLinkResult.error) {
+        return { required: false, error: directLinkResult.error.message };
+    }
+
+    if (((directLinkResult.data as any[]) || []).length > 0) {
+        return { required: true };
+    }
+
+    if (!task.recurrence_rule_id) {
+        return { required: false };
+    }
+
+    const recurringLinkResult = await (supabase.from("commitment_task_links") as any)
+        .select("id, commitments!inner(user_id, status, start_date, end_date)")
+        .eq("recurrence_rule_id", task.recurrence_rule_id as any)
+        .eq("commitments.user_id", userId as any)
+        .eq("commitments.status", "ACTIVE" as any);
+
+    if (recurringLinkResult.error) {
+        return { required: false, error: recurringLinkResult.error.message };
+    }
+
+    const recurringLinks = (recurringLinkResult.data as Array<{ commitments?: unknown }> | null) || [];
+    const required = recurringLinks.some((link) => {
+        const commitmentRaw = (link as { commitments?: unknown }).commitments;
+        const commitment = Array.isArray(commitmentRaw)
+            ? (commitmentRaw[0] as { start_date?: string; end_date?: string } | undefined)
+            : (commitmentRaw as { start_date?: string; end_date?: string } | undefined);
+        const startDate = commitment?.start_date;
+        const endDate = commitment?.end_date;
+        if (!startDate || !endDate) return false;
+        return deadlineDateOnly >= startDate && deadlineDateOnly <= endDate;
+    });
+
+    return { required };
+}
+
 function getDefaultTaskDeadline(): Date {
     const now = new Date();
     const defaultDeadline = new Date(now);
@@ -1103,7 +1168,11 @@ export async function createTask(formData: FormData) {
     invalidatePendingVoucherRequestsCache(voucherId);
     revalidatePath("/dashboard/friends");
     revalidateTaskSurfaces((task as any).id, (user as any).id);
-    return { success: true, taskId: (task as any).id };
+    return {
+        success: true,
+        taskId: (task as any).id,
+        recurrenceRuleId,
+    };
 }
 
 // Just a constant for the table name if I don't import it
@@ -1130,6 +1199,19 @@ export async function cancelRepetition(taskId: string) {
     // Delete the rule so only active rules remain in recurrence_rules.
     // tasks.recurrence_rule_id is ON DELETE SET NULL, so linked tasks are detached automatically.
     const ruleId = (task as any).recurrence_rule_id;
+
+    const { data: linkedCommitments } = await (supabase.from("commitment_task_links") as any)
+        .select("commitment_id, commitments!inner(name, status)")
+        .eq("recurrence_rule_id", ruleId as any)
+        .in("commitments.status", ["DRAFT", "ACTIVE"] as any);
+
+    if (((linkedCommitments as any[]) || []).length > 0) {
+        const first = (linkedCommitments as any[])[0];
+        const name = String(first?.commitments?.name || "this commitment");
+        return {
+            error: `This recurring task is part of the commitment '${name}'. Delete that commitment first.`,
+        };
+    }
 
     // @ts-ignore
     const { error } = await (supabase.from(RecurrenceRuleTable) as any)
@@ -1222,8 +1304,23 @@ export async function markTaskCompleteWithProofIntent(
         }
     }
 
+    const commitmentProofRequirement = await getCommitmentProofRequirementForTask(
+        supabase,
+        user.id,
+        {
+            id: taskId,
+            deadline: String((task as any).deadline || ""),
+            recurrence_rule_id: ((task as any).recurrence_rule_id as string | null | undefined) ?? null,
+        }
+    );
+    if (commitmentProofRequirement.error) {
+        return { error: commitmentProofRequirement.error };
+    }
+
     const isSelfVouched = (task as any).voucher_id === (user as any).id;
-    const requiresProofForCompletion = Boolean((task as any).requires_proof) && !isSelfVouched;
+    const requiresProofForCompletion =
+        (Boolean((task as any).requires_proof) || commitmentProofRequirement.required) &&
+        !isSelfVouched;
     const nowIso = new Date().toISOString();
 
     if (isSelfVouched) {
@@ -2384,6 +2481,30 @@ export async function ownerTempDeleteTask(taskId: string) {
         return { error: "Task not found" };
     }
 
+    const { data: linkedLinks } = await (supabase.from("commitment_task_links") as any)
+        .select("id, commitment_id, commitments!inner(name, status)")
+        .eq("task_id", taskId as any);
+
+    if (((linkedLinks as any[]) || []).length > 0) {
+        for (const link of ((linkedLinks as any[]) || [])) {
+            if (link?.commitments?.status === "ACTIVE") {
+                return {
+                    error: `This task is part of the active commitment '${link.commitments.name}'. Delete that commitment first.`,
+                };
+            }
+        }
+
+        const draftLinkIds = ((linkedLinks as any[]) || [])
+            .filter((link) => link?.commitments?.status === "DRAFT" && link?.id)
+            .map((link) => link.id);
+
+        if (draftLinkIds.length > 0) {
+            await (supabase.from("commitment_task_links") as any)
+                .delete()
+                .in("id", draftLinkIds as any);
+        }
+    }
+
     if (!isOwnerTempDeletableStatus(task.status as TaskStatus)) {
         return { error: `Cannot delete task in ${(task as any).status} status` };
     }
@@ -2593,6 +2714,22 @@ export async function getTask(taskId: string) {
                 invalidateActiveTasksCache((task as any).user_id);
                 revalidatePath(`/dashboard/tasks/${taskId}`);
             }
+        }
+
+        if (isOwner || isVoucher) {
+            const commitmentProofRequirement = await getCommitmentProofRequirementForTask(
+                supabase,
+                String((task as any).user_id || ""),
+                {
+                    id: String((task as any).id || taskId),
+                    deadline: String((task as any).deadline || ""),
+                    recurrence_rule_id: ((task as any).recurrence_rule_id as string | null | undefined) ?? null,
+                }
+            );
+            if (commitmentProofRequirement.error) {
+                console.error("Failed to compute commitment proof requirement:", commitmentProofRequirement.error);
+            }
+            (task as any).commitment_proof_required = commitmentProofRequirement.required;
         }
 
         if (isOwner) {

@@ -65,6 +65,38 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     }
 
     const supabase = createAdminClient();
+    const { data: profileData, error: profileError } = await supabase
+        .from("profiles")
+        .select("mobile_notifications_enabled")
+        .eq("id", userId)
+        .maybeSingle();
+
+    if (profileError) {
+        console.error("[web-push] Failed to load profile notification preference:", profileError);
+        return {
+            success: false,
+            total: 0,
+            delivered: 0,
+            failed: 0,
+            cleaned: 0,
+            reason: profileError.message,
+        };
+    }
+
+    const mobileNotificationsEnabled =
+        ((profileData as { mobile_notifications_enabled?: boolean } | null)?.mobile_notifications_enabled ?? false);
+    if (!mobileNotificationsEnabled) {
+        return {
+            success: true,
+            total: 0,
+            delivered: 0,
+            failed: 0,
+            cleaned: 0,
+            skipped: true,
+            reason: "disabled_by_user",
+        };
+    }
+
     const { data, error } = await supabase
         .from("web_push_subscriptions")
         .select("id, subscription")

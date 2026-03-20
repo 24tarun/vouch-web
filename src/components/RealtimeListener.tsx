@@ -5,6 +5,10 @@ import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import {
+    emitRealtimeCommitmentChange,
+    type RealtimeCommitmentChange,
+    type RealtimeCommitmentEventType,
+    type RealtimeCommitmentRow,
     emitRealtimeTaskChange,
     type RealtimeTaskChange,
     type RealtimeTaskEventType,
@@ -19,6 +23,7 @@ function isTaskPatchEnabledPath(pathname: string | null): boolean {
     if (!pathname) return false;
     return (
         pathname === "/dashboard" ||
+        pathname.startsWith("/dashboard/commitments") ||
         pathname.startsWith("/dashboard/tasks/") ||
         pathname.startsWith("/dashboard/voucher") ||
         pathname.startsWith("/dashboard/friends")
@@ -48,6 +53,33 @@ function toRealtimeTaskRow(value: unknown): RealtimeTaskRow | null {
     }
 
     return row as RealtimeTaskRow;
+}
+
+function toRealtimeCommitmentEventType(value: unknown): RealtimeCommitmentEventType | null {
+    if (typeof value !== "string") return null;
+    const normalized = value.toUpperCase();
+    if (normalized === "INSERT" || normalized === "UPDATE" || normalized === "DELETE") {
+        return normalized;
+    }
+    return null;
+}
+
+function toRealtimeCommitmentRow(value: unknown): RealtimeCommitmentRow | null {
+    if (!value || typeof value !== "object") return null;
+    const row = value as Partial<RealtimeCommitmentRow>;
+    if (
+        typeof row.id !== "string" ||
+        typeof row.user_id !== "string" ||
+        typeof row.name !== "string" ||
+        typeof row.status !== "string" ||
+        typeof row.start_date !== "string" ||
+        typeof row.end_date !== "string" ||
+        typeof row.updated_at !== "string"
+    ) {
+        return null;
+    }
+
+    return row as RealtimeCommitmentRow;
 }
 
 interface GoogleCalendarOutboxRow {
@@ -150,6 +182,22 @@ export function RealtimeListener({ userId }: { userId: string }) {
                 receivedAt: Date.now(),
             };
             emitRealtimeTaskChange(change);
+            return eventType;
+        };
+
+        const emitCommitmentChange = (
+            payload: { eventType?: unknown; new?: unknown; old?: unknown }
+        ): RealtimeCommitmentEventType | null => {
+            const eventType = toRealtimeCommitmentEventType(payload.eventType);
+            if (!eventType) return null;
+
+            const change: RealtimeCommitmentChange = {
+                eventType,
+                newRow: toRealtimeCommitmentRow(payload.new),
+                oldRow: toRealtimeCommitmentRow(payload.old),
+                receivedAt: Date.now(),
+            };
+            emitRealtimeCommitmentChange(change);
             return eventType;
         };
 
@@ -270,6 +318,33 @@ export function RealtimeListener({ userId }: { userId: string }) {
                 }
             });
 
+        // Subscribe to commitments for the current user.
+        const commitmentsChannel = supabase
+            .channel("realtime:commitments")
+            .on(
+                "postgres_changes",
+                {
+                    event: "*",
+                    schema: "public",
+                    table: "commitments",
+                    filter: `user_id=eq.${userId}`,
+                },
+                (payload) => {
+                    if (ENABLE_REALTIME_DEBUG_LOGS) {
+                        console.log("[Realtime][commitments]", payload.eventType, payload.new, payload.old);
+                    }
+                    const eventType = emitCommitmentChange(payload);
+                    const refreshMode =
+                        eventType === "UPDATE" && patchEnabledForPath ? "reconcile" : "fast";
+                    scheduleRefresh(refreshMode);
+                }
+            )
+            .subscribe((status) => {
+                if (ENABLE_REALTIME_DEBUG_LOGS) {
+                    console.log("[Realtime][commitments] subscription:", status);
+                }
+            });
+
         // Subscribe to friend pomodoro sessions; refresh only when impacted friend rows change.
         const pomoChannel = supabase
             .channel('realtime:pomo_sessions')
@@ -338,6 +413,7 @@ export function RealtimeListener({ userId }: { userId: string }) {
             }
             supabase.removeChannel(tasksChannel);
             supabase.removeChannel(friendsChannel);
+            supabase.removeChannel(commitmentsChannel);
             supabase.removeChannel(pomoChannel);
             supabase.removeChannel(googleCalendarOutboxChannel);
         };

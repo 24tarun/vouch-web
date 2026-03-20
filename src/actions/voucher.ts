@@ -13,6 +13,10 @@ import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
 import { buildProofRequestCountByTaskId, type ProofRequestEventRow } from "@/lib/voucher-proof-request";
 import { sortPendingTasks } from "@/lib/voucher-pending-sort";
+import {
+    notifyCommitmentFailureIfNeeded,
+    notifyCommitmentRevivedIfNeeded,
+} from "@/actions/commitments";
 
 function invalidatePendingVoucherRequestsCache(voucherId: string) {
     revalidateTag(pendingVoucherRequestsTag(voucherId), "max");
@@ -166,6 +170,16 @@ export async function voucherDeleteTask(taskId: string) {
 
     if (!task) {
         return { error: "Task not found or you are not the voucher" };
+    }
+
+    const adminSupabase = createAdminClient();
+    const { data: activeLinks } = await (adminSupabase.from("commitment_task_links") as any)
+        .select("commitment_id, commitments!inner(name, status)")
+        .eq("task_id", taskId as any)
+        .eq("commitments.status", "ACTIVE" as any);
+
+    if (((activeLinks as any[]) || []).length > 0) {
+        return { error: "This task is part of an active commitment and cannot be deleted." };
     }
 
     // Check if task is in a non-final state
@@ -328,6 +342,8 @@ export async function voucherDeny(taskId: string) {
             data: { taskId, kind: "TASK_DENIED" },
         });
     }
+
+    await notifyCommitmentFailureIfNeeded(taskId, (task as any).recurrence_rule_id ?? null);
 
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
@@ -520,8 +536,10 @@ export async function authorizeRectify(taskId: string) {
     });
 
     await enqueueGoogleCalendarUpsert((task as any).user_id, taskId);
+    await notifyCommitmentRevivedIfNeeded(taskId, (task as any).recurrence_rule_id ?? null);
 
     revalidatePath("/dashboard/friends");
+    revalidatePath("/dashboard/commitments");
     revalidatePath(`/dashboard/tasks/${taskId}`);
     return { success: true };
 }

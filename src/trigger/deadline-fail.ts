@@ -10,6 +10,7 @@
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
+import { notifyCommitmentFailureIfNeeded } from "@/actions/commitments";
 
 export const deadlineFail = schedules.task({
     id: "deadline-fail",
@@ -24,7 +25,7 @@ export const deadlineFail = schedules.task({
         // across overlapping runs.
         const { data, error } = await supabase
             .from("tasks")
-            .select("id, user_id, status, failure_cost_cents, deadline")
+            .select("id, user_id, status, failure_cost_cents, deadline, recurrence_rule_id")
             .in("status", ["CREATED", "POSTPONED"])
             .lt("deadline", nowIso as any) as any;
 
@@ -34,6 +35,7 @@ export const deadlineFail = schedules.task({
             status: "CREATED" | "POSTPONED";
             failure_cost_cents: number;
             deadline: string;
+            recurrence_rule_id: string | null;
         }>;
 
         if (error) {
@@ -117,6 +119,11 @@ export const deadlineFail = schedules.task({
                 await enqueueGoogleCalendarOutbox(task.user_id, task.id, "UPSERT");
             } catch (error) {
                 console.error(`Failed to enqueue Google finalize for task ${task.id}:`, error);
+            }
+            try {
+                await notifyCommitmentFailureIfNeeded(task.id, task.recurrence_rule_id ?? null);
+            } catch (error) {
+                console.error(`Failed to notify commitment failure for task ${task.id}:`, error);
             }
         }));
 

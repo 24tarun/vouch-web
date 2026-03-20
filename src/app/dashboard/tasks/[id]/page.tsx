@@ -28,11 +28,23 @@ export default async function TaskPage({ params }: TaskPageProps) {
         task.user_id === user?.id &&
         (task.status === "CREATED" || task.status === "POSTPONED");
 
-    const [events, pomoSummary, potentialRp] = await Promise.all([
+    const iterationNumberPromise = task.recurrence_rule_id
+        ? supabase
+            .from("tasks")
+            .select("id", { count: "exact", head: true })
+            .eq("recurrence_rule_id", task.recurrence_rule_id as any)
+            .lte("deadline", task.deadline as any)
+            .neq("status", "DELETED" as any)
+        : Promise.resolve({ count: null });
+
+    const [events, pomoSummary, potentialRp, iterationResult] = await Promise.all([
         getTaskEvents(id),
         getTaskPomoSummary(id),
         isActiveOwnerTask ? getPotentialRpGain(id, user!.id) : Promise.resolve(null),
+        iterationNumberPromise,
     ]);
+
+    const iterationNumber = (iterationResult as { count: number | null }).count ?? null;
 
     // @ts-ignore
     const { data: profile } = await supabase
@@ -56,6 +68,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
             viewerId={user?.id || ""}
             viewerCurrency={viewerCurrency}
             potentialRp={potentialRp}
+            iterationNumber={iterationNumber}
         />
     );
 }

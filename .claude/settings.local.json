@@ -19,7 +19,8 @@
       "mcp__context7__query-docs",
       "Bash(cat:*)",
       "Bash(rm /c/LocalFiles/coding/vouch/src/app/pomo-demo/page.tsx)",
-      "Bash(rmdir /c/LocalFiles/coding/vouch/src/app/pomo-demo)"
+      "Bash(rmdir /c/LocalFiles/coding/vouch/src/app/pomo-demo)",
+      "Bash(xargs wc:*)"
     ]
   }
 }

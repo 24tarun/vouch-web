@@ -14,6 +14,7 @@ export interface Profile {
     deadline_one_hour_warning_enabled: boolean;
     deadline_final_warning_enabled: boolean;
     voucher_can_view_active_tasks: boolean;
+    mobile_notifications_enabled?: boolean;
     hide_tips: boolean;
     created_at: string;
 }
@@ -34,6 +35,7 @@ export interface Task {
     failure_cost_cents: number;
     required_pomo_minutes: number | null;
     requires_proof?: boolean;
+    commitment_proof_required?: boolean;
     deadline: string;
     status: TaskStatus;
     postponed_at: string | null;
@@ -213,6 +215,27 @@ export interface GoogleCalendarSyncOutbox {
     updated_at: string;
 }
 
+export type CommitmentStatus = "DRAFT" | "ACTIVE" | "COMPLETED" | "FAILED";
+
+export interface Commitment {
+    id: string;
+    user_id: string;
+    name: string;
+    status: CommitmentStatus;
+    start_date: string; // YYYY-MM-DD
+    end_date: string; // YYYY-MM-DD
+    created_at: string;
+    updated_at: string;
+}
+
+export interface CommitmentTaskLink {
+    id: string;
+    commitment_id: string;
+    task_id: string | null;
+    recurrence_rule_id: string | null;
+    created_at: string;
+}
+
 export type RecurrenceFrequency = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY" | "WEEKDAYS" | "CUSTOM";
 
 export interface RecurrenceRuleConfig {
@@ -293,7 +316,7 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "hide_tips"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "hide_tips">>
+                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "hide_tips"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "hide_tips">>
                 Update: Partial<Profile>
             }
             friendships: {
@@ -310,6 +333,16 @@ export interface Database {
                 Row: RecurrenceRule
                 Insert: Omit<RecurrenceRule, "id" | "created_at" | "updated_at">
                 Update: Partial<RecurrenceRule>
+            }
+            commitments: {
+                Row: Commitment
+                Insert: Omit<Commitment, "id" | "created_at" | "updated_at" | "status"> & Partial<Pick<Commitment, "status">>
+                Update: Partial<Commitment>
+            }
+            commitment_task_links: {
+                Row: CommitmentTaskLink
+                Insert: Omit<CommitmentTaskLink, "id" | "created_at">
+                Update: Partial<CommitmentTaskLink>
             }
             task_subtasks: {
                 Row: TaskSubtask

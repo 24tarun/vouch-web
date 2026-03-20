@@ -494,6 +494,7 @@ export async function updateUserDefaults(formData: FormData) {
     const deadlineOneHourWarningEnabledRaw = formData.get("deadlineOneHourWarningEnabled");
     const deadlineFinalWarningEnabledRaw = formData.get("deadlineFinalWarningEnabled");
     const voucherCanViewActiveTasksEnabledRaw = formData.get("voucherCanViewActiveTasksEnabled");
+    const mobileNotificationsEnabledRaw = formData.get("mobileNotificationsEnabled");
     const currencyRaw = formData.get("currency");
 
     let currency: SupportedCurrency | undefined;
@@ -605,6 +606,16 @@ export async function updateUserDefaults(formData: FormData) {
         }
         voucherCanViewActiveTasksEnabled = voucherCanViewActiveTasksEnabledRaw === "true";
     }
+    let mobileNotificationsEnabled: boolean | undefined;
+    if (mobileNotificationsEnabledRaw != null && mobileNotificationsEnabledRaw !== "") {
+        if (typeof mobileNotificationsEnabledRaw !== "string") {
+            return { error: "Mobile notifications toggle value is invalid." };
+        }
+        if (mobileNotificationsEnabledRaw !== "true" && mobileNotificationsEnabledRaw !== "false") {
+            return { error: "Mobile notifications toggle value is invalid." };
+        }
+        mobileNotificationsEnabled = mobileNotificationsEnabledRaw === "true";
+    }
     if (defaultVoucherId !== user.id) {
         const { data: friendship } = await supabase
             .from("friendships")
@@ -635,6 +646,9 @@ export async function updateUserDefaults(formData: FormData) {
     }
     if (voucherCanViewActiveTasksEnabled !== undefined) {
         profileUpdate.voucher_can_view_active_tasks = voucherCanViewActiveTasksEnabled;
+    }
+    if (mobileNotificationsEnabled !== undefined) {
+        profileUpdate.mobile_notifications_enabled = mobileNotificationsEnabled;
     }
     if (currency !== undefined) {
         profileUpdate.currency = currency;

@@ -694,7 +694,9 @@ export default function DashboardClient({
     const handleCompleteTaskOptimistic = async (task: Task) => {
         if (completingTaskIds.has(task.id)) return;
         const isSelfVouched = task.voucher_id === userId;
-        const requiresProofForCompletion = Boolean(task.requires_proof) && !isSelfVouched;
+        const requiresProofForCompletion =
+            Boolean(task.requires_proof || task.commitment_proof_required) &&
+            !isSelfVouched;
         const proofDraft = proofByTaskId[task.id] || null;
         if (requiresProofForCompletion && !proofDraft) {
             toast.error("Attach proof before marking this task complete.");

@@ -74,7 +74,9 @@ export function TaskRow({
     const hasIncompletePomoRequirement =
         requiredPomoSeconds > 0 && pomoTotalSeconds < requiredPomoSeconds;
     const isSelfVouched = task.voucher_id === task.user_id;
-    const requiresProofForCompletion = Boolean(task.requires_proof) && !isSelfVouched;
+    const requiresProofForCompletion =
+        Boolean(task.requires_proof || task.commitment_proof_required) &&
+        !isSelfVouched;
     const hasRunningPomoForTask = session?.status === "ACTIVE" && session.task_id === task.id;
     const disabledCompleteTitle = hasIncompleteSubtasks
         ? "Complete all subtasks first"

@@ -31,6 +31,7 @@ export function NavLinks({ vouchCount = 0, statsBadgeCount = 0 }: NavLinksProps)
             { href: "/dashboard", label: "Tasks" },
             { href: "/dashboard/stats", label: "Stats", badge: statsBadgeCount > 0 ? statsBadgeCount : undefined },
             { href: "/dashboard/friends", label: "Friends", badge: vouchCount > 0 ? vouchCount : undefined },
+            { href: "/dashboard/commitments", label: "Commit" },
             { href: "/dashboard/ledger", label: "Ledger" },
             { href: "/dashboard/settings", label: "Settings" },
         ],

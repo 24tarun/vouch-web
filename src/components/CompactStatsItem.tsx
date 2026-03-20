@@ -2,15 +2,28 @@
 
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import type { TaskWithRelations } from "@/lib/types";
 import { ExternalLink, Timer } from "lucide-react";
 import { formatPomoBadge } from "@/lib/format-pomo";
 
-type StatsTask = TaskWithRelations & { pomo_total_seconds?: number };
+export interface CompactStatsTask {
+    id: string;
+    title: string;
+    status: string;
+    deadline: string;
+    updated_at?: string | null;
+    marked_completed_at?: string | null;
+    voucher_timeout_auto_accepted?: boolean | null;
+    proof_request_open?: boolean | null;
+    voucher?: {
+        username?: string | null;
+    } | null;
+    pomo_total_seconds?: number;
+}
+
 const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
 
 interface CompactStatsItemProps {
-    task: StatsTask;
+    task: CompactStatsTask;
     forceActiveBadge?: boolean;
 }
 
@@ -44,8 +57,10 @@ export function CompactStatsItem({
         DELETED: "DELETED",
     };
 
-    const formatDate = (dateStr: string) => {
+    const formatDate = (dateStr: string | null | undefined) => {
+        if (!dateStr) return "Unknown date";
         const d = new Date(dateStr);
+        if (Number.isNaN(d.getTime())) return "Unknown date";
         const day = d.getDate().toString().padStart(2, "0");
         const month = (d.getMonth() + 1).toString().padStart(2, "0");
         const year = d.getFullYear();
@@ -109,7 +124,7 @@ export function CompactStatsItem({
                 <p className="text-xs text-slate-400 mt-1" suppressHydrationWarning>
                     {["CREATED", "POSTPONED"].includes(task.status)
                         ? `Deadline on ${formatDate(task.deadline)}`
-                        : `Updated on ${formatDate(task.updated_at)}`}
+                        : `Updated on ${formatDate(task.updated_at || task.deadline)}`}
                 </p>
                 {hasOpenProofRequest && (
                     <p className="text-xs text-amber-300 mt-2">

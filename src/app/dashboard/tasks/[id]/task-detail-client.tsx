@@ -73,6 +73,7 @@ interface TaskDetailClientProps {
     viewerId: string;
     viewerCurrency: SupportedCurrency;
     potentialRp: number | null;
+    iterationNumber: number | null;
 }
 
 interface TaskProofDraft {
@@ -113,6 +114,7 @@ export default function TaskDetailClient({
     viewerId,
     viewerCurrency,
     potentialRp,
+    iterationNumber,
 }: TaskDetailClientProps) {
     const router = useRouter();
     const { session } = usePomodoro();
@@ -149,7 +151,9 @@ export default function TaskDetailClient({
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
     const isOwner = taskState.user_id === viewerId;
     const isSelfVouched = taskState.voucher_id === taskState.user_id;
-    const requiresProofForCompletion = Boolean(taskState.requires_proof) && !isSelfVouched;
+    const requiresProofForCompletion =
+        Boolean(taskState.requires_proof || taskState.commitment_proof_required) &&
+        !isSelfVouched;
     const isActiveParentTask = taskState.status === "CREATED" || taskState.status === "POSTPONED";
     const completedSubtasksCount = subtasks.filter((subtask) => subtask.is_completed).length;
     const incompleteSubtasksCount = subtasks.length - completedSubtasksCount;
@@ -1347,6 +1351,14 @@ export default function TaskDetailClient({
                     </h1>
                     {recurrenceSummary && (
                         <p className="mt-2 text-sm text-slate-400">{recurrenceSummary}</p>
+                    )}
+                    {iterationNumber !== null && (
+                        <div className="mt-3 space-y-0.5">
+                            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Iteration</p>
+                            <p className="text-2xl font-light text-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]">
+                                #{iterationNumber}
+                            </p>
+                        </div>
                     )}
                 </div>
                 <HardRefreshButton />

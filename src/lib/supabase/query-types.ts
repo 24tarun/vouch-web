@@ -22,6 +22,8 @@ export type ForceMajeureRow = TableRow<"force_majeure">;
 export type PomoSessionRow = TableRow<"pomo_sessions">;
 export type VoucherReminderLogRow = TableRow<"voucher_reminder_logs">;
 export type WebPushSubscriptionRow = TableRow<"web_push_subscriptions">;
+export type CommitmentRow = TableRow<"commitments">;
+export type CommitmentTaskLinkRow = TableRow<"commitment_task_links">;
 
 export type TaskWithUserProfile = TaskRow & {
     user: Pick<ProfileRow, "id" | "email" | "username"> | null;

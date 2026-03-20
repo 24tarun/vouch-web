@@ -13,6 +13,27 @@ import { getCachedActiveTasksForUser } from "@/actions/tasks";
 import { getUserReputationScore } from "@/actions/reputation";
 import { BuildStamp } from "@/components/BuildStamp";
 
+function toDateOnlyFromTimestamp(timestamp: string): string | null {
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString().slice(0, 10);
+}
+
+type ActiveCommitmentLinkRow = {
+    task_id: string | null;
+    recurrence_rule_id: string | null;
+    commitments:
+    | {
+        start_date: string;
+        end_date: string;
+    }
+    | Array<{
+        start_date: string;
+        end_date: string;
+    }>
+    | null;
+};
+
 export default async function DashboardPage() {
     const supabase = await createClient();
     const {
@@ -78,12 +99,18 @@ export default async function DashboardPage() {
     ));
     const initialTasks = [...dedupedActiveTasks, ...completedTasks];
     const initialTaskIds = initialTasks.map((task) => task.id);
+    const recurrenceRuleIds = [...new Set(
+        initialTasks
+            .map((task) => task.recurrence_rule_id)
+            .filter((value): value is string => Boolean(value))
+    )];
 
     const subtasksByParent = new Map<string, NonNullable<Task["subtasks"]>>();
     const pomoTotalSecondsByTask = new Map<string, number>();
     const proofByTaskId = new Map<string, Task["completion_proof"]>();
+    const commitmentProofRequiredTaskIds = new Set<string>();
     if (initialTaskIds.length > 0) {
-        const [{ data: subtasksResult }, { data: pomoResult }, { data: proofsResult }] = await Promise.all([
+        const [{ data: subtasksResult }, { data: pomoResult }, { data: proofsResult }, { data: activeCommitmentLinksResult }] = await Promise.all([
             supabase
                 .from("task_subtasks")
                 .select("*")
@@ -99,6 +126,11 @@ export default async function DashboardPage() {
                 .select("*")
                 .in("task_id", initialTaskIds)
                 .eq("upload_state", "UPLOADED"),
+            supabase
+                .from("commitment_task_links")
+                .select("task_id, recurrence_rule_id, commitments!inner(start_date, end_date, user_id, status)")
+                .eq("commitments.user_id", userId || "")
+                .eq("commitments.status", "ACTIVE"),
         ]);
 
         for (const row of (subtasksResult as NonNullable<Task["subtasks"]>) || []) {
@@ -117,6 +149,39 @@ export default async function DashboardPage() {
             if (!row?.task_id) continue;
             proofByTaskId.set(row.task_id, row);
         }
+
+        const activeCommitmentLinks = (activeCommitmentLinksResult as ActiveCommitmentLinkRow[] | null) || [];
+        const directTaskIdSet = new Set(
+            activeCommitmentLinks
+                .map((link) => link.task_id)
+                .filter((taskId): taskId is string => Boolean(taskId))
+        );
+        const recurrenceLinksByRuleId = new Map<string, Array<{ start_date: string; end_date: string }>>();
+
+        for (const link of activeCommitmentLinks) {
+            if (!link.recurrence_rule_id || !recurrenceRuleIds.includes(link.recurrence_rule_id)) continue;
+            const commitmentRaw = link.commitments;
+            const commitment = Array.isArray(commitmentRaw) ? commitmentRaw[0] : commitmentRaw;
+            if (!commitment?.start_date || !commitment?.end_date) continue;
+            const current = recurrenceLinksByRuleId.get(link.recurrence_rule_id) || [];
+            current.push({ start_date: commitment.start_date, end_date: commitment.end_date });
+            recurrenceLinksByRuleId.set(link.recurrence_rule_id, current);
+        }
+
+        for (const task of initialTasks) {
+            if (directTaskIdSet.has(task.id)) {
+                commitmentProofRequiredTaskIds.add(task.id);
+                continue;
+            }
+
+            if (!task.recurrence_rule_id) continue;
+            const dateOnly = toDateOnlyFromTimestamp(task.deadline);
+            if (!dateOnly) continue;
+            const recurrenceLinks = recurrenceLinksByRuleId.get(task.recurrence_rule_id) || [];
+            if (recurrenceLinks.some((link) => dateOnly >= link.start_date && dateOnly <= link.end_date)) {
+                commitmentProofRequiredTaskIds.add(task.id);
+            }
+        }
     }
 
     const initialTasksWithSubtasks = initialTasks.map((task) => ({
@@ -126,6 +191,7 @@ export default async function DashboardPage() {
         ),
         pomo_total_seconds: pomoTotalSecondsByTask.get(task.id) || 0,
         completion_proof: proofByTaskId.get(task.id) || null,
+        commitment_proof_required: commitmentProofRequiredTaskIds.has(task.id),
     }));
 
     return (
