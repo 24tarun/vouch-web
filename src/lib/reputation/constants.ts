@@ -13,10 +13,9 @@ export const STREAK_MULTIPLIERS: { minDays: number; mult: number }[] = [
     { minDays: 1, mult: 1.0 },
 ];
 
-export const CONSECUTIVE_FAILURE_MULTIPLIERS = [1.0, 1.5, 2.0, 2.5];
+export const CONSECUTIVE_FAILURE_MULTIPLIERS = [0.3, 0.65, 1.0, 1.35, 1.7];
 
 export const ACCOUNTABILITY_FAILURE_PENALTY = 80;
-export const ACCOUNTABILITY_POSTPONE_PENALTY = 25;
 export const ACCOUNTABILITY_DECAY_HALF_LIFE_DAYS = 15;
 export const ACCOUNTABILITY_CONSECUTIVE_WINDOW_DAYS = 30;
 

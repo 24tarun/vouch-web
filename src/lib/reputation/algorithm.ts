@@ -8,7 +8,6 @@ import {
     STREAK_MULTIPLIERS,
     CONSECUTIVE_FAILURE_MULTIPLIERS,
     ACCOUNTABILITY_FAILURE_PENALTY,
-    ACCOUNTABILITY_POSTPONE_PENALTY,
     ACCOUNTABILITY_DECAY_HALF_LIFE_DAYS,
     ACCOUNTABILITY_CONSECUTIVE_WINDOW_DAYS,
     COMMUNITY_AUTO_ACCEPT_PENALTY,
@@ -101,7 +100,7 @@ function computeDiscipline(tasks: ReputationTaskInput[]): number | null {
 }
 
 function computeAccountability(tasks: ReputationTaskInput[]): number | null {
-    const finalized = tasks.filter((t) => FINALIZED_STATUSES.has(t.status) || t.postponed_at);
+    const finalized = tasks.filter((t) => FINALIZED_STATUSES.has(t.status));
     if (finalized.length === 0) return null;
 
     const sorted = [...tasks].sort(
@@ -138,12 +137,6 @@ function computeAccountability(tasks: ReputationTaskInput[]): number | null {
             lastFailureDate = null;
         }
 
-        if (t.postponed_at) {
-            const postponeAgeInDays =
-                (now.getTime() - new Date(t.postponed_at).getTime()) / (1000 * 60 * 60 * 24);
-            const postponeDecay = Math.pow(0.5, postponeAgeInDays / ACCOUNTABILITY_DECAY_HALF_LIFE_DAYS);
-            score -= ACCOUNTABILITY_POSTPONE_PENALTY * postponeDecay;
-        }
     }
 
     return Math.min(1000, Math.max(0, score));
