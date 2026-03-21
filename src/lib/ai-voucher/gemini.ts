@@ -69,8 +69,8 @@ The user has submitted proof. Your job is to decide whether the proof credibly d
 Rules:
 - If the proof clearly shows the task was completed, return approved.
 - If the proof is ambiguous, unconvincing, or clearly does not match the task, return denied.
-- On denial, provide one plain sentence explaining why. Be direct. No softening.
-- On approval, provide one plain sentence confirming what the proof demonstrated.
+- On denial, provide one plain sentence explaining why. Be direct. No softening. Maximum 30 words.
+- On approval, provide one plain sentence confirming what the proof demonstrated. Maximum 30 words.
 - Do not be fooled by staged, partial, or irrelevant proof.
 - You are the last line of accountability. Take it seriously.`;
 }
@@ -105,7 +105,7 @@ export async function evaluateProofWithGemini(
     generationConfig: {
       responseMimeType: "application/json",
       responseSchema: EVALUATION_SCHEMA,
-      temperature: 0, // Deterministic evaluation
+      temperature: 0,
     },
   });
 

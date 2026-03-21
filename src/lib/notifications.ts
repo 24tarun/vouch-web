@@ -4,7 +4,7 @@ import { sendPushToUser, type PushPayload } from "@/lib/web-push";
 export interface NotificationParams {
     to?: string;
     userId?: string;
-    subject: string;
+    subject?: string;
     html?: string;
     text?: string;
     title?: string;
@@ -30,7 +30,7 @@ function resolvePushPayload(params: NotificationParams): PushPayload {
         (params.html ? stripHtml(params.html).slice(0, 160) : "Open TAS to view details.");
 
     return {
-        title: params.title || params.subject,
+        title: params.title || params.subject || "",
         body: fallbackBody,
         url: params.url,
         tag: params.tag,
@@ -60,7 +60,7 @@ export async function sendNotification(params: NotificationParams) {
                 results.email = await resend.emails.send({
                     from: "TAS <noreply@remails.tarunh.com>",
                     to: params.to,
-                    subject: params.subject,
+                    subject: params.subject ?? "",
                     html: params.html,
                     text: params.text,
                 });

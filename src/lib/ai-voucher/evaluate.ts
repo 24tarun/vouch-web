@@ -214,25 +214,15 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
   // Enqueue Google Calendar upsert
   await enqueueGoogleCalendarOutbox(task.user_id, taskId, "UPSERT");
 
-  // Send success notification
-  if (task.user?.email) {
-    await sendNotification({
-      to: task.user.email,
-      userId: task.user.id,
-      subject: `Orca has approved your task`,
-      title: "Task approved",
-      text: `Orca has reviewed your proof for "${task.title}" and approved it.`,
-      html: `
-        <h1>Orca has approved your task</h1>
-        <p>Hi ${task.user.username || "there"},</p>
-        <p>Orca reviewed your proof for <strong>${task.title}</strong> and approved it. You may proceed.</p>
-        <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/tasks/${taskId}">View task</a></p>
-      `,
-      url: `/dashboard/tasks/${taskId}`,
-      tag: `task-approved-${taskId}`,
-      data: { taskId, kind: "TASK_AI_APPROVED" },
-    });
-  }
+  // Push notification only (no email)
+  await sendNotification({
+    userId: task.user.id,
+    title: "Task approved",
+    text: `Orca approved your proof for "${task.title}".`,
+    url: `/dashboard/tasks/${taskId}`,
+    tag: `task-approved-${taskId}`,
+    data: { taskId, kind: "TASK_AI_APPROVED" },
+  });
 
   // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");
@@ -315,52 +305,18 @@ async function denyTask(
     await enqueueGoogleCalendarOutbox(task.user_id, taskId, "DELETE");
   }
 
-  // Send notification (content depends on final or not)
-  if (task.user?.email) {
-    const attemptsRemaining = 3 - attemptNumber;
-
-    if (isFinal) {
-      // Final denial notification
-      await sendNotification({
-        to: task.user.email,
-        userId: task.user.id,
-        subject: `Orca has denied your task (final decision)`,
-        title: "Task denied",
-        text: `Orca reviewed your proof and denied it: ${reason}`,
-        html: `
-          <h1>Orca has decided your fate</h1>
-          <p>Hi ${task.user.username || "there"},</p>
-          <p>Orca reviewed your proof for <strong>${task.title}</strong> for the final time.</p>
-          <p><strong>Denied:</strong> ${reason}</p>
-          <p>You have exhausted your resubmission attempts. Failure cost has been applied to your ledger. You can escalate this decision to a friend for a second opinion.</p>
-          <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/tasks/${taskId}">View task and escalate</a></p>
-        `,
-        url: `/dashboard/tasks/${taskId}`,
-        tag: `task-denied-final-${taskId}`,
-        data: { taskId, kind: "TASK_AI_DENIED_FINAL" },
-      });
-    } else {
-      // Resubmit opportunity notification
-      await sendNotification({
-        to: task.user.email,
-        userId: task.user.id,
-        subject: `Orca needs more proof`,
-        title: "Proof denied – try again",
-        text: `Orca reviewed your proof and denied it. You have ${attemptsRemaining} more attempt${attemptsRemaining !== 1 ? "s" : ""}.`,
-        html: `
-          <h1>Orca needs more proof</h1>
-          <p>Hi ${task.user.username || "there"},</p>
-          <p>Orca reviewed your proof for <strong>${task.title}</strong>.</p>
-          <p><strong>Denied:</strong> ${reason}</p>
-          <p>You have <strong>${attemptsRemaining} more attempt${attemptsRemaining !== 1 ? "s" : ""}</strong> to submit new proof. Or escalate to a friend for a second opinion.</p>
-          <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/dashboard/tasks/${taskId}">View task and resubmit</a></p>
-        `,
-        url: `/dashboard/tasks/${taskId}`,
-        tag: `task-denied-resubmit-${taskId}`,
-        data: { taskId, kind: "TASK_AI_DENIED_RESUBMIT" },
-      });
-    }
-  }
+  // Push notification only (no email)
+  const attemptsRemaining = 3 - attemptNumber;
+  await sendNotification({
+    userId: task.user.id,
+    title: isFinal ? "Task failed" : "Proof denied – try again",
+    text: isFinal
+      ? `Orca denied your proof for "${task.title}". Failure cost applied.`
+      : `Orca denied your proof for "${task.title}". ${attemptsRemaining} attempt${attemptsRemaining !== 1 ? "s" : ""} left.`,
+    url: `/dashboard/tasks/${taskId}`,
+    tag: isFinal ? `task-denied-final-${taskId}` : `task-denied-resubmit-${taskId}`,
+    data: { taskId, kind: isFinal ? "TASK_AI_DENIED_FINAL" : "TASK_AI_DENIED_RESUBMIT" },
+  });
 
   // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");

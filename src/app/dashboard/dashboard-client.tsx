@@ -394,7 +394,19 @@ export default function DashboardClient({
                 currentActiveTasks.find((task) => task.id === taskId) ||
                 currentCompletedTasks.find((task) => task.id === taskId);
 
-            if (!existingTask) return;
+            // If the task moved to a terminal/non-active status, remove it from all lists
+            // even if it wasn't previously tracked (e.g. AWAITING_VOUCHER → COMPLETED via Orca).
+            const TERMINAL_STATUSES = ["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"];
+            if (!existingTask) {
+                if (change.newRow && TERMINAL_STATUSES.includes(change.newRow.status)) {
+                    const nextActiveTasks = currentActiveTasks.filter((task) => task.id !== taskId);
+                    if (nextActiveTasks.length !== currentActiveTasks.length) {
+                        activeTasksRef.current = nextActiveTasks;
+                        setActiveTasks(nextActiveTasks);
+                    }
+                }
+                return;
+            }
 
             if (change.eventType === "DELETE") {
                 const nextActiveTasks = currentActiveTasks.filter((task) => task.id !== taskId);
