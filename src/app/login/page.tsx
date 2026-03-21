@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useRef, useEffect, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
     completePasswordReset,
     requestPasswordReset,
@@ -20,6 +20,7 @@ function resolveMode(rawMode: string | null): AuthMode {
 
 function LoginContent() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const initialMode = resolveMode(searchParams.get("mode"));
 
     const [email, setEmail] = useState("");
@@ -28,6 +29,27 @@ function LoginContent() {
     const [mode, setMode] = useState<AuthMode>(initialMode);
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+    const [exiting, setExiting] = useState(false);
+
+    const touchStartX = useRef(0);
+    const touchStartY = useRef(0);
+
+    function navigateBack() {
+        setExiting(true);
+        setTimeout(() => router.push("/"), 320);
+    }
+
+    function onTouchStart(e: React.TouchEvent) {
+        touchStartX.current = e.touches[0].clientX;
+        touchStartY.current = e.touches[0].clientY;
+    }
+
+    function onTouchEnd(e: React.TouchEvent) {
+        const dx = e.changedTouches[0].clientX - touchStartX.current;
+        const dy = Math.abs(e.changedTouches[0].clientY - touchStartY.current);
+        // swipe right: horizontal > 72px, more horizontal than vertical
+        if (dx > 72 && dy < dx * 0.6) navigateBack();
+    }
 
     const callbackErrorParam = searchParams.get("error");
     const callbackErrorMessage =
@@ -208,22 +230,70 @@ function LoginContent() {
                     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
                     background-size: 200px 200px;
                 }
+
+                /* ── Kill body background so no white flash during slide ── */
+                html, body { background: #020617 !important; }
+
+                /* ── Page slide transitions ── */
+                @keyframes slideInRight {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to   { transform: translateX(0);    opacity: 1; }
+                }
+                @keyframes slideOutRight {
+                    from { transform: translateX(0);    opacity: 1; }
+                    to   { transform: translateX(100%); opacity: 0; }
+                }
+                .page-enter {
+                    animation: slideInRight 0.38s cubic-bezier(0.25, 1, 0.5, 1) both;
+                }
+                .page-exit {
+                    animation: slideOutRight 0.32s cubic-bezier(0.5, 0, 0.75, 0) both;
+                }
+
+                /* ── Responsive layout ── */
+                .auth-shell {
+                    display: flex;
+                    min-height: 100dvh;
+                }
+                .auth-left {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    padding: 80px 64px;
+                    border-right: 1px solid var(--border);
+                    position: relative;
+                    overflow: hidden;
+                }
+                .auth-right {
+                    width: 100%;
+                    max-width: 480px;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    padding: 80px 48px;
+                }
+
+                @media (max-width: 768px) {
+                    .auth-shell { flex-direction: column; }
+                    .auth-left  { display: none; }
+                    .auth-right {
+                        max-width: 100%;
+                        padding: 60px 28px 48px;
+                        justify-content: flex-start;
+                    }
+                }
             `}</style>
 
-            <div style={{ background: "var(--bg)", minHeight: "100dvh", display: "flex" }}>
+            <div
+                className={`auth-shell ${exiting ? "page-exit" : "page-enter"}`}
+                style={{ background: "var(--bg)" }}
+                onTouchStart={onTouchStart}
+                onTouchEnd={onTouchEnd}
+            >
 
                 {/* ── Left panel — editorial headline ── */}
-                <div style={{
-                    flex: "1",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "center",
-                    padding: "80px 64px",
-                    borderRight: "1px solid var(--border)",
-                    position: "relative",
-                    overflow: "hidden",
-                    // hide on small screens
-                }}>
+                <div className="auth-left">
                     {/* Radial glow */}
                     <div style={{
                         position: "absolute",
@@ -261,14 +331,37 @@ function LoginContent() {
                 </div>
 
                 {/* ── Right panel — form ── */}
-                <div style={{
-                    width: "100%",
-                    maxWidth: "480px",
-                    display: "flex",
-                    flexDirection: "column",
-                    justifyContent: "center",
-                    padding: "80px 48px",
-                }}>
+                <div className="auth-right">
+
+                    {/* Back caret */}
+                    <button
+                        onClick={navigateBack}
+                        style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            marginBottom: "40px",
+                            padding: "0",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            color: "#60a5fa",
+                            filter: "drop-shadow(0 0 8px rgba(96,165,250,0.6))",
+                            transition: "filter 0.2s, transform 0.2s",
+                        }}
+                        onMouseOver={e => {
+                            (e.currentTarget as HTMLButtonElement).style.filter = "drop-shadow(0 0 14px rgba(96,165,250,0.9))";
+                            (e.currentTarget as HTMLButtonElement).style.transform = "translateX(-3px)";
+                        }}
+                        onMouseOut={e => {
+                            (e.currentTarget as HTMLButtonElement).style.filter = "drop-shadow(0 0 8px rgba(96,165,250,0.6))";
+                            (e.currentTarget as HTMLButtonElement).style.transform = "translateX(0)";
+                        }}
+                        aria-label="Back to home"
+                    >
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="15 18 9 12 15 6" />
+                        </svg>
+                    </button>
 
                     <div className="rise d1 fm" style={{
                         fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase",

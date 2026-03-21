@@ -20,6 +20,10 @@ export interface Profile {
     created_at: string;
 }
 
+export interface FriendProfile extends Profile {
+    rp_score?: number;
+}
+
 export interface Friendship {
     id: string;
     user_id: string;
@@ -312,7 +316,7 @@ export interface FriendPomoActivity {
 }
 
 export interface ProfileWithFriends extends Profile {
-    friends?: Profile[];
+    friends?: FriendProfile[];
 }
 
 // API response types

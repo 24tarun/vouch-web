@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { type Database, type FriendPomoActivity } from "@/lib/types";
+import { computeFullReputationScore } from "@/lib/reputation/algorithm";
+import type { ReputationTaskInput } from "@/lib/reputation/types";
+import { type Database, type FriendPomoActivity, type FriendProfile } from "@/lib/types";
 import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { type SupabaseClient } from "@supabase/supabase-js";
 
@@ -15,6 +17,31 @@ const PENDING_VOUCHER_STATUSES = [
     "AWAITING_USER",
 ];
 
+const REPUTATION_TASK_SELECT =
+    "id, user_id, voucher_id, status, deadline, created_at, updated_at, marked_completed_at, postponed_at, recurrence_rule_id, voucher_timeout_auto_accepted, ai_escalated_from, has_proof";
+
+type ReputationTaskRow = {
+    id: string;
+    user_id: string;
+    voucher_id: string | null;
+    status: string;
+    deadline: string | null;
+    created_at: string;
+    updated_at: string;
+    marked_completed_at: string | null;
+    postponed_at: string | null;
+    recurrence_rule_id: string | null;
+    voucher_timeout_auto_accepted: boolean | null;
+    ai_escalated_from: boolean | null;
+    has_proof: boolean | null;
+};
+
+type PomoElapsedRow = {
+    user_id: string;
+    task_id: string;
+    elapsed_seconds: number;
+};
+
 function revalidateFriendPaths() {
     try {
         revalidatePath("/dashboard/friends");
@@ -23,6 +50,98 @@ function revalidateFriendPaths() {
     } catch {
         // Ignore revalidation errors
     }
+}
+
+function mapReputationTask(
+    task: ReputationTaskRow,
+    pomoByTaskId: Map<string, number>
+): ReputationTaskInput {
+    return {
+        id: task.id,
+        user_id: task.user_id,
+        voucher_id: task.voucher_id ?? null,
+        status: task.status,
+        deadline: task.deadline ?? null,
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+        marked_completed_at: task.marked_completed_at ?? null,
+        postponed_at: task.postponed_at ?? null,
+        recurrence_rule_id: task.recurrence_rule_id ?? null,
+        voucher_timeout_auto_accepted: task.voucher_timeout_auto_accepted ?? null,
+        ai_escalated_from: task.ai_escalated_from ?? false,
+        has_uploaded_proof: task.has_proof ?? false,
+        pomo_total_seconds: pomoByTaskId.get(task.id) ?? 0,
+    };
+}
+
+async function getFriendReputationScores(friendIds: string[]): Promise<Map<string, number>> {
+    const scores = new Map<string, number>();
+    const scoringIds = friendIds.filter((friendId) => friendId !== ORCA_PROFILE_ID);
+    if (scoringIds.length === 0) return scores;
+
+    try {
+        const supabaseAdmin = createAdminClient();
+
+        // Use admin reads for consistent score computation while still limiting scope to explicit friend IDs.
+        const [ownedResult, vouchedResult, pomoResult] = await Promise.all([
+            (supabaseAdmin.from("tasks" as any) as any)
+                .select(REPUTATION_TASK_SELECT)
+                .in("user_id", scoringIds as any)
+                .neq("status", "DELETED"),
+            (supabaseAdmin.from("tasks" as any) as any)
+                .select(REPUTATION_TASK_SELECT)
+                .in("voucher_id", scoringIds as any)
+                .neq("status", "DELETED"),
+            (supabaseAdmin.from("pomo_sessions" as any) as any)
+                .select("user_id, task_id, elapsed_seconds")
+                .in("user_id", scoringIds as any)
+                .neq("status", "DELETED"),
+        ]);
+
+        if (ownedResult.error || vouchedResult.error || pomoResult.error) {
+            console.error("Failed to load friend reputation data:", ownedResult.error || vouchedResult.error || pomoResult.error);
+            return scores;
+        }
+
+        const ownedRows = (ownedResult.data as ReputationTaskRow[] | null) ?? [];
+        const vouchedRows = (vouchedResult.data as ReputationTaskRow[] | null) ?? [];
+        const pomoRows = (pomoResult.data as PomoElapsedRow[] | null) ?? [];
+
+        const ownedByUser = new Map<string, ReputationTaskRow[]>();
+        for (const row of ownedRows) {
+            const current = ownedByUser.get(row.user_id) ?? [];
+            current.push(row);
+            ownedByUser.set(row.user_id, current);
+        }
+
+        const vouchedByUser = new Map<string, ReputationTaskRow[]>();
+        for (const row of vouchedRows) {
+            if (!row.voucher_id) continue;
+            const current = vouchedByUser.get(row.voucher_id) ?? [];
+            current.push(row);
+            vouchedByUser.set(row.voucher_id, current);
+        }
+
+        const pomoByUserTask = new Map<string, Map<string, number>>();
+        for (const row of pomoRows) {
+            if (!row.user_id || !row.task_id) continue;
+            const taskMap = pomoByUserTask.get(row.user_id) ?? new Map<string, number>();
+            taskMap.set(row.task_id, (taskMap.get(row.task_id) ?? 0) + (row.elapsed_seconds ?? 0));
+            pomoByUserTask.set(row.user_id, taskMap);
+        }
+
+        for (const friendId of scoringIds) {
+            const userPomoByTask = pomoByUserTask.get(friendId) ?? new Map<string, number>();
+            const ownedTasks = ownedByUser.get(friendId) ?? [];
+            const vouchedTasks = (vouchedByUser.get(friendId) ?? []).filter((task) => task.user_id !== friendId);
+            const tasks = [...ownedTasks, ...vouchedTasks].map((task) => mapReputationTask(task, userPomoByTask));
+            scores.set(friendId, computeFullReputationScore(tasks, friendId).score);
+        }
+    } catch (error) {
+        console.error("Unexpected friend reputation score computation error:", error);
+    }
+
+    return scores;
 }
 
 export async function addFriend(formData: FormData) {
@@ -180,7 +299,7 @@ export async function removeFriend(friendId: string) {
     return { success: true };
 }
 
-export async function getFriends() {
+export async function getFriends(): Promise<FriendProfile[]> {
     const supabase: SupabaseClient<Database> = await createClient();
     const {
         data: { user },
@@ -199,7 +318,19 @@ export async function getFriends() {
         )
         .eq("user_id", user.id);
 
-    return (friendships as any)?.map((f: any) => f.friend) || [];
+    const friends = (((friendships as any)?.map((f: any) => f.friend) || []) as FriendProfile[]).filter(
+        (friend): friend is FriendProfile => Boolean(friend?.id)
+    );
+    if (friends.length === 0) return [];
+
+    const friendIds = friends.map((friend) => friend.id);
+
+    const friendScores = await getFriendReputationScores(friendIds);
+
+    return friends.map((friend) => ({
+        ...friend,
+        rp_score: friend.id === ORCA_PROFILE_ID ? 1000 : friendScores.get(friend.id) ?? 400,
+    }));
 }
 
 export async function setOrcaAsFriendEnabled(enabled: boolean) {

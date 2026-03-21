@@ -27,7 +27,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SignOutMenuForm } from "@/components/SignOutMenuForm";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
-import type { Profile } from "@/lib/types";
+import type { FriendProfile, Profile } from "@/lib/types";
 import {
     getFailureCostBounds,
     getCurrencySymbol,
@@ -49,7 +49,7 @@ const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
 interface SettingsClientProps {
     profile: Profile;
-    friends: Profile[];
+    friends: FriendProfile[];
     googleCalendarIntegration: GoogleCalendarIntegrationState;
 }
 
@@ -72,7 +72,7 @@ export default function SettingsClient({
         Math.max(initialFailureCostBounds.minMajor, initialFailureCostMajorRaw)
     );
 
-    const [friends, setFriends] = useState<Profile[]>(initialFriends);
+    const [friends, setFriends] = useState<FriendProfile[]>(initialFriends);
     const [friendEmail, setFriendEmail] = useState("");
     const [isFriendsLoading, setIsFriendsLoading] = useState(false);
     const [friendsError, setFriendsError] = useState<string | null>(null);
@@ -283,7 +283,7 @@ export default function SettingsClient({
 
     async function refreshFriendsList() {
         const updatedFriends = await getFriends();
-        setFriends((updatedFriends as Profile[]) || []);
+        setFriends((updatedFriends as FriendProfile[]) || []);
     }
 
     async function handleAddFriend(e: React.FormEvent) {
@@ -878,10 +878,21 @@ export default function SettingsClient({
                                 className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
                             >
                                 <div className="flex items-center gap-3 min-w-0">
-                                    <Avatar className="h-8 w-8 border border-slate-800">
+                                    <Avatar className="relative h-8 w-8 border border-slate-800 overflow-visible">
                                         <AvatarFallback className="bg-slate-900 text-slate-400 text-[10px] font-mono">
                                             {friend.username?.slice(0, 2).toUpperCase() || "??"}
                                         </AvatarFallback>
+                                        <span
+                                            className="absolute -bottom-1 -right-2 rounded-full min-w-[30px] h-4 px-1 flex items-center justify-center text-[9px] font-mono font-semibold text-white leading-none border border-orange-300/40"
+                                            style={{
+                                                background: "linear-gradient(90deg, rgb(234,88,12) 0%, rgb(251,146,60) 100%)",
+                                                boxShadow: "0 0 8px 1px rgba(251,146,60,0.5)",
+                                                textShadow: "0 0 4px rgba(0,0,0,0.45)",
+                                            }}
+                                            aria-label={`${friend.username ?? "Friend"} RP score ${friend.rp_score ?? 400}`}
+                                        >
+                                            {friend.rp_score ?? 400}
+                                        </span>
                                     </Avatar>
                                     <div className="min-w-0">
                                         <p className="text-sm font-semibold text-white truncate">{friend.username}</p>
