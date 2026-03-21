@@ -5,7 +5,7 @@ import { StatsActiveTaskList } from "@/components/StatsActiveTaskList";
 import { StatsHistoryTaskList } from "@/components/StatsHistoryTaskList";
 import { sortStatsActiveTasks } from "@/lib/stats-active-task-sort";
 
-const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
+const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED", "AWAITING_USER"]);
 
 export default async function OverviewPage() {
     const supabase = await createClient();

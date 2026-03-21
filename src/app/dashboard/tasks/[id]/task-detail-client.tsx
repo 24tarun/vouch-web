@@ -603,7 +603,7 @@ export default function TaskDetailClient({
         const canOpenForDraft = isOwner && isActiveParentTask && !isActionPending("markComplete");
         const canOpenForAwaitingUpload =
             isOwner &&
-            taskState.status === "AWAITING_VOUCHER" &&
+            (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_USER") &&
             !isActionPending("awaitingProofUpload");
         if ((mode === "draft" && !canOpenForDraft) || (mode === "awaiting-upload" && !canOpenForAwaitingUpload)) {
             return;

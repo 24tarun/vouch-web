@@ -21,7 +21,7 @@ export interface CompactStatsTask {
     pomo_total_seconds?: number;
 }
 
-const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
+const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED", "AWAITING_USER"]);
 
 interface CompactStatsItemProps {
     task: CompactStatsTask;
@@ -42,6 +42,7 @@ export function CompactStatsItem({
         POSTPONED: "text-amber-400",
         MARKED_COMPLETED: "text-yellow-400",
         AWAITING_VOUCHER: "text-yellow-400",
+        AWAITING_USER: "text-blue-400",
         COMPLETED: "text-lime-300",
         FAILED: "text-red-500",
         RECTIFIED: "text-orange-500",
@@ -54,6 +55,7 @@ export function CompactStatsItem({
         POSTPONED: "POSTPONED",
         MARKED_COMPLETED: "AWAITING VOUCHER",
         AWAITING_VOUCHER: "AWAITING VOUCHER",
+        AWAITING_USER: "RESUBMIT",
         FAILED: "FAILED",
         RECTIFIED: "RECTIFIED",
         SETTLED: "FORCE MAJEURE",

@@ -6,7 +6,7 @@ import { CompactStatsItem } from "@/components/CompactStatsItem";
 import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 
 type StatsTask = TaskWithRelations & { pomo_total_seconds?: number };
-const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
+const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED", "AWAITING_USER"]);
 
 interface StatsActiveTaskListProps {
     initialTasks: StatsTask[];
