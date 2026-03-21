@@ -137,9 +137,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
         headers: {
             "Content-Type": proof.mime_type || "application/octet-stream",
             "Content-Length": String(buffer.byteLength),
-            "Cache-Control": "private, no-store, no-cache, must-revalidate, proxy-revalidate",
-            Pragma: "no-cache",
-            Expires: "0",
+            "Cache-Control": "private, max-age=300, immutable",
             "Content-Disposition": "inline",
             "Cross-Origin-Resource-Policy": "same-origin",
             "Referrer-Policy": "no-referrer",
