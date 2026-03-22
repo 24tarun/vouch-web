@@ -1,10 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowUpDown, Bell, Check, Lightbulb } from "lucide-react";
-import { toast } from "sonner";
+import Link from "next/link";
+import { ArrowUpDown, Check, Lightbulb, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { showSampleNotification } from "@/lib/client-notifications";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
 import {
     DropdownMenu,
@@ -46,23 +44,6 @@ export function DashboardHeaderActions({
     sortMode,
     onSortModeChange,
 }: DashboardHeaderActionsProps) {
-    const [isTestingNotification, setIsTestingNotification] = useState(false);
-
-    const handleTestNotification = async () => {
-        if (isTestingNotification) return;
-
-        setIsTestingNotification(true);
-        const result = await showSampleNotification();
-        setIsTestingNotification(false);
-
-        if (!result.success) {
-            toast.error(result.message);
-            return;
-        }
-
-        toast.success("Sample notification sent.");
-    };
-
     return (
         <div className="flex items-center gap-2">
             <Button
@@ -105,17 +86,10 @@ export function DashboardHeaderActions({
                 </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button
-                variant="ghost"
-                size="icon"
-                className="text-slate-400 hover:text-white"
-                onClick={handleTestNotification}
-                disabled={isTestingNotification}
-                aria-label="Test notification"
-                title="Test notification"
-                haptic="light"
-            >
-                <Bell className="h-4 w-4" />
+            <Button asChild variant="ghost" size="icon" className="text-slate-400 hover:text-white" haptic="light">
+                <Link href="/dashboard/settings" prefetch aria-label="Open settings" title="Open settings">
+                    <Settings className="h-4 w-4" />
+                </Link>
             </Button>
 
             <HardRefreshButton ariaLabel="Refresh dashboard" title="Refresh dashboard" />

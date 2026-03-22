@@ -4,7 +4,6 @@ import { getCachedPendingVouchCountForVoucher } from "@/actions/voucher";
 import { NavLinks } from "@/components/NavLinks";
 import { RealtimeListener } from "@/components/RealtimeListener";
 import { PomodoroProvider } from "@/components/PomodoroProvider";
-import { SwipeCarousel } from "@/components/SwipeCarousel";
 
 export default async function DashboardLayout({
     children,
@@ -46,7 +45,7 @@ export default async function DashboardLayout({
 
                 {/* Main Content */}
                 <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pl-safe pr-safe pb-safe">
-                    <SwipeCarousel>{children}</SwipeCarousel>
+                    {children}
                 </main>
             </div>
         </PomodoroProvider>

@@ -536,13 +536,13 @@ export function TaskRow({
                     </button>
 
                     <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-hidden">
-                        <p
-                            className={cn(
-                                "text-sm font-medium truncate",
-                                isActuallyCompleted
-                                    ? cn("line-through", currentStatusColor || "text-slate-400")
-                                    : "text-white"
-                            )}
+                            <p
+                                className={cn(
+                                "min-w-0 text-sm font-medium truncate",
+                                    isActuallyCompleted
+                                        ? cn("line-through", currentStatusColor || "text-slate-400")
+                                        : "text-white"
+                                )}
                         >
                             {task.title}
                         </p>
@@ -556,9 +556,9 @@ export function TaskRow({
                         )}
                     </div>
 
-                    <div className="flex items-center gap-2 text-xs">
+                    <div className="shrink-0 flex items-center gap-2 text-xs">
                         <div className={cn("flex items-center gap-1.5", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
-                            <span suppressHydrationWarning>
+                            <span suppressHydrationWarning className="whitespace-nowrap">
                                 {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
                             </span>
                         </div>
@@ -645,12 +645,12 @@ export function TaskRow({
                     onDoubleClick={handleRowDoubleClick}
                     title="Double-click to open task details"
                 >
-                    <div className="hidden md:flex md:items-center md:justify-between md:gap-3">
-                        <div className="min-w-0 flex items-center gap-2 overflow-hidden">
+                    <div className="hidden md:flex md:items-center md:gap-3">
+                        <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">
                             {renderCheckQuickAction()}
                             <p
                                 className={cn(
-                                    "text-sm font-medium truncate",
+                                    "min-w-0 text-sm font-medium truncate",
                                     isActuallyCompleted
                                         ? cn("line-through", currentStatusColor || "text-slate-400")
                                         : "text-white"
@@ -668,8 +668,8 @@ export function TaskRow({
                                 </span>
                             )}
                         </div>
-                        <div className="flex items-center gap-2">
-                            <span suppressHydrationWarning className={cn("text-xs", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
+                        <div className="shrink-0 flex items-center gap-2">
+                            <span suppressHydrationWarning className={cn("text-xs whitespace-nowrap", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
                                 {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
                             </span>
                             {renderActiveQuickActions(false)}
@@ -699,7 +699,7 @@ export function TaskRow({
                                     </span>
                                 )}
                             </div>
-                            <span suppressHydrationWarning className={cn("text-xs shrink-0", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
+                            <span suppressHydrationWarning className={cn("text-xs shrink-0 whitespace-nowrap", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
                                 {`${deadline.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${deadline.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })}`}
                             </span>
                         </div>
