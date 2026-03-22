@@ -141,11 +141,12 @@ const HIGHLIGHT_PROOF_TOKEN_REGEX = /(^|\s)(-proof)(?=\s|$)/gi;
 const HIGHLIGHT_TIMER_TOKEN_REGEX = /\b(timer)\s+(\d+)\b/gi;
 const HIGHLIGHT_POMO_TOKEN_REGEX = /\b(pomo)\s+(\d+)\b/gi;
 const HIGHLIGHT_REMIND_TOKEN_REGEX = /\b(remind)\s+(\d{1,2}:\d{2}|\d{4})\b/gi;
+const HIGHLIGHT_REPEAT_TOKEN_REGEX = /\b(repeat)\s+(daily|weekly|monthly|yearly)\b/gi;
 const HIGHLIGHT_TOMORROW_TOKEN_REGEX = /\b(tmrw|tomorrow)\b/gi;
 const HIGHLIGHT_VOUCH_TOKEN_REGEX = /(^|\s)(vouch|\.v)\s+(me|self|myself|[^\s/]+)(?=\s|$|\/)/gi;
 const HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
 const HIGHLIGHT_SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
-const VALUE_EXPECTING_KEYWORDS = new Set(["-start", "-end", "-color", "remind", "timer", "pomo", "vouch", ".v"]);
+const VALUE_EXPECTING_KEYWORDS = new Set(["-start", "-end", "-color", "remind", "timer", "pomo", "vouch", ".v", "repeat"]);
 const COLOR_COMPLETION_TOKENS = [
     ...GOOGLE_EVENT_COLOR_OPTIONS.map((option) => option.aliasToken),
     ...GOOGLE_EVENT_COLOR_OPTIONS.map((option) => option.nativeToken),
@@ -165,6 +166,7 @@ const PARSER_KEYWORD_COMPLETION_TOKENS = Array.from(new Set([
     "pomo",
     "vouch",
     ".v",
+    "repeat",
     "tmrw",
     "tomorrow",
     "monday",
@@ -176,6 +178,7 @@ const PARSER_KEYWORD_COMPLETION_TOKENS = Array.from(new Set([
     "sunday",
     ...COLOR_COMPLETION_TOKENS,
 ]));
+const REPEAT_TYPE_OPTIONS = ["daily", "weekly", "monthly", "yearly"];
 
 export interface TaskTitleHighlightSegment {
     text: string;
@@ -295,6 +298,12 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
         applyKeywordRange(start, start + match[0].length);
     }
 
+    for (const match of text.matchAll(new RegExp(HIGHLIGHT_REPEAT_TOKEN_REGEX.source, "gi"))) {
+        if (!match[0]) continue;
+        const start = match.index ?? 0;
+        applyKeywordRange(start, start + match[0].length);
+    }
+
     for (const match of text.matchAll(HIGHLIGHT_TOMORROW_TOKEN_REGEX)) {
         if (!match[0]) continue;
         const start = match.index ?? 0;
@@ -363,6 +372,26 @@ export function getParserKeywordCompletion(
     if (caretIndex !== text.length) return null;
 
     const leading = text.slice(0, caretIndex);
+
+    const repeatMatch = leading.match(/(?:^|\s)repeat\s+([^\s]*)$/i);
+    if (repeatMatch) {
+        const typeFragment = repeatMatch[1];
+        const normalized = typeFragment.toLowerCase();
+        const suggestion = REPEAT_TYPE_OPTIONS.find((t) => t.startsWith(normalized) && t !== normalized);
+        if (suggestion) {
+            const suffix = suggestion.slice(typeFragment.length);
+            if (suffix) {
+                return {
+                    fragmentStart: caretIndex - typeFragment.length,
+                    fragment: typeFragment,
+                    suggestion,
+                    suffix,
+                    insertText: suggestion,
+                };
+            }
+        }
+        return null;
+    }
 
     const voucherMatch = leading.match(/(?:^|\s)(?:vouch|\.v)\s+([^\s]+)$/i);
     if (voucherMatch) {
@@ -517,6 +546,24 @@ export function parseDateTokens(text: string): ParsedDateToken[] {
     }
 
     return tokens.sort((a, b) => a.index - b.index);
+}
+
+export const REPEAT_TOKEN_REGEX = /\brepeat\s+(daily|weekly|monthly|yearly)\b/i;
+const REPEAT_TOKEN_GLOBAL_REGEX = /\brepeat\s+(?:daily|weekly|monthly|yearly)\b/gi;
+
+export function parseRepeatTokenFromTitle(text: string): "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY" | null {
+    if (!text) return null;
+    const match = text.match(REPEAT_TOKEN_REGEX);
+    if (!match) return null;
+    return match[1].toUpperCase() as "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
+}
+
+export function stripRepeatTokens(text: string): string {
+    if (!text) return "";
+    return text
+        .replace(REPEAT_TOKEN_GLOBAL_REGEX, " ")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 export function parseTimerMinutesToken(text: string): number | null {

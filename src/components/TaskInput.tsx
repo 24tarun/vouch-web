@@ -60,10 +60,12 @@ import {
     parseDateTokens,
     parseProofRequiredFromTitle,
     parseReminderTimesFromTitle,
+    parseRepeatTokenFromTitle,
     parseTaskInputTimeToken,
     parseTimerMinutesToken,
     resolveEventAnchorDate,
     resolveUpcomingWeekdayDate,
+    stripRepeatTokens,
     TOMORROW_KEYWORD_REGEX,
     WEEKDAY_TOKEN_REGEX,
 } from "@/lib/task-title-parser";
@@ -833,7 +835,7 @@ export function TaskInput({
             .replace(/\s+/g, " ")
             .trim();
 
-        return stripEventColorTokens(withoutStandardTokens);
+        return stripRepeatTokens(stripEventColorTokens(withoutStandardTokens));
     };
 
     const parseTaskTitleAndSubtasks = (text: string) => {
@@ -878,6 +880,8 @@ export function TaskInput({
         const requiredPomoParse = parseRequiredPomoFromTitle(title);
         const requiredPomoMinutes = requiredPomoParse.requiredPomoMinutes;
         const requiresProof = parseProofRequiredFromTitle(title);
+        const parsedRepeatType = parseRepeatTokenFromTitle(title);
+        const effectiveRecurrenceType = parsedRepeatType ?? (recurrenceType || null);
 
         if (!taskTitle || isLoading) return;
 
@@ -965,7 +969,7 @@ export function TaskInput({
         setDeadlineError(null);
 
         const recurrenceDaysToUse =
-            recurrenceType === "WEEKLY"
+            effectiveRecurrenceType === "WEEKLY"
                 ? (customDays.length > 0 ? customDays : [getSelectedWeekday()])
                 : [];
 
@@ -981,7 +985,7 @@ export function TaskInput({
             reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
             voucherId: selectedVoucherId,
             failureCost,
-            recurrenceType: recurrenceType || null,
+            recurrenceType: effectiveRecurrenceType,
             recurrenceDays: recurrenceDaysToUse,
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         };
