@@ -38,7 +38,9 @@ export default async function DashboardLayout({
                 <nav className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 pt-safe">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="h-14 flex items-center">
-                            <NavLinks vouchCount={vouchCount} statsBadgeCount={statsBadgeCount} />
+                            <div className="mx-auto w-full max-w-3xl px-4 md:px-0">
+                                <NavLinks vouchCount={vouchCount} statsBadgeCount={statsBadgeCount} />
+                            </div>
                         </div>
                     </div>
                 </nav>
