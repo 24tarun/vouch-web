@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  experimental: {
+    staleTimes: {
+      dynamic: 60, // cache dynamic routes for 60s — prevents reload on swipe-back
+    },
+  },
   async headers() {
     return [
       {

@@ -66,6 +66,11 @@ export function SwipeCarousel({ children }: { children: React.ReactNode }) {
         prevCachePathRef.current = pathname;
     }, [pathname, children]);
 
+    // Prefetch all dashboard pages on mount so every swipe is instant
+    useEffect(() => {
+        PAGES.forEach(path => router.prefetch(path));
+    }, [router]);
+
     // Track container width
     useEffect(() => {
         const el = containerRef.current;
