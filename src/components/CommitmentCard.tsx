@@ -10,6 +10,7 @@ import {
     type CommitmentListItem,
 } from "@/actions/commitments";
 import { CompactStatsItem, type CompactStatsTask } from "@/components/CompactStatsItem";
+import { CommitmentDayStrip } from "@/components/CommitmentDayStrip";
 import { Button } from "@/components/ui/button";
 import { formatCurrencyFromCents, getCurrencySymbol, type SupportedCurrency } from "@/lib/currency";
 
@@ -62,7 +63,7 @@ export function CommitmentCard({
     const status = commitment.derived_status || commitment.status;
     const { className: statusClass, glow: statusGlow } = statusStyle(status);
     const description = commitment.description?.trim() || "";
-    const daysCompleted = Math.max(0, commitment.days_total - commitment.days_remaining);
+    const daysAccomplished = commitment.day_statuses.filter((d) => d.status === "passed").length;
 
     const earnedLabel = formatCurrencyFromCents(commitment.earned_so_far_cents, currency);
     const goalLabel = formatCurrencyFromCents(commitment.total_target_cents, currency);
@@ -139,7 +140,7 @@ export function CommitmentCard({
         if (pendingAction) return;
         const warningText =
             status === "ACTIVE"
-                ? `You've already passed ${daysCompleted} day(s). Do you really want to abandon this commitment?`
+                ? `You've already accomplished ${daysAccomplished} day(s). Do you really want to abandon this commitment?`
                 : "Are you sure you want to delete this commitment draft?";
         if (!window.confirm(warningText)) return;
         setPendingAction("abandon");
@@ -192,14 +193,14 @@ export function CommitmentCard({
                     )}
                 </div>
 
-                {/* Days completed */}
+                {/* Days accomplished */}
                 <div className="flex flex-col items-end border-t border-slate-800 pt-3 md:border-t-0 md:border-l md:pl-5 md:pt-0">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-                        days completed
+                        days accomplished
                     </p>
                     <div className="mt-4 inline-flex items-center leading-none">
                         <span className="translate-y-[-10px] text-[2.7rem] font-light text-[#00ffd5] drop-shadow-[0_0_8px_rgba(0,255,213,0.65)]">
-                            {daysCompleted}
+                            {daysAccomplished}
                         </span>
                         <span className="mx-[-4px] text-[3.6rem] font-thin text-red-500/70">/</span>
                         <span className="translate-y-[10px] text-[2.00rem] font-light text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.7)]">
@@ -227,22 +228,47 @@ export function CommitmentCard({
 
             {/* Expanded section */}
             {isExpanded && (
-                <div
-                    className="mt-6 pt-6 border-t border-slate-800/60"
-                >
-                    {/* Action buttons */}
-                    {(status === "DRAFT" || status === "ACTIVE") && (
+                <div className="mt-6 pt-6 border-t border-slate-800/60">
+                    {/* Activate button (DRAFT only) */}
+                    {status === "DRAFT" && (
                         <div className="flex flex-wrap gap-2 mb-6">
-                            {status === "DRAFT" && (
-                                <Button
-                                    type="button"
-                                    onClick={handleActivate}
-                                    disabled={pendingAction !== null}
-                                    className="border border-blue-500/50 bg-blue-600/30 text-blue-100 hover:bg-blue-600/40"
-                                >
-                                    Activate
-                                </Button>
-                            )}
+                            <Button
+                                type="button"
+                                onClick={handleActivate}
+                                disabled={pendingAction !== null}
+                                className="border border-blue-500/50 bg-blue-600/30 text-blue-100 hover:bg-blue-600/40"
+                            >
+                                Activate
+                            </Button>
+                        </div>
+                    )}
+
+                    {/* Day strip */}
+                    <CommitmentDayStrip
+                        startDate={commitment.start_date}
+                        endDate={commitment.end_date}
+                        dayStatuses={commitment.day_statuses}
+                    />
+
+                    {/* Task list */}
+                    <div className="mt-6">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
+                            Tasks for today linked to this commitment
+                        </p>
+                        {taskRows.length === 0 ? (
+                            <p className="mt-3 text-sm text-slate-500">No tasks linked yet.</p>
+                        ) : (
+                            <div className="flex flex-col border-t border-slate-900/50">
+                                {taskRows.map((task) => (
+                                    <CompactStatsItem key={task.id} task={task} onRowClick={handleToggle} />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Abandon button — bottom left */}
+                    {(status === "DRAFT" || status === "ACTIVE") && (
+                        <div className="mt-6 flex">
                             <Button
                                 type="button"
                                 onClick={handleAbandon}
@@ -251,20 +277,6 @@ export function CommitmentCard({
                             >
                                 {status === "DRAFT" ? "Delete draft" : "Abandon"}
                             </Button>
-                        </div>
-                    )}
-
-                    {/* Task list */}
-                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-                        Tasks for today linked to this commitment
-                    </p>
-                    {taskRows.length === 0 ? (
-                        <p className="mt-3 text-sm text-slate-500">No tasks linked yet.</p>
-                    ) : (
-                        <div className="flex flex-col border-t border-slate-900/50">
-                            {taskRows.map((task) => (
-                                <CompactStatsItem key={task.id} task={task} onRowClick={handleToggle} />
-                            ))}
                         </div>
                     )}
                 </div>
