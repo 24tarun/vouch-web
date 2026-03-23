@@ -972,7 +972,7 @@ export default function DashboardClient({
 
             {/* Mobile FAB */}
             <button
-                onClick={() => { setFloatingCreatorOpen(true); }}
+                onClick={() => { setFloatingCreatorOpen(true); floatingCreatorRef.current?.focusTitle(); }}
                 aria-label="Create task"
                 className="md:hidden fixed bottom-20 right-8 h-14 w-14 rounded-full flex items-center justify-center transition-all active:scale-95 z-30 backdrop-blur-sm"
                 style={{
