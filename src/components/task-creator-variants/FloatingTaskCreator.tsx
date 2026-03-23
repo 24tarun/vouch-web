@@ -90,9 +90,19 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
     const swipeTouchStartY = useRef<number | null>(null);
     const scrollBodyRef = useRef<HTMLDivElement>(null);
 
+    const focusTitleInput = useCallback(() => {
+        const input = titleRef.current;
+        if (!input) return;
+        try {
+            input.focus({ preventScroll: true });
+        } catch {
+            input.focus();
+        }
+    }, []);
+
     useImperativeHandle(ref, () => ({
-        focusTitle: () => titleRef.current?.focus(),
-    }));
+        focusTitle: focusTitleInput,
+    }), [focusTitleInput]);
 
     // ── Overlay model ──────────────────────────────────────────────────────────
     const { titleHighlightSegments, inlineKeywordCompletion, showTitleOverlay } = useMemo(
@@ -114,13 +124,10 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
         syncTitleCaretFromElement(titleRef.current);
     }, [syncTitleCaretFromElement]);
 
-    const keepTitleTypingInView = useCallback((input: HTMLInputElement | null, ensureVisible: boolean = false) => {
+    const keepTitleTypingInView = useCallback((input: HTMLInputElement | null) => {
         if (!input) return;
         window.requestAnimationFrame(() => {
             syncTitleHighlightScroll();
-            if (ensureVisible) {
-                input.scrollIntoView({ block: "nearest", inline: "nearest" });
-            }
         });
     }, [syncTitleHighlightScroll]);
 
@@ -137,11 +144,11 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
         pendingCaretPositionRef.current = null;
         const input = titleRef.current;
         if (!input) return;
-        input.focus();
+        focusTitleInput();
         input.setSelectionRange(pos, pos);
         syncTitleCaretFromElement(input);
         syncTitleHighlightScroll();
-    }, [syncTitleCaretFromElement, syncTitleHighlightScroll, title, titleCaretIndex]);
+    }, [focusTitleInput, syncTitleCaretFromElement, syncTitleHighlightScroll, title, titleCaretIndex]);
 
     useLayoutEffect(() => {
         syncTitleHighlightScroll();
@@ -252,16 +259,54 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
     // ── Effects ───────────────────────────────────────────────────────────────
     useEffect(() => {
         if (isOpen) {
-            scrollBodyRef.current?.scrollTo({ top: 0 });
             setDeadline(defaultDeadline());
             setEventStart(defaultStart());
             setEventEnd(defaultEnd());
             setSelectedVoucherId(selfUserId);
             setActiveReminders(new Set(DEFAULT_REMINDER_MINUTES));
-            const t = setTimeout(() => titleRef.current?.focus(), 100);
+            window.requestAnimationFrame(() => {
+                scrollBodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
+            });
+            const t = setTimeout(() => {
+                focusTitleInput();
+            }, 260);
             return () => clearTimeout(t);
         }
-    }, [isOpen, selfUserId]);
+    }, [focusTitleInput, isOpen, selfUserId]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const body = document.body;
+        const html = document.documentElement;
+        const scrollY = window.scrollY;
+        const previousBodyPosition = body.style.position;
+        const previousBodyTop = body.style.top;
+        const previousBodyLeft = body.style.left;
+        const previousBodyRight = body.style.right;
+        const previousBodyWidth = body.style.width;
+        const previousBodyOverflow = body.style.overflow;
+        const previousHtmlOverflow = html.style.overflow;
+
+        body.style.position = "fixed";
+        body.style.top = `-${scrollY}px`;
+        body.style.left = "0";
+        body.style.right = "0";
+        body.style.width = "100%";
+        body.style.overflow = "hidden";
+        html.style.overflow = "hidden";
+
+        return () => {
+            body.style.position = previousBodyPosition;
+            body.style.top = previousBodyTop;
+            body.style.left = previousBodyLeft;
+            body.style.right = previousBodyRight;
+            body.style.width = previousBodyWidth;
+            body.style.overflow = previousBodyOverflow;
+            html.style.overflow = previousHtmlOverflow;
+            window.scrollTo(0, scrollY);
+        };
+    }, [isOpen]);
 
     useEffect(() => {
         if (!voucherOpen) return;
@@ -517,13 +562,13 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
                                 }}
                                 onClick={() => {
                                     syncTitleCaretFromInput();
-                                    keepTitleTypingInView(titleRef.current, true);
+                                    keepTitleTypingInView(titleRef.current);
                                 }}
                                 onFocus={() => {
                                     completionTapInProgressRef.current = false;
                                     setIsTitleFocused(true);
                                     syncTitleCaretFromInput();
-                                    keepTitleTypingInView(titleRef.current, true);
+                                    keepTitleTypingInView(titleRef.current);
                                 }}
                                 onBlur={() => {
                                     if (completionTapInProgressRef.current) return;
