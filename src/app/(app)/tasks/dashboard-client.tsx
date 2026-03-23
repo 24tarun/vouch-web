@@ -983,6 +983,7 @@ export default function DashboardClient({
                 onClose={() => setFloatingBoxCreatorOpen(false)}
                 friends={friends}
                 selfUserId={userId}
+                defaultVoucherId={defaultVoucherId}
                 defaultFailureCost={parseFloat(defaultFailureCostEuros) || 1}
             />
             {!tipsHidden && (

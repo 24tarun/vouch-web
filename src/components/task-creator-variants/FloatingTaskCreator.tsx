@@ -33,6 +33,7 @@ interface Props {
     onClose: () => void;
     friends?: Profile[];
     selfUserId?: string;
+    defaultVoucherId?: string | null;
     defaultFailureCost?: number;
 }
 
@@ -41,7 +42,7 @@ export interface FloatingTaskCreatorHandle {
 }
 
 export const FloatingTaskCreator = forwardRef<FloatingTaskCreatorHandle, Props>(
-function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", defaultFailureCost = 1 }: Props, ref) {
+function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", defaultVoucherId, defaultFailureCost = 1 }: Props, ref) {
     const [title, setTitle] = useState("");
     const [titleCaretIndex, setTitleCaretIndex] = useState(0);
     const [isTitleFocused, setIsTitleFocused] = useState(false);
@@ -65,7 +66,11 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
     const [costEditing, setCostEditing] = useState(false);
     const [costDraft, setCostDraft] = useState("");
     const costInputRef = useRef<HTMLInputElement>(null);
-    const [selectedVoucherId, setSelectedVoucherId] = useState<string>(() => selfUserId);
+    const resolveDefaultVoucher = () => {
+        if (defaultVoucherId && friends.some((f) => f.id === defaultVoucherId)) return defaultVoucherId;
+        return selfUserId;
+    };
+    const [selectedVoucherId, setSelectedVoucherId] = useState<string>(resolveDefaultVoucher);
     const [voucherOpen, setVoucherOpen] = useState(false);
     const voucherRef = useRef<HTMLDivElement>(null);
 
@@ -262,7 +267,11 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
             setDeadline(defaultDeadline());
             setEventStart(defaultStart());
             setEventEnd(defaultEnd());
-            setSelectedVoucherId(selfUserId);
+            setSelectedVoucherId(
+                defaultVoucherId && friends.some((f) => f.id === defaultVoucherId)
+                    ? defaultVoucherId
+                    : selfUserId
+            );
             setActiveReminders(new Set(DEFAULT_REMINDER_MINUTES));
             window.requestAnimationFrame(() => {
                 scrollBodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
@@ -272,7 +281,7 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
             }, 260);
             return () => clearTimeout(t);
         }
-    }, [focusTitleInput, isOpen, selfUserId]);
+    }, [focusTitleInput, isOpen, selfUserId, defaultVoucherId, friends]);
 
     useLayoutEffect(() => {
         if (!isOpen) return;
