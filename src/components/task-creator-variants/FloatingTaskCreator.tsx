@@ -88,6 +88,7 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
     const pendingTapCompletionRef = useRef<ParserKeywordCompletion | null>(null);
     const isComposingRef = useRef(false);
     const swipeTouchStartY = useRef<number | null>(null);
+    const scrollBodyRef = useRef<HTMLDivElement>(null);
 
     useImperativeHandle(ref, () => ({
         focusTitle: () => titleRef.current?.focus(),
@@ -251,6 +252,7 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
     // ── Effects ───────────────────────────────────────────────────────────────
     useEffect(() => {
         if (isOpen) {
+            scrollBodyRef.current?.scrollTo({ top: 0 });
             setDeadline(defaultDeadline());
             setEventStart(defaultStart());
             setEventEnd(defaultEnd());
@@ -471,7 +473,7 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
                 </div>
 
                 {/* Scrollable body */}
-                <div className="overflow-y-auto flex-1 px-5 pb-6">
+                <div ref={scrollBodyRef} className="overflow-y-auto flex-1 px-5 pb-6">
 
                     {/* ── Title + Subtasks ── */}
                     <div
