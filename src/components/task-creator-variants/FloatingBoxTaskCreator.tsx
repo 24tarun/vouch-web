@@ -50,7 +50,6 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
     // Subtasks
     const [subtasks, setSubtasks] = useState<string[]>([]);
     const [subtaskDraft, setSubtaskDraft] = useState("");
-    const [subtasksOpen, setSubtasksOpen] = useState(false);
     const subtaskInputRef = useRef<HTMLInputElement>(null);
 
     // Schedule
@@ -99,6 +98,25 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
         } catch {
             input.focus();
         }
+    }, []);
+
+    const blurTitleInput = useCallback(() => {
+        const input = titleRef.current;
+        if (!input) return;
+        if (document.activeElement === input) {
+            input.blur();
+        }
+        setIsTitleFocused(false);
+    }, []);
+
+    const openAdvancedView = useCallback(() => {
+        setVoucherOpen(false);
+        blurTitleInput();
+        setActiveView(1);
+    }, [blurTitleInput]);
+
+    const openPrimaryView = useCallback(() => {
+        setActiveView(0);
     }, []);
 
     useImperativeHandle(ref, () => ({
@@ -281,6 +299,12 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
         scrollBodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
     }, [activeView, isOpen]);
 
+    useEffect(() => {
+        if (!isOpen || activeView !== 1) return;
+        setVoucherOpen(false);
+        blurTitleInput();
+    }, [activeView, blurTitleInput, isOpen]);
+
     useLayoutEffect(() => {
         if (!isOpen) return;
 
@@ -352,13 +376,6 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
             return next;
         });
 
-    const handleSubtasksToggle = () => {
-        setSubtasksOpen((p) => {
-            if (!p) setTimeout(() => subtaskInputRef.current?.focus(), 200);
-            return !p;
-        });
-    };
-
     const toggleCustomDay = (day: number) => {
         setCustomDays((prev) => {
             const next = prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day];
@@ -396,7 +413,7 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
 
     const reset = () => {
         setTitle(""); setTitleCaretIndex(0); setIsTitleFocused(false);
-        setSubtasks([]); setSubtaskDraft(""); setSubtasksOpen(false);
+        setSubtasks([]); setSubtaskDraft("");
         setIsEvent(false); setEventColor(null); setRequiresProof(false);
         setRecurrenceType(""); setCustomDays([]); setShowCustomDays(false);
         setActiveView(0);
@@ -540,8 +557,8 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                         <button
                             type="button"
                             aria-label="Go to advanced options"
-                            onClick={() => setActiveView(1)}
-                            className="absolute right-0 top-1/2 z-20 -translate-y-1/2 h-11 w-9 rounded-l-xl flex items-center justify-center transition-all active:opacity-80"
+                            onClick={openAdvancedView}
+                            className="absolute right-0 top-1/2 z-20 -translate-y-1/2 translate-y-1 h-11 w-9 rounded-l-xl flex items-center justify-center transition-all active:opacity-80"
                             style={{
                                 borderTop: "1px solid rgba(0, 217, 255, 0.35)",
                                 borderLeft: "1px solid rgba(0, 217, 255, 0.35)",
@@ -558,7 +575,7 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                         <button
                             type="button"
                             aria-label="Back to basic fields"
-                            onClick={() => setActiveView(0)}
+                            onClick={openPrimaryView}
                             className="absolute left-0 top-1/2 z-20 -translate-y-1/2 h-11 w-9 rounded-r-xl flex items-center justify-center transition-all active:opacity-80"
                             style={{
                                 borderTop: "1px solid rgba(0, 217, 255, 0.35)",
@@ -578,10 +595,6 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                         <div className="animate-in slide-in-from-left-4 fade-in duration-200">
                     <div
                         className="py-3 space-y-2"
-                        onClick={(e) => {
-                            if ((e.target as HTMLElement).closest("input,button")) return;
-                            handleSubtasksToggle();
-                        }}
                     >
                         {/* Title input with overlay */}
                         <div className="relative">
@@ -648,20 +661,8 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                             />
                         </div>
 
-                        {/* Subtasks toggle */}
-                        <button
-                            onClick={handleSubtasksToggle}
-                            className="flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-[0.14em] text-slate-600 hover:text-slate-400 transition-colors"
-                        >
-                            <Plus className={cn("h-3 w-3 transition-transform duration-200", subtasksOpen && "rotate-45")} />
-                            {subtasks.length > 0 ? `${subtasks.length} subtask${subtasks.length > 1 ? "s" : ""}` : "Add subtasks"}
-                        </button>
-
-                        {/* Subtasks expansion */}
-                        <div className={cn(
-                            "overflow-hidden transition-[max-height] duration-300 ease-in-out",
-                            subtasksOpen ? "max-h-[300px]" : "max-h-0",
-                        )}>
+                        {/* Subtasks (always visible) */}
+                        <div>
                             <div className="pt-1 space-y-2 pl-1">
                                 {subtasks.map((s, i) => (
                                     <div key={i} className="flex items-center gap-2.5">
@@ -715,13 +716,13 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
 
                     {/* ── Reminders + Repeat (2-col) ── */}
                     {activeView === 1 && (
-                    <Divider>
+                    <Divider className="py-2.5 space-y-2">
                         {/* Header row */}
                         <div className="grid grid-cols-2 gap-2">
                             <button
                                 onClick={() => setRemindersOpen((p) => !p)}
                                 className={cn(
-                                    "flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-left",
+                                    "flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-all text-left",
                                     remindersOpen
                                         ? "bg-amber-400/10 border border-amber-400/20"
                                         : "bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800"
@@ -735,7 +736,7 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                             <button
                                 onClick={() => setRepeatOpen((p) => !p)}
                                 className={cn(
-                                    "flex items-center gap-2 px-3 py-2 rounded-lg transition-all text-left",
+                                    "flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-all text-left",
                                     repeatOpen
                                         ? "bg-purple-400/10 border border-purple-400/20"
                                         : "bg-slate-800/50 border border-slate-700/50 hover:bg-slate-800"
@@ -851,32 +852,80 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                     )}
 
                     {/* ── Stakes ── */}
+                    {activeView === 0 && (
                     <Divider>
-                        {activeView === 0 && (
-                        <Row
-                            label="Voucher"
-                            icon={<span className="text-blue-300 text-sm leading-none">◎</span>}
-                        >
-                            <div ref={voucherRef} className="relative">
-                                <button
-                                    onClick={() => setVoucherOpen((p) => !p)}
-                                    className="flex items-center gap-1.5 text-slate-300 text-sm font-mono transition-colors hover:text-slate-100"
-                                >
-                                    <span className="truncate max-w-[120px]">
-                                        {selectedVoucherId === selfUserId
-                                            ? "Myself"
-                                            : (friends.find((f) => f.id === selectedVoucherId)?.username ||
-                                               friends.find((f) => f.id === selectedVoucherId)?.email ||
-                                               "Myself")}
-                                    </span>
-                                    <ChevronDown
-                                        className={cn("h-[18px] w-[18px] shrink-0 transition-transform text-blue-300", voucherOpen && "rotate-180")}
-                                        style={{ filter: "drop-shadow(0 0 5px rgba(147, 197, 253, 0.8))" }}
-                                    />
-                                </button>
+                            <div ref={voucherRef} className="space-y-2 pr-10">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setVoucherOpen((p) => !p)}
+                                        className="w-[8.75rem] sm:w-[9.5rem] min-w-0 flex items-center justify-between gap-2 px-0 py-0 text-slate-300 text-sm font-mono transition-colors hover:text-slate-100"
+                                    >
+                                        <span className="truncate">
+                                            {selectedVoucherId === selfUserId
+                                                ? "Myself"
+                                                : (friends.find((f) => f.id === selectedVoucherId)?.username ||
+                                                   friends.find((f) => f.id === selectedVoucherId)?.email ||
+                                                   "Myself")}
+                                        </span>
+                                        <ChevronDown
+                                            className={cn("h-[18px] w-[18px] shrink-0 transition-transform text-blue-300", voucherOpen && "rotate-180")}
+                                            style={{ filter: "drop-shadow(0 0 5px rgba(147, 197, 253, 0.8))" }}
+                                        />
+                                    </button>
 
-                                {voucherOpen && (
-                                    <div className="absolute right-0 bottom-full mb-1.5 w-48 bg-slate-900 border border-slate-700 rounded-xl shadow-xl overflow-hidden z-10">
+                                    <div className="shrink-0 flex items-center gap-1">
+                                        <button
+                                            onClick={() => setFailureCost((v) => Math.max(1, Math.round((v - 0.5) * 2) / 2))}
+                                            className="h-[18px] w-[18px] flex items-center justify-center text-emerald-400 font-mono text-[18px] leading-none transition-opacity hover:opacity-70"
+                                            style={{ textShadow: "0 0 8px rgba(52, 211, 153, 0.7)" }}
+                                            aria-label="Decrease failure cost"
+                                        >
+                                            {"\u2039"}
+                                        </button>
+                                        {costEditing ? (
+                                            <input
+                                                ref={costInputRef}
+                                                type="number"
+                                                value={costDraft}
+                                                onChange={(e) => setCostDraft(e.target.value)}
+                                                onBlur={() => {
+                                                    const n = parseFloat(costDraft);
+                                                    if (!isNaN(n)) setFailureCost(Math.min(100, Math.max(1, Math.round(n * 2) / 2)));
+                                                    setCostEditing(false);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+                                                }}
+                                                className="w-16 bg-transparent text-emerald-400 text-xs font-mono focus:outline-none text-center tabular-nums"
+                                                aria-label="Failure cost amount"
+                                            />
+                                        ) : (
+                                            <button
+                                                onClick={() => { setCostDraft(failureCost.toFixed(2)); setCostEditing(true); setTimeout(() => costInputRef.current?.select(), 10); }}
+                                                className="text-emerald-400 text-xs font-mono tabular-nums hover:text-emerald-300 transition-colors min-w-[4.5rem]"
+                                                aria-label="Edit failure cost"
+                                            >
+                                                {`<$${failureCost.toFixed(2)}>`}
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={() => setFailureCost((v) => Math.min(100, Math.round((v + 0.5) * 2) / 2))}
+                                            className="h-[18px] w-[18px] flex items-center justify-center text-emerald-400 font-mono text-[18px] leading-none transition-opacity hover:opacity-70"
+                                            style={{ textShadow: "0 0 8px rgba(52, 211, 153, 0.7)" }}
+                                            aria-label="Increase failure cost"
+                                        >
+                                            {"\u203A"}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div
+                                    className={cn(
+                                        "overflow-hidden transition-[max-height,opacity] duration-200 ease-out",
+                                        voucherOpen ? "max-h-56 opacity-100" : "max-h-0 opacity-0"
+                                    )}
+                                >
+                                    <div className="w-full max-h-44 overflow-y-auto bg-slate-900 border border-slate-700 rounded-xl shadow-xl">
                                         <button
                                             onClick={() => { setSelectedVoucherId(selfUserId); setVoucherOpen(false); }}
                                             className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-mono text-slate-300 hover:bg-slate-800 transition-colors"
@@ -899,62 +948,14 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                                             </div>
                                         )}
                                     </div>
-                                )}
+                                </div>
                             </div>
-                        </Row>
-                        )}
-                        {activeView === 1 && (
-                        <Row
-                            label="Failure cost"
-                            icon={<span className="text-emerald-400 font-mono text-sm leading-none">€</span>}
-                        >
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setFailureCost((v) => Math.max(1, Math.round((v - 0.5) * 2) / 2))}
-                                    className="text-emerald-400 font-mono text-[1.5rem] leading-none transition-opacity hover:opacity-70"
-                                    style={{ textShadow: "0 0 8px rgba(52, 211, 153, 0.7)" }}
-                                >
-                                    ‹
-                                </button>
-                                {costEditing ? (
-                                    <input
-                                        ref={costInputRef}
-                                        type="number"
-                                        value={costDraft}
-                                        onChange={(e) => setCostDraft(e.target.value)}
-                                        onBlur={() => {
-                                            const n = parseFloat(costDraft);
-                                            if (!isNaN(n)) setFailureCost(Math.min(100, Math.max(1, Math.round(n * 2) / 2)));
-                                            setCostEditing(false);
-                                        }}
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
-                                        }}
-                                        className="w-16 bg-transparent text-emerald-400 text-sm font-mono focus:outline-none text-center tabular-nums"
-                                    />
-                                ) : (
-                                    <button
-                                        onClick={() => { setCostDraft(failureCost.toFixed(2)); setCostEditing(true); setTimeout(() => costInputRef.current?.select(), 10); }}
-                                        className="text-emerald-400 text-sm font-mono tabular-nums hover:text-emerald-300 transition-colors"
-                                    >
-                                        €{failureCost.toFixed(2)}
-                                    </button>
-                                )}
-                                <button
-                                    onClick={() => setFailureCost((v) => Math.min(100, Math.round((v + 0.5) * 2) / 2))}
-                                    className="text-emerald-400 font-mono text-[1.5rem] leading-none transition-opacity hover:opacity-70"
-                                    style={{ textShadow: "0 0 8px rgba(52, 211, 153, 0.7)" }}
-                                >
-                                    ›
-                                </button>
-                            </div>
-                        </Row>
-                        )}
                     </Divider>
+                    )}
 
                     {/* ── Options (Proof + Is Event) ── */}
                     {activeView === 1 && (
-                    <Divider>
+                    <Divider className="py-2.5 space-y-2">
                         <Row
                             label="Require proof"
                             icon={<Camera className="h-4 w-4 text-blue-300" />}
@@ -966,23 +967,33 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
                             label="Is Event"
                             icon={<span className="text-[#00d9ff] text-xs font-mono">◈</span>}
                         >
-                            <GlassToggle checked={isEvent} onChange={setIsEvent} />
+                            <GlassToggle
+                                checked={isEvent}
+                                onChange={(checked) => {
+                                    setIsEvent(checked);
+                                    if (checked) {
+                                        // When event mode is enabled, initialize end from the main deadline.
+                                        setEventEnd(deadline);
+                                    }
+                                }}
+                            />
+                        </Row>
+
+                        <Row label="Start" icon={<span className="text-slate-600 text-xs font-mono">▶</span>}>
+                            <input
+                                type="datetime-local"
+                                value={eventStart}
+                                onChange={(e) => setEventStart(e.target.value)}
+                                className="bg-transparent text-slate-300 text-sm focus:outline-none font-mono"
+                            />
                         </Row>
 
                         {/* Event-only fields */}
                         <div className={cn(
                             "overflow-hidden transition-[max-height] duration-300 ease-in-out",
-                            isEvent ? "max-h-[260px]" : "max-h-0",
+                            isEvent ? "max-h-[220px]" : "max-h-0",
                         )}>
-                            <div className="space-y-3 pt-2">
-                                <Row label="Start" icon={<span className="text-slate-600 text-xs font-mono">▶</span>}>
-                                    <input
-                                        type="datetime-local"
-                                        value={eventStart}
-                                        onChange={(e) => setEventStart(e.target.value)}
-                                        className="bg-transparent text-slate-300 text-sm focus:outline-none font-mono"
-                                    />
-                                </Row>
+                            <div className="space-y-2 pt-1.5">
                                 <Row label="End" icon={<span className="text-slate-600 text-xs font-mono">■</span>}>
                                     <input
                                         type="datetime-local"
@@ -1060,9 +1071,9 @@ function FloatingBoxTaskCreator({ isOpen, onClose, friends = [], selfUserId = ""
 });
 
 /* ── Section divider (no label) ── */
-function Divider({ children }: { children: React.ReactNode }) {
+function Divider({ children, className }: { children: React.ReactNode; className?: string }) {
     return (
-        <div className="py-4 space-y-3">
+        <div className={cn("py-4 space-y-3", className)}>
             {children}
         </div>
     );

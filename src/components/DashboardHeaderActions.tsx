@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { ArrowUpDown, Check, Lightbulb, Settings } from "lucide-react";
+import { ArrowUpDown, Check, Lightbulb, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
 import {
@@ -35,6 +34,7 @@ interface DashboardHeaderActionsProps {
     isTogglingTips: boolean;
     sortMode: DashboardSortMode;
     onSortModeChange: (mode: DashboardSortMode) => void;
+    onOpenCreator: () => void;
 }
 
 export function DashboardHeaderActions({
@@ -43,6 +43,7 @@ export function DashboardHeaderActions({
     isTogglingTips,
     sortMode,
     onSortModeChange,
+    onOpenCreator,
 }: DashboardHeaderActionsProps) {
     return (
         <div className="flex items-center gap-2">
@@ -86,10 +87,19 @@ export function DashboardHeaderActions({
                 </DropdownMenuContent>
             </DropdownMenu>
 
-            <Button asChild variant="ghost" size="icon" className="text-slate-400 hover:text-white" haptic="light">
-                <Link href="/settings" prefetch aria-label="Open settings" title="Open settings">
-                    <Settings className="h-4 w-4" />
-                </Link>
+            <Button
+                variant="ghost"
+                size="icon"
+                className="text-emerald-400 hover:text-emerald-300"
+                onClick={onOpenCreator}
+                aria-label="Create task"
+                title="Create task"
+                haptic="light"
+            >
+                <Plus
+                    className="h-5 w-5"
+                    style={{ filter: "drop-shadow(0 0 8px rgba(52, 211, 153, 0.9)) drop-shadow(0 0 14px rgba(52, 211, 153, 0.5))" }}
+                />
             </Button>
 
             <HardRefreshButton ariaLabel="Refresh dashboard" title="Refresh dashboard" />

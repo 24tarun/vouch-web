@@ -17,7 +17,6 @@ export const REMINDER_PRESETS = [
     { label: "30 min",  minutes: 30 },
     { label: "1 hour",  minutes: 60 },
     { label: "3 hours", minutes: 180 },
-    { label: "8 hours", minutes: 480 },
 ] as const;
 
 export const DEFAULT_REMINDER_MINUTES: ReadonlySet<number> = new Set([5, 60]);
