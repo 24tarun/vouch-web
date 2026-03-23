@@ -86,6 +86,7 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
     const completionTapInProgressRef = useRef(false);
     const pendingCaretPositionRef = useRef<number | null>(null);
     const pendingTapCompletionRef = useRef<ParserKeywordCompletion | null>(null);
+    const isComposingRef = useRef(false);
     const swipeTouchStartY = useRef<number | null>(null);
 
     useImperativeHandle(ref, () => ({
@@ -108,6 +109,20 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
         setTitleCaretIndex(input.selectionStart ?? input.value.length);
     }, []);
 
+    const syncTitleCaretFromInput = useCallback(() => {
+        syncTitleCaretFromElement(titleRef.current);
+    }, [syncTitleCaretFromElement]);
+
+    const keepTitleTypingInView = useCallback((input: HTMLInputElement | null, ensureVisible: boolean = false) => {
+        if (!input) return;
+        window.requestAnimationFrame(() => {
+            syncTitleHighlightScroll();
+            if (ensureVisible) {
+                input.scrollIntoView({ block: "nearest", inline: "nearest" });
+            }
+        });
+    }, [syncTitleHighlightScroll]);
+
     const commitTitleAndCaret = useCallback((nextTitle: string, nextCaretIndex: number) => {
         setTitle(nextTitle);
         setTitleCaretIndex(nextCaretIndex);
@@ -126,6 +141,16 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
         syncTitleCaretFromElement(input);
         syncTitleHighlightScroll();
     }, [syncTitleCaretFromElement, syncTitleHighlightScroll, title, titleCaretIndex]);
+
+    useLayoutEffect(() => {
+        syncTitleHighlightScroll();
+    }, [showTitleOverlay, syncTitleHighlightScroll, title, titleCaretIndex]);
+
+    const applyInlineKeywordCompletion = useCallback(() => {
+        if (!inlineKeywordCompletion) return;
+        const { nextTitle, nextCaretIndex } = applyParserKeywordCompletion(title, inlineKeywordCompletion);
+        commitTitleAndCaret(nextTitle, nextCaretIndex);
+    }, [commitTitleAndCaret, inlineKeywordCompletion, title]);
 
     const handleInlineCompletionPointerDown = useCallback((event: React.PointerEvent<HTMLElement>) => {
         pendingTapCompletionRef.current = inlineKeywordCompletion;
@@ -259,7 +284,11 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
     const toggleReminder = (minutes: number) =>
         setActiveReminders((prev) => {
             const next = new Set(prev);
-            next.has(minutes) ? next.delete(minutes) : next.add(minutes);
+            if (next.has(minutes)) {
+                next.delete(minutes);
+            } else {
+                next.add(minutes);
+            }
             return next;
         });
 
@@ -385,6 +414,25 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
         }
     };
 
+    const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        syncTitleCaretFromInput();
+
+        const isComposing = isComposingRef.current || e.nativeEvent.isComposing;
+        if (isComposing && (e.key === "Enter" || e.key === "Tab")) {
+            return;
+        }
+
+        if (e.key === "Tab" && inlineKeywordCompletion) {
+            e.preventDefault();
+            applyInlineKeywordCompletion();
+            return;
+        }
+
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        handleSubmit();
+    };
+
     return (
         <>
             {/* Backdrop */}
@@ -449,27 +497,43 @@ function FloatingTaskCreator({ isOpen, onClose, friends = [], selfUserId = "", d
                             )}
                             <input
                                 ref={titleRef}
+                                type="text"
                                 value={title}
                                 autoComplete="off"
                                 autoCorrect="off"
-                                autoCapitalize="sentences"
+                                autoCapitalize="none"
                                 spellCheck={false}
                                 onChange={(e) => {
                                     setTitle(e.currentTarget.value);
                                     syncTitleCaretFromElement(e.currentTarget);
-                                    window.requestAnimationFrame(syncTitleHighlightScroll);
+                                    keepTitleTypingInView(e.currentTarget);
                                 }}
-                                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
-                                onSelect={() => syncTitleCaretFromElement(titleRef.current)}
-                                onClick={() => syncTitleCaretFromElement(titleRef.current)}
+                                onKeyDown={handleTitleKeyDown}
+                                onSelect={() => {
+                                    syncTitleCaretFromInput();
+                                    keepTitleTypingInView(titleRef.current);
+                                }}
+                                onClick={() => {
+                                    syncTitleCaretFromInput();
+                                    keepTitleTypingInView(titleRef.current, true);
+                                }}
                                 onFocus={() => {
                                     completionTapInProgressRef.current = false;
                                     setIsTitleFocused(true);
-                                    syncTitleCaretFromElement(titleRef.current);
+                                    syncTitleCaretFromInput();
+                                    keepTitleTypingInView(titleRef.current, true);
                                 }}
                                 onBlur={() => {
                                     if (completionTapInProgressRef.current) return;
                                     setIsTitleFocused(false);
+                                }}
+                                onCompositionStart={() => {
+                                    isComposingRef.current = true;
+                                }}
+                                onCompositionEnd={(e) => {
+                                    isComposingRef.current = false;
+                                    syncTitleCaretFromElement(e.currentTarget);
+                                    keepTitleTypingInView(e.currentTarget);
                                 }}
                                 onScroll={syncTitleHighlightScroll}
                                 placeholder="What needs to get done?"
