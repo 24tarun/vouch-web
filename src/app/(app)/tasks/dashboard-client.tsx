@@ -42,6 +42,7 @@ import {
     buildBeforeStartSubmissionMessage,
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
+import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
 
 const MAX_COMPLETED_TASKS = 10;
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
@@ -72,7 +73,7 @@ interface DashboardClientProps {
 }
 
 function isDashboardActiveStatus(status: Task["status"]): boolean {
-    return status === "CREATED" || status === "POSTPONED";
+    return status === "ACTIVE" || status === "POSTPONED";
 }
 
 function splitTasks(tasks: Task[]) {
@@ -206,7 +207,7 @@ export default function DashboardClient({
     const canPostponeDialogTask = useMemo(() => {
         if (!postponeDialogTask) return false;
         return (
-            postponeDialogTask.status === "CREATED" &&
+            postponeDialogTask.status === "ACTIVE" &&
             !postponeDialogTask.postponed_at
         );
     }, [postponeDialogTask]);
@@ -386,8 +387,8 @@ export default function DashboardClient({
                 currentCompletedTasks.find((task) => task.id === taskId);
 
             // If the task moved to a terminal/non-active status, remove it from all lists
-            // even if it wasn't previously tracked (e.g. AWAITING_VOUCHER → COMPLETED via Orca).
-            const TERMINAL_STATUSES = ["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"];
+            // even if it wasn't previously tracked (e.g. AWAITING_ORCA -> ORCA_ACCEPTED).
+            const TERMINAL_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
             if (!existingTask) {
                 if (change.newRow && TERMINAL_STATUSES.includes(change.newRow.status)) {
                     const nextActiveTasks = currentActiveTasks.filter((task) => task.id !== taskId);
@@ -433,7 +434,7 @@ export default function DashboardClient({
 
             clearTaskTransientState(taskId);
 
-            const finalStatuses = new Set(["COMPLETED", "FAILED", "RECTIFIED", "SETTLED"]);
+            const finalStatuses = new Set(["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED"]);
             if (finalStatuses.has(patchedTask.status)) {
                 refreshReputation();
             }
@@ -598,7 +599,7 @@ export default function DashboardClient({
             required_pomo_minutes: payload.requiredPomoMinutes,
             requires_proof: payload.requiresProof,
             deadline: payload.deadlineIso,
-            status: shouldAutoCompletePastEvent ? "COMPLETED" : "CREATED",
+            status: shouldAutoCompletePastEvent ? "ACCEPTED" : "ACTIVE",
             postponed_at: null,
             marked_completed_at: shouldAutoCompletePastEvent ? nowIso : null,
             voucher_response_deadline: null,
@@ -719,15 +720,19 @@ export default function DashboardClient({
         const voucherResponseDeadline = getVoucherResponseDeadlineLocal(now);
         const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
         const proofIntent = proofDraft ? getProofIntentFromPreparedProof(proofDraft.proof) : null;
+        const isOrcaVoucher = task.voucher_id === ORCA_PROFILE_ID;
         if (proofIntent || task.completion_proof) {
             void purgeLocalProofMedia(task.id);
         }
         const nowIso = now.toISOString();
         const optimisticTask: Task = {
             ...task,
-            status: isSelfVouched ? "COMPLETED" : "AWAITING_VOUCHER",
+            status: isSelfVouched ? "ACCEPTED" : (isOrcaVoucher ? "AWAITING_ORCA" : "AWAITING_VOUCHER"),
             marked_completed_at: nowIso,
-            voucher_response_deadline: isSelfVouched ? null : voucherResponseDeadline.toISOString(),
+            voucher_response_deadline:
+                isSelfVouched || isOrcaVoucher
+                    ? null
+                    : voucherResponseDeadline.toISOString(),
             updated_at: nowIso,
         };
 
@@ -830,7 +835,7 @@ export default function DashboardClient({
 
     const handlePostponeTaskOptimistic = async (task: Task, newDeadlineIso: string): Promise<boolean> => {
         if (postponingTaskIds.has(task.id) || task.id.startsWith("temp-")) return false;
-        if (!["CREATED", "POSTPONED"].includes(task.status)) return false;
+        if (!["ACTIVE", "POSTPONED"].includes(task.status)) return false;
         if (task.postponed_at) return false;
         const currentDeadline = new Date(task.deadline);
         const selectedDeadline = new Date(newDeadlineIso);
@@ -881,7 +886,7 @@ export default function DashboardClient({
 
     const handlePostponeTaskClick = (task: Task) => {
         if (postponingTaskIds.has(task.id) || task.id.startsWith("temp-")) return;
-        if (task.status !== "CREATED" || task.postponed_at) return;
+        if (task.status !== "ACTIVE" || task.postponed_at) return;
         const currentDeadline = new Date(task.deadline);
         if (Number.isNaN(currentDeadline.getTime()) || currentDeadline.getTime() <= Date.now()) return;
         setPostponeDialogTaskId(task.id);

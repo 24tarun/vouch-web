@@ -33,7 +33,7 @@ function buildTask(
         failure_cost_cents: 100,
         required_pomo_minutes: null,
         deadline: toLocalIso(2026, 5, 1, 18, 0),
-        status: "CREATED",
+        status: "ACTIVE",
         postponed_at: null,
         marked_completed_at: null,
         voucher_response_deadline: null,

@@ -26,14 +26,6 @@ function invalidateOwnerActiveTasksCache(ownerId: string) {
     revalidateTag(activeTasksTag(ownerId), "max");
 }
 
-async function enqueueGoogleCalendarDelete(userId: string, taskId: string) {
-    try {
-        await enqueueGoogleCalendarOutbox(userId, taskId, "DELETE");
-    } catch (error) {
-        console.error(`Failed to enqueue Google Calendar DELETE for task ${taskId}:`, error);
-    }
-}
-
 async function enqueueGoogleCalendarUpsert(userId: string, taskId: string) {
     try {
         await enqueueGoogleCalendarOutbox(userId, taskId, "UPSERT");
@@ -42,8 +34,8 @@ async function enqueueGoogleCalendarUpsert(userId: string, taskId: string) {
     }
 }
 
-const ACTIVE_PENDING_STATUSES: TaskStatus[] = ["CREATED", "POSTPONED"];
-const AWAITING_PENDING_STATUSES: TaskStatus[] = ["AWAITING_VOUCHER", "MARKED_COMPLETED"];
+const ACTIVE_PENDING_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
+const AWAITING_PENDING_STATUSES: TaskStatus[] = ["AWAITING_VOUCHER", "MARKED_COMPLETE"];
 const PENDING_VOUCH_REQUEST_STATUSES: TaskStatus[] = [
     ...ACTIVE_PENDING_STATUSES,
     ...AWAITING_PENDING_STATUSES,
@@ -110,7 +102,7 @@ export async function voucherAccept(taskId: string) {
     // @ts-ignore
     const { error } = await (supabase.from("tasks") as any)
         .update({
-            status: "COMPLETED",
+            status: "ACCEPTED",
             has_proof: cleanup.deleted,
             proof_request_open: false,
             proof_requested_at: null,
@@ -129,7 +121,7 @@ export async function voucherAccept(taskId: string) {
         event_type: "VOUCHER_ACCEPT",
         actor_id: (user as any).id,
         from_status: (task as any).status,
-        to_status: "COMPLETED",
+        to_status: "ACCEPTED",
     });
 
     await enqueueGoogleCalendarUpsert((task as any).user_id, taskId);
@@ -143,114 +135,6 @@ export async function voucherAccept(taskId: string) {
     revalidatePath("/stats");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
-    return { success: true };
-}
-
-export async function voucherDeleteTask(taskId: string) {
-    const supabase: SupabaseClient<Database> = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-        return { error: "Not authenticated" };
-    }
-
-    // Fetch task with user info, ensure caller is voucher
-    // @ts-ignore
-    const { data: task } = await (supabase.from("tasks") as any)
-        .select(`
-      *,
-      user:profiles!tasks_user_id_fkey(email, username)
-    `)
-        .eq("id", (taskId as any))
-        .eq("voucher_id", (user as any).id)
-        .single();
-
-    if (!task) {
-        return { error: "Task not found or you are not the voucher" };
-    }
-
-    const adminSupabase = createAdminClient();
-    const { data: activeLinks } = await (adminSupabase.from("commitment_task_links") as any)
-        .select("commitment_id, commitments!inner(name, status)")
-        .eq("task_id", taskId as any)
-        .eq("commitments.status", "ACTIVE" as any);
-
-    if (((activeLinks as any[]) || []).length > 0) {
-        return { error: "This task is part of an active commitment and cannot be deleted." };
-    }
-
-    // Check if task is in a non-final state
-    const nonFinalStatuses = [
-        "CREATED",
-        "POSTPONED",
-        "MARKED_COMPLETED",
-        "AWAITING_VOUCHER",
-    ];
-    if (!nonFinalStatuses.includes((task as any).status)) {
-        return { error: `Cannot delete task in ${(task as any).status} status` };
-    }
-
-    const cleanup = await deleteTaskProof(taskId, "voucher_delete");
-    if (!cleanup.success) {
-        return { error: cleanup.error || "Could not remove proof media." };
-    }
-
-    // Update status to DELETED (soft delete)
-    const { error } = await (supabase.from("tasks") as any)
-        .update({
-            status: "DELETED",
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: new Date().toISOString(),
-        } as any)
-        .eq("id", (taskId as any))
-        .eq("voucher_id", (user as any).id);
-
-    if (error) {
-        return { error: error.message };
-    }
-
-    // Log the deletion event
-    await supabase.from("task_events").insert({
-        task_id: taskId as any,
-        event_type: "VOUCHER_DELETE",
-        actor_id: (user as any).id,
-        from_status: (task as any).status,
-        to_status: "DELETED",
-    } as any);
-
-    await enqueueGoogleCalendarDelete((task as any).user_id, taskId);
-
-    // Notify the task owner via email (and push in tandem)
-    if ((task as any).user?.email) {
-        await sendNotification({
-            to: (task as any).user.email,
-            userId: (task as any).user.id, // Enable push bridge
-            subject: `Task deleted by voucher: ${(task as any).title}`,
-            title: "Task Deleted",
-            html: `
-          <h1>Task Deleted</h1>
-          <p>Hi ${(task as any).user.username || "there"},</p>
-          <p>Your voucher deleted the task: <strong>${(task as any).title}</strong>.</p>
-          <p>If this was unexpected, please reach out to your voucher.</p>
-          <br/>
-          <a href="${process.env.NEXT_PUBLIC_APP_URL || ""}/tasks">Go to Vouch</a>
-        `,
-        });
-    }
-
-    // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
-    // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
-    // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
-    invalidateOwnerActiveTasksCache((task as any).user_id);
-    invalidatePendingVoucherRequestsCache((user as any).id);
-    revalidatePath("/friends");
-    revalidatePath("/tasks");
-    revalidatePath("/stats");
-
     return { success: true };
 }
 
@@ -290,7 +174,7 @@ export async function voucherDeny(taskId: string) {
     // @ts-ignore
     const { error } = await (supabase.from("tasks") as any)
         .update({
-            status: "FAILED",
+            status: "DENIED",
             proof_request_open: false,
             proof_requested_at: null,
             proof_requested_by: null,
@@ -317,25 +201,18 @@ export async function voucherDeny(taskId: string) {
         event_type: "VOUCHER_DENY",
         actor_id: (user as any).id,
         from_status: (task as any).status,
-        to_status: "FAILED",
+        to_status: "DENIED",
     });
 
     await enqueueGoogleCalendarUpsert((task as any).user_id, taskId);
 
-    if ((task as any).user?.email) {
+    if ((task as any).user?.id) {
         await sendNotification({
-            to: (task as any).user.email,
             userId: (task as any).user.id,
-            subject: `Your task ${(task as any).title} has been denied`,
             title: "Task denied",
-            text: `Your task ${(task as any).title} has been denied`,
-            html: `
-                <h1>Your task ${(task as any).title} has been denied</h1>
-                <p>Hi ${(task as any).user.username || "there"},</p>
-                <p>Your voucher denied <strong>${(task as any).title}</strong>.</p>
-                <p>Failure cost was applied to your ledger.</p>
-                <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/tasks/${taskId}">Open task</a></p>
-            `,
+            text: `Your voucher denied "${(task as any).title}". Failure cost applied.`,
+            email: false,
+            push: true,
             url: `/tasks/${taskId}`,
             tag: `task-denied-${taskId}`,
             data: { taskId, kind: "TASK_DENIED" },
@@ -422,17 +299,11 @@ export async function voucherRequestProof(taskId: string) {
         const voucherDisplayName = (voucherProfile as { username?: string | null } | null)?.username || "Your voucher";
 
         await sendNotification({
-            to: owner.email || undefined,
             userId: owner.id,
-            subject: `Proof requested for: ${(task as any).title}`,
             title: "Proof requested",
             text: `${voucherDisplayName} has asked for proof for "${(task as any).title}".`,
-            html: `
-                <h1>Proof requested</h1>
-                <p>Hi ${owner.username || "there"},</p>
-                <p>${voucherDisplayName} has asked for proof for <strong>${(task as any).title}</strong>.</p>
-                <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/tasks/${taskId}">Open task</a></p>
-            `,
+            email: false,
+            push: true,
             url: `/tasks/${taskId}`,
             tag: `proof-request-${taskId}`,
             data: { taskId, kind: "PROOF_REQUESTED" },
@@ -524,7 +395,7 @@ export async function authorizeRectify(taskId: string) {
         task_id: (taskId as any),
         event_type: "RECTIFY",
         actor_id: (user as any).id,
-        from_status: "FAILED",
+        from_status: (task as any).status,
         to_status: "RECTIFIED",
     });
 
@@ -676,10 +547,11 @@ export async function getAssignedTasksForVoucher() {
 
     // Include all non-final states; voucher can delete even active tasks
     const allowedStatuses = [
-        "CREATED",
+        "ACTIVE",
         "POSTPONED",
-        "MARKED_COMPLETED",
+        "MARKED_COMPLETE",
         "AWAITING_VOUCHER",
+        "AWAITING_ORCA",
     ];
 
     // @ts-ignore
@@ -723,7 +595,7 @@ export async function getFailedTasks() {
     `)
         .eq("voucher_id", (user as any).id)
         .neq("user_id", (user as any).id)
-        .eq("status", "FAILED")
+        .in("status", ["DENIED", "MISSED"])
         .order("updated_at", { ascending: false });
 
     if (!tasks) return [];
@@ -747,7 +619,7 @@ export async function getFailedTasks() {
     }));
 }
 
-const FINAL_HISTORY_STATUSES = ["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"];
+const FINAL_HISTORY_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
 
 export async function getVouchHistoryPage(offsetInput: number, limitInput: number) {
     const supabase = await createClient();
@@ -819,8 +691,8 @@ export async function getVouchHistoryPage(offsetInput: number, limitInput: numbe
 
 /**
  * Escalate an AI-denied task to a human voucher for a second opinion.
- * The task must be in FAILED status and originally AI-vouched.
- * Creates a negative ledger entry to cancel the AI denial penalty.
+ * The task must be in AWAITING_USER status and originally AI-vouched.
+ * No penalty is charged at Orca denial stage; penalty is charged only on ACCEPT_DENIAL.
  * Sets ai_escalated_from = true so the 0.5× weight applies even if human approves.
  */
 export async function escalateToHumanVoucher(
@@ -848,8 +720,8 @@ export async function escalateToHumanVoucher(
         return { error: "Task not found" };
     }
 
-    // Verify preconditions
-    if ((task as any).status !== "FAILED" && (task as any).status !== "AWAITING_USER") {
+    // Verify preconditions — escalation only from AWAITING_USER
+    if ((task as any).status !== "AWAITING_USER") {
         return { error: `Cannot escalate task in ${(task as any).status} status` };
     }
 
@@ -859,16 +731,23 @@ export async function escalateToHumanVoucher(
         return { error: "This task was not AI-vouched and cannot be escalated" };
     }
 
-    // Validate new voucher is self or a friend
-    if (newVoucherId !== user.id) {
-        const { data: friendship } = await (supabase.from("friendships") as any)
-            .select("friend_id")
-            .eq("user_id", (user as any).id)
-            .eq("friend_id", (newVoucherId as any))
-            .maybeSingle();
-        if (!friendship) {
-            return { error: "New voucher must be yourself or a friend" };
-        }
+    // Escalation is friend-only; Orca is disabled in the picker
+    if (newVoucherId === ORCA_PROFILE_ID) {
+        return { error: "Cannot escalate to Orca. Choose a friend." };
+    }
+
+    if (newVoucherId === user.id) {
+        return { error: "Cannot escalate to yourself. Choose a friend." };
+    }
+
+    // Validate new voucher is a friend.
+    const { data: friendship } = await (supabase.from("friendships") as any)
+        .select("friend_id")
+        .eq("user_id", (user as any).id)
+        .eq("friend_id", (newVoucherId as any))
+        .maybeSingle();
+    if (!friendship) {
+        return { error: "New voucher must be a friend" };
     }
 
     // Fetch new voucher's profile for notification
@@ -877,7 +756,7 @@ export async function escalateToHumanVoucher(
         .eq("id", (newVoucherId as any))
         .maybeSingle();
 
-    // Change voucher to human, set ai_escalated_from flag, reset to AWAITING_VOUCHER
+    // Change voucher to human, set ai_escalated_from flag, transition through ESCALATED to AWAITING_VOUCHER
     // @ts-ignore
     const { error: updateError } = await (supabase.from("tasks") as any)
         .update({
@@ -893,43 +772,36 @@ export async function escalateToHumanVoucher(
         return { error: updateError.message };
     }
 
-    // Create negative ledger entry to cancel the AI-denial penalty (only if task was FAILED)
-    if ((task as any).status === "FAILED") {
-        const currentPeriod = new Date().toISOString().slice(0, 7);
-        await (supabase.from("ledger_entries" as any) as any).insert({
-            user_id: (task as any).user_id,
-            task_id: (taskId as any),
-            period: currentPeriod,
-            amount_cents: -((task as any).failure_cost_cents),
-            entry_type: "rectified",
-        });
-    }
+    // No ledger reversal needed — no penalty was charged at Orca denial stage
 
-    // Write task event
-    await (supabase.from("task_events") as any).insert({
-        task_id: (taskId as any),
-        event_type: "AI_ESCALATE_TO_HUMAN",
-        actor_id: (user as any).id,
-        from_status: (task as any).status,
-        to_status: "AWAITING_VOUCHER",
-        metadata: { new_voucher_id: (newVoucherId as any) },
-    });
+    // Write ESCALATED transitional event, then auto-hop to AWAITING_VOUCHER
+    await (supabase.from("task_events") as any).insert([
+        {
+            task_id: (taskId as any),
+            event_type: "ESCALATE",
+            actor_id: (user as any).id,
+            from_status: (task as any).status,
+            to_status: "ESCALATED",
+            metadata: { new_voucher_id: (newVoucherId as any) },
+        },
+        {
+            task_id: (taskId as any),
+            event_type: "AI_ESCALATE_TO_HUMAN",
+            actor_id: (user as any).id,
+            from_status: "ESCALATED",
+            to_status: "AWAITING_VOUCHER",
+            metadata: { new_voucher_id: (newVoucherId as any) },
+        },
+    ]);
 
     // Notify the new voucher
-    if (newVoucher?.email) {
+    if (newVoucherId) {
         await sendNotification({
-            to: newVoucher.email,
             userId: (newVoucherId as any),
-            subject: `Appeal: ${(task as any).title} has been escalated to you`,
-            title: "Task escalated",
-            text: `Your friend ${(task as any).user?.username || "a friend"} is appealing the Orca's denial of "${(task as any).title}".`,
-            html: `
-                <h1>Task escalated to you</h1>
-                <p>Hi ${newVoucher.username || "there"},</p>
-                <p><strong>${(task as any).user?.username || "A friend"}</strong> is appealing the Orca's denial of <strong>"${(task as any).title}"</strong>.</p>
-                <p>The Orca's denial reason can be found in the task details. Your decision will be final.</p>
-                <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/voucher">Review appealed task</a></p>
-            `,
+            title: "Task escalated to you",
+            text: `${(task as any).user?.username || "A friend"} is appealing Orca's denial of "${(task as any).title}".`,
+            email: false,
+            push: true,
             url: "/voucher",
             tag: `task-escalated-${taskId}`,
             data: { taskId, kind: "TASK_ESCALATED_TO_VOUCHER" },
@@ -946,12 +818,82 @@ export async function escalateToHumanVoucher(
     return { success: true };
 }
 
+/**
+ * Owner accepts an Orca denial — AWAITING_USER -> DENIED.
+ * Penalty is charged here (not at Orca denial stage).
+ */
+export async function acceptDenial(
+    taskId: string
+): Promise<{ success?: boolean; error?: string }> {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("*, user:profiles!tasks_user_id_fkey(id, email, username)")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if ((task as any).status !== "AWAITING_USER") {
+        return { error: `Cannot accept denial in ${(task as any).status} status` };
+    }
+
+    const nowIso = new Date().toISOString();
+    const currentPeriod = nowIso.slice(0, 7);
+
+    const { error: updateError } = await (supabase.from("tasks") as any)
+        .update({
+            status: "DENIED",
+            updated_at: nowIso,
+        } as any)
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any);
+
+    if (updateError) {
+        return { error: updateError.message };
+    }
+
+    // Charge failure cost on accept denial
+    await (supabase.from("ledger_entries" as any) as any).insert({
+        user_id: user.id,
+        task_id: taskId as any,
+        period: currentPeriod,
+        amount_cents: (task as any).failure_cost_cents,
+        entry_type: "failure",
+    });
+
+    await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "ACCEPT_DENIAL",
+        actor_id: user.id as any,
+        from_status: "AWAITING_USER",
+        to_status: "DENIED",
+    });
+
+    await notifyCommitmentFailureIfNeeded(taskId, (task as any).recurrence_rule_id ?? null);
+
+    invalidateOwnerActiveTasksCache(user.id);
+    revalidatePath("/tasks");
+    revalidatePath("/stats");
+    revalidatePath(`/tasks/${taskId}`);
+
+    return { success: true };
+}
+
 function getVoucherResponseDeadline(): string {
     const deadline = new Date();
     deadline.setDate(deadline.getDate() + 2);
     deadline.setHours(23, 59, 59, 999);
     return deadline.toISOString();
 }
-
-
 

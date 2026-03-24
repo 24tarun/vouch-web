@@ -445,7 +445,7 @@ Promise<{ tasks: Array<{ id: string; title: string; ownerUsername: string }> } |
     const { data, error } = await (supabaseAdmin.from("tasks") as any)
         .select("id, title, owner:profiles!tasks_user_id_fkey(username)")
         .eq("voucher_id", user.id as any)
-        .in("status", ["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"] as any);
+        .in("status", ["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_ORCA", "AWAITING_USER", "ESCALATED"] as any);
 
     if (error) {
         return { error: error.message };
@@ -676,7 +676,7 @@ export async function updateUserDefaults(formData: FormData) {
     const { data: ownerTaskRows } = await (supabase.from("tasks") as any)
         .select("voucher_id")
         .eq("user_id", user.id as any)
-        .in("status", ["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"] as any);
+        .in("status", ["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_ORCA", "AWAITING_USER", "ESCALATED"] as any);
 
     const voucherIds = new Set<string>(
         ((ownerTaskRows as Array<{ voucher_id: string | null }> | null) || [])

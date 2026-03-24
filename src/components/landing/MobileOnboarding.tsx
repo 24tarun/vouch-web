@@ -28,7 +28,7 @@ const slides = [
     headEm: "Pay up.",
     headBot: null,
     body: "Failure costs are logged to your ledger. Month-end, outstanding balances go to charity. No resets, no excuses.",
-    badge: { label: "FAILED", cls: "red" },
+    badge: { label: "DENIED", cls: "red" },
   },
   {
     eyebrow: "Ready?",

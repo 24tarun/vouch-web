@@ -73,7 +73,8 @@ test("weekday shorthand suggests full weekday keyword completion", () => {
 
 test("overlay model reports completion suffix without changing parser behavior", () => {
     const completionModel = buildTaskTitleOverlayModel("check tmr", "check tmr".length, true, false, []);
-    const plainModel = buildTaskTitleOverlayModel("check dustbin", "check dustbin".length, true, false, []);
+    const plainFocusedModel = buildTaskTitleOverlayModel("check dustbin", "check dustbin".length, true, false, []);
+    const plainBlurredModel = buildTaskTitleOverlayModel("check dustbin", "check dustbin".length, false, false, []);
 
     /*
      * What and why this test checks:
@@ -81,15 +82,18 @@ test("overlay model reports completion suffix without changing parser behavior",
      * The component relies on this model to render ghost suffix safely while leaving plain input rendering untouched.
      *
      * Passing scenario:
-     * Partial keyword input yields a visible completion suffix, while plain text yields no overlay requirement.
+     * Partial keyword input yields a visible completion suffix, plain text while focused still shows overlay,
+     * and plain text while blurred yields no overlay requirement.
      *
      * Failing scenario:
      * If plain titles force overlay or completion suffix disappears, caret stability and autocomplete UX both regress.
      */
     assert.equal(completionModel.inlineKeywordCompletion?.suffix, "w");
     assert.equal(completionModel.showTitleOverlay, true);
-    assert.equal(plainModel.inlineKeywordCompletion, null);
-    assert.equal(plainModel.showTitleOverlay, false);
+    assert.equal(plainFocusedModel.inlineKeywordCompletion, null);
+    assert.equal(plainFocusedModel.showTitleOverlay, true);
+    assert.equal(plainBlurredModel.inlineKeywordCompletion, null);
+    assert.equal(plainBlurredModel.showTitleOverlay, false);
 });
 
 test("event hour-only start/end tokens remain highlighted as valid parser inputs", () => {

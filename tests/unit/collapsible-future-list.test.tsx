@@ -60,7 +60,7 @@ function buildTask(id: string, title: string, deadlineIso: string): Task {
         failure_cost_cents: 100,
         required_pomo_minutes: null,
         deadline: deadlineIso,
-        status: "CREATED",
+        status: "ACTIVE",
         postponed_at: null,
         marked_completed_at: null,
         voucher_response_deadline: null,

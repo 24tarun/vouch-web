@@ -26,7 +26,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
     const isActiveOwnerTask =
         task.user_id === user?.id &&
-        (task.status === "CREATED" || task.status === "POSTPONED");
+        (task.status === "ACTIVE" || task.status === "POSTPONED");
 
     const [events, pomoSummary, potentialRp] = await Promise.all([
         getTaskEvents(id),

@@ -34,9 +34,9 @@ const HISTORY_PAGE_SIZE = 10;
 const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const VOUCH_HISTORY_OPEN_SESSION_KEY = "voucher.history.open";
 const PENDING_FALLBACK_POLL_MS = 60000;
-const ACTIVE_PENDING_STATUSES = new Set(["CREATED", "POSTPONED"]);
-const ALL_PENDING_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
-const HISTORY_STATUSES = new Set(["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"]);
+const ACTIVE_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED"]);
+const ALL_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"]);
+const HISTORY_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"]);
 
 function mergeTasksById(
     existing: HistoryTask[],
@@ -313,7 +313,7 @@ export default function VoucherDashboardClient({
                 if (historyLoaded) {
                     const optimisticHistoryTask: HistoryTask = {
                         ...currentTask,
-                        status: "COMPLETED",
+                        status: "ACCEPTED",
                         updated_at: nowIso,
                     };
                     setHistoryState((prev) => {
@@ -360,7 +360,7 @@ export default function VoucherDashboardClient({
                 if (historyLoaded) {
                     const optimisticHistoryTask: HistoryTask = {
                         ...currentTask,
-                        status: "FAILED",
+                        status: "DENIED",
                         updated_at: nowIso,
                     };
                     setHistoryState((prev) => {
@@ -810,14 +810,17 @@ function CompactHistoryItem({
     const [renderNow] = useState(() => Date.now());
 
     const statusColors: Record<string, string> = {
-        COMPLETED: "text-lime-300",
-        FAILED: "text-[#dc322f]",
+        ACCEPTED: "text-lime-300",
+        AUTO_ACCEPTED: "text-lime-300",
+        ORCA_ACCEPTED: "text-lime-300",
+        DENIED: "text-[#dc322f]",
+        MISSED: "text-[#dc322f]",
         RECTIFIED: "text-[#cb4b16]",
         SETTLED: "text-[#2aa198]",
         DELETED: "text-slate-500",
     };
 
-    const isRectifiable = task.status === "FAILED";
+    const isRectifiable = task.status === "DENIED" || task.status === "MISSED";
     const withinRectifyWindow = isWithinRectifyWindow(task.updated_at, renderNow);
     const passLimitReached = (task.rectify_passes_used ?? 0) >= 5;
     const ownerCurrency = normalizeCurrency(task.user?.currency);
@@ -834,11 +837,9 @@ function CompactHistoryItem({
                         {task.title}
                     </div>
                     <Badge variant="outline" className={`text-[10px] h-4 py-0 px-1 border-slate-800 ${statusColors[task.status] || "text-slate-400"}`}>
-                        {task.status === "FAILED"
-                            ? (task.marked_completed_at ? "DENIED" : "FAILED")
-                            : task.status === "COMPLETED"
-                                ? (task.voucher_timeout_auto_accepted ? "VOUCHER DID NOT RESPOND" : "ACCEPTED")
-                                : task.status}
+                        {task.status === "AUTO_ACCEPTED"
+                            ? "VOUCHER DID NOT RESPOND"
+                            : task.status}
                     </Badge>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">

@@ -53,6 +53,7 @@ import { cn } from "@/lib/utils";
 import { formatCurrencyFromCents, normalizeCurrency, type SupportedCurrency } from "@/lib/currency";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { formatRecurrenceSummary } from "@/lib/recurrence-display";
+import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import {
     getProofIntentFromPreparedProof,
     prepareTaskProof,
@@ -92,7 +93,21 @@ interface TaskProofDraft {
     previewUrl: string;
 }
 
-type RestoredTaskStatus = "CREATED" | "POSTPONED";
+type RestoredTaskStatus = "ACTIVE" | "POSTPONED";
+
+interface ActivityStep {
+    id: string;
+    title: string;
+    transition: string | null;
+    detail: string | null;
+    timestamp: string;
+    tone: "success" | "danger" | "warning" | "info" | "neutral";
+    titleColorClass: string;
+    transitionFromLabel: string | null;
+    transitionToLabel: string | null;
+    transitionFromColorClass: string;
+    transitionToColorClass: string;
+}
 
 interface ProofUploadTarget {
     bucket: string;
@@ -107,7 +122,7 @@ function getRestoredStatusFromRevertResult(
 ): RestoredTaskStatus | null {
     if (!result || typeof result !== "object" || !("status" in result)) return null;
     const status = (result as { status?: unknown }).status;
-    return status === "CREATED" || status === "POSTPONED" ? status : null;
+    return status === "ACTIVE" || status === "POSTPONED" ? status : null;
 }
 
 function sortTaskReminders(reminders: TaskWithRelations["reminders"] | null | undefined) {
@@ -167,7 +182,7 @@ export default function TaskDetailClient({
     const deadline = new Date(taskState.deadline);
     const isOverdue =
         submissionWindow.pastDeadline &&
-        !["COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "AWAITING_USER"].includes(taskState.status);
+        !["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "AWAITING_USER"].includes(taskState.status);
 
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
@@ -176,7 +191,7 @@ export default function TaskDetailClient({
     const requiresProofForCompletion =
         Boolean(taskState.requires_proof) &&
         !isSelfVouched;
-    const isActiveParentTask = taskState.status === "CREATED" || taskState.status === "POSTPONED";
+    const isActiveParentTask = taskState.status === "ACTIVE" || taskState.status === "POSTPONED";
     const completedSubtasksCount = subtasks.filter((subtask) => subtask.is_completed).length;
     const incompleteSubtasksCount = subtasks.length - completedSubtasksCount;
     const totalPomoSeconds = pomoSummary?.totalSeconds || 0;
@@ -190,10 +205,11 @@ export default function TaskDetailClient({
     const canManageActionChildren = isOwner && isActiveParentTask;
     const ownerCurrency = normalizeCurrency(taskState.user?.currency ?? viewerCurrency);
     const formattedFailureCost = formatCurrencyFromCents(taskState.failure_cost_cents, ownerCurrency);
+    const uniformActionButtonClass = "h-9 px-4 text-[12px] leading-none whitespace-nowrap";
+    const activeRowActionButtonClass = "h-12 px-5 text-[13px] leading-none whitespace-nowrap";
 
     // AI Voucher resubmit state
-    const ORCA_ID = "00000000-0000-0000-0000-000000000001";
-    const isAiVouched = taskState.voucher_id === ORCA_ID;
+    const isAiVouched = taskState.voucher_id === ORCA_PROFILE_ID;
     const resubmitCount = taskState.resubmit_count ?? 0;
     const MAX_RESUBMITS = 3;
     const canResubmit = taskState.status === "AWAITING_USER" && resubmitCount < MAX_RESUBMITS;
@@ -225,6 +241,16 @@ export default function TaskDetailClient({
         });
     const formatDateTimeMmDdYyyy24h = (value: Date | string) =>
         `${formatDateMmDdYyyy(value)} ${formatTime24h(value)}`;
+    const formatOrdinal = (value: number) => {
+        const abs = Math.abs(Math.trunc(value));
+        const mod100 = abs % 100;
+        if (mod100 >= 11 && mod100 <= 13) return `${abs}th`;
+        const mod10 = abs % 10;
+        if (mod10 === 1) return `${abs}st`;
+        if (mod10 === 2) return `${abs}nd`;
+        if (mod10 === 3) return `${abs}rd`;
+        return `${abs}th`;
+    };
     const voucherDeadlineForDisplay = useMemo(() => {
         if (taskState.marked_completed_at) {
             const derived = new Date(taskState.marked_completed_at);
@@ -242,11 +268,14 @@ export default function TaskDetailClient({
         return formatRecurrenceSummary(taskState.recurrence_rule, taskState.deadline);
     }, [taskState.recurrence_rule, taskState.deadline]);
     const iterationNumber = taskState.iteration_number ?? null;
+    const iterationLabel = iterationNumber !== null
+        ? `${formatOrdinal(iterationNumber)} iteration`
+        : "one-off task";
     const canViewStoredProof =
-        taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED" || taskState.status === "AWAITING_USER";
+        taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_ORCA" || taskState.status === "MARKED_COMPLETE" || taskState.status === "AWAITING_USER";
     const hasOpenProofRequest =
         Boolean(taskState.proof_request_open) &&
-        (taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED");
+        (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_ORCA" || taskState.status === "MARKED_COMPLETE");
     const proofRequestedByLabel = taskState.voucher?.username || "Your voucher";
     const storedProof = useMemo(() => {
         if (!canViewStoredProof) return null;
@@ -617,7 +646,12 @@ export default function TaskDetailClient({
         const canOpenForDraft = isOwner && isActiveParentTask && !isActionPending("markComplete");
         const canOpenForAwaitingUpload =
             isOwner &&
-            (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_USER") &&
+            (
+                taskState.status === "AWAITING_VOUCHER" ||
+                taskState.status === "AWAITING_ORCA" ||
+                taskState.status === "AWAITING_USER" ||
+                taskState.status === "MARKED_COMPLETE"
+            ) &&
             !isActionPending("awaitingProofUpload");
         if ((mode === "draft" && !canOpenForDraft) || (mode === "awaiting-upload" && !canOpenForAwaitingUpload)) {
             return;
@@ -859,24 +893,32 @@ export default function TaskDetailClient({
     };
 
     const statusColors: Record<string, string> = {
-        CREATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
+        ACTIVE: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
         POSTPONED: "bg-amber-500/20 text-amber-300 border border-amber-500/30",
-        MARKED_COMPLETED: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
+        MARKED_COMPLETE: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
         AWAITING_VOUCHER: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
+        AWAITING_ORCA: "bg-purple-500/20 text-purple-300 border border-purple-500/30",
         AWAITING_USER: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
-        COMPLETED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-        FAILED: "bg-red-500/20 text-red-300 border border-red-500/30",
+        ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+        AUTO_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+        ORCA_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+        ORCA_DENIED: "bg-red-500/20 text-red-300 border border-red-500/30",
+        ESCALATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
+        DENIED: "bg-red-500/20 text-red-300 border border-red-500/30",
+        MISSED: "bg-red-500/20 text-red-300 border border-red-500/30",
         RECTIFIED: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
         SETTLED: "bg-slate-600/40 text-slate-300 border border-slate-600/50",
     };
     const taskStatusLabel =
-        taskState.status === "FAILED"
-            ? (taskState.marked_completed_at ? "DENIED" : "FAILED")
-            : taskState.status === "COMPLETED"
-                ? (taskState.voucher_timeout_auto_accepted ? "VOUCHER DID NOT RESPOND" : "COMPLETED")
-                : taskState.status === "SETTLED"
-                    ? "FORCE MAJEURE"
-                    : taskState.status.replace("_", " ");
+        taskState.status === "AUTO_ACCEPTED"
+            ? "AUTO ACCEPTED"
+            : taskState.status === "ORCA_ACCEPTED"
+                ? "ORCA ACCEPTED"
+                : taskState.status === "ORCA_DENIED"
+                    ? "ORCA DENIED"
+                    : taskState.status === "SETTLED"
+                        ? "FORCE MAJEURE"
+                        : taskState.status.replace(/_/g, " ");
     const proofSummary = storedProof
         ? `Uploaded (${storedProof.media_kind})`
         : proofDraft
@@ -932,9 +974,12 @@ export default function TaskDetailClient({
             applyOptimistic: () => {
                 setTaskState((prev) => ({
                     ...prev,
-                    status: isSelfVouched ? "COMPLETED" : "AWAITING_VOUCHER",
+                    status: isSelfVouched
+                        ? "ACCEPTED"
+                        : (isAiVouched ? "AWAITING_ORCA" : "AWAITING_VOUCHER"),
                     marked_completed_at: now.toISOString(),
-                    voucher_response_deadline: isSelfVouched ? null : voucherResponseDeadline.toISOString(),
+                    voucher_response_deadline:
+                        (isSelfVouched || isAiVouched) ? null : voucherResponseDeadline.toISOString(),
                     proof_request_open: false,
                     proof_requested_at: null,
                     proof_requested_by: null,
@@ -982,14 +1027,14 @@ export default function TaskDetailClient({
 
     async function handleUndoComplete() {
         if (isActionPending("undoComplete")) return;
-        if (!isOwner || taskState.status !== "AWAITING_VOUCHER") return;
+        if (!isOwner || (taskState.status !== "AWAITING_VOUCHER" && taskState.status !== "AWAITING_ORCA" && taskState.status !== "MARKED_COMPLETE")) return;
         if (new Date() >= new Date(taskState.deadline)) {
             toast.error("Cannot undo completion after the deadline.");
             return;
         }
 
         setActionPending("undoComplete", true);
-        const restoredStatus: "CREATED" | "POSTPONED" = taskState.postponed_at ? "POSTPONED" : "CREATED";
+        const restoredStatus: "ACTIVE" | "POSTPONED" = taskState.postponed_at ? "POSTPONED" : "ACTIVE";
         const nowIso = new Date().toISOString();
 
         await runOptimisticMutation({
@@ -1024,7 +1069,7 @@ export default function TaskDetailClient({
     async function handleRemoveStoredProof() {
         if (isActionPending("removeStoredProof")) return;
         if (!isOwner || !storedProof) return;
-        if (!["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(taskState.status)) {
+        if (!["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(taskState.status)) {
             toast.error("Proof can only be removed while awaiting voucher response.");
             return;
         }
@@ -1369,51 +1414,142 @@ export default function TaskDetailClient({
         return typeof elapsedRaw === "number" ? elapsedRaw : Number(elapsedRaw ?? 0);
     };
 
-    const formatEventLabel = (event: TaskEvent) => {
+    const formatDateDdMmYyyy = (value: Date | string) =>
+        new Date(value).toLocaleDateString("en-GB", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+        });
+
+    const formatDateTimeDdMmYyyy24h = (value: Date | string) =>
+        `${formatDateDdMmYyyy(value)} ${formatTime24h(value)}`;
+
+    const formatStatusLabel = (status: string | null | undefined) =>
+        status ? status.replace(/_/g, " ") : "UNKNOWN";
+
+    const statusTextColors: Record<string, string> = {
+        ACTIVE: "text-blue-300",
+        POSTPONED: "text-amber-300",
+        MARKED_COMPLETE: "text-purple-300",
+        AWAITING_VOUCHER: "text-purple-300",
+        AWAITING_ORCA: "text-purple-300",
+        ORCA_DENIED: "text-red-300",
+        AWAITING_USER: "text-orange-300",
+        ESCALATED: "text-blue-300",
+        ACCEPTED: "text-emerald-300",
+        AUTO_ACCEPTED: "text-emerald-300",
+        ORCA_ACCEPTED: "text-emerald-300",
+        DENIED: "text-red-300",
+        MISSED: "text-red-300",
+        RECTIFIED: "text-orange-300",
+        SETTLED: "text-slate-300",
+        DELETED: "text-slate-300",
+    };
+
+    const eventLabelTextColors: Record<string, string> = {
+        ACTIVE: "text-blue-300",
+        CREATED: "text-blue-300",
+        MARK_COMPLETE: "text-purple-300",
+        UNDO_COMPLETE: "text-blue-300",
+        PROOF_UPLOAD_FAILED_REVERT: "text-amber-300",
+        PROOF_REMOVED: "text-amber-300",
+        PROOF_REQUESTED: "text-purple-300",
+        PROOF_UPLOADED: "text-cyan-300",
+        VOUCHER_ACCEPT: "text-emerald-300",
+        VOUCHER_DENY: "text-red-300",
+        VOUCHER_DELETE: "text-red-300",
+        RECTIFY: "text-orange-300",
+        FORCE_MAJEURE: "text-slate-300",
+        DEADLINE_MISSED: "text-red-300",
+        VOUCHER_TIMEOUT: "text-amber-300",
+        POMO_COMPLETED: "text-cyan-300",
+        DEADLINE_WARNING_1H: "text-amber-300",
+        DEADLINE_WARNING_5M: "text-amber-300",
+        GOOGLE_EVENT_CANCELLED: "text-red-300",
+        POSTPONE: "text-amber-300",
+        AI_APPROVE: "text-emerald-300",
+        AI_DENY: "text-red-300",
+        ORCA_DENIED_AUTO_HOP: "text-orange-300",
+        ESCALATE: "text-blue-300",
+        AI_ESCALATE_TO_HUMAN: "text-blue-300",
+        ACCEPT_DENIAL: "text-red-300",
+    };
+
+    const getStatusTextColorClass = (status: string | null | undefined) => {
+        if (!status) return "text-slate-300";
+        return statusTextColors[status] ?? "text-slate-300";
+    };
+
+    const getEventLabelTextColorClass = (eventType: string) =>
+        eventLabelTextColors[eventType] ?? "text-slate-200";
+
+    const formatEventActionLabel = (event: TaskEvent) => {
+        if (event.event_type === "ACTIVE" || event.event_type === "CREATED") {
+            return "ACTIVE";
+        }
         if (event.event_type === "POMO_COMPLETED") {
             const elapsedSeconds = getPomoElapsedSeconds(event);
-            return `Focus session completed (${formatFocusTime(elapsedSeconds)})`;
+            return `POMO COMPLETED (${formatFocusTime(elapsedSeconds)})`;
         }
         if (event.event_type === "PROOF_REQUESTED") {
-            return "Voucher requested proof";
+            return "PROOF REQUESTED";
+        }
+        if (event.event_type === "PROOF_UPLOADED") {
+            return "PROOF UPLOADED";
         }
         if (event.event_type === "PROOF_REMOVED") {
-            return "Proof removed";
+            return "PROOF REMOVED";
         }
         if (event.event_type === "AI_APPROVE") {
-            return "Orca approved";
+            return "ORCA APPROVED";
         }
         if (event.event_type === "AI_DENY") {
-            return "Orca denied";
+            return "ORCA DENIED";
+        }
+        if (event.event_type === "DEADLINE_WARNING_1H") {
+            return "1HR LEFT REMINDER SENT";
+        }
+        if (event.event_type === "DEADLINE_WARNING_5M") {
+            return "5MIN LEFT REMINDER SENT";
         }
         return event.event_type.replace(/_/g, " ");
     };
 
     const formatEventTimestamp = (event: TaskEvent) => {
         if (event.event_type !== "POMO_COMPLETED") {
-            return formatDateTimeDdMmYy(event.created_at);
+            return formatDateTimeDdMmYyyy24h(event.created_at);
         }
 
         const elapsedSeconds = getPomoElapsedSeconds(event);
         const endDate = new Date(event.created_at);
         if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0 || Number.isNaN(endDate.getTime())) {
-            return formatDateTimeDdMmYy(event.created_at);
+            return formatDateTimeDdMmYyyy24h(event.created_at);
         }
 
         const startDate = new Date(endDate.getTime() - elapsedSeconds * 1000);
-        const startDay = formatDateDdMmYy(startDate);
-        const endDay = formatDateDdMmYy(endDate);
+        return `${formatDateTimeDdMmYyyy24h(startDate)} -> ${formatDateTimeDdMmYyyy24h(endDate)}`;
+    };
 
-        if (startDay === endDay) {
-            return `${endDay} ${formatTime24h(startDate)} to ${formatTime24h(endDate)}`;
+    const getActivityStepTone = (event: TaskEvent): ActivityStep["tone"] => {
+        const toStatus = event.to_status;
+        if (["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "RECTIFIED", "SETTLED"].includes(toStatus)) {
+            return "success";
         }
-
-        return `${startDay} ${formatTime24h(startDate)} to ${endDay} ${formatTime24h(endDate)}`;
+        if (["DENIED", "MISSED"].includes(toStatus)) {
+            return "danger";
+        }
+        if (event.event_type === "DEADLINE_WARNING_1H" || event.event_type === "DEADLINE_WARNING_5M") {
+            return "warning";
+        }
+        if (["POMO_COMPLETED", "PROOF_REQUESTED", "PROOF_UPLOADED", "PROOF_REMOVED"].includes(event.event_type)) {
+            return "info";
+        }
+        return "neutral";
     };
 
     const visibleEvents = useMemo(() => {
         const seenSessionIds = new Set<string>();
-        return events.filter((event) => {
+        const filtered = events.filter((event) => {
             if (event.event_type !== "POMO_COMPLETED") return true;
             const sessionIdRaw = event.metadata?.session_id;
             const sessionId = typeof sessionIdRaw === "string" ? sessionIdRaw : "";
@@ -1422,834 +1558,807 @@ export default function TaskDetailClient({
             seenSessionIds.add(sessionId);
             return true;
         });
+
+        const minuteBucket = (iso: string) => {
+            const ms = new Date(iso).getTime();
+            return Number.isNaN(ms) ? Number.NaN : Math.floor(ms / 60000);
+        };
+
+        const isAwaitingTransition = (event: TaskEvent) =>
+            event.from_status !== event.to_status &&
+            typeof event.to_status === "string" &&
+            event.to_status.startsWith("AWAITING_");
+
+        return [...filtered].sort((a, b) => {
+            const aMinute = minuteBucket(a.created_at);
+            const bMinute = minuteBucket(b.created_at);
+
+            if (Number.isNaN(aMinute) || Number.isNaN(bMinute) || aMinute !== bMinute) {
+                return 0;
+            }
+
+            const aIsProofUploaded = a.event_type === "PROOF_UPLOADED";
+            const bIsProofUploaded = b.event_type === "PROOF_UPLOADED";
+            const aIsAwaiting = isAwaitingTransition(a);
+            const bIsAwaiting = isAwaitingTransition(b);
+
+            if (aIsProofUploaded && bIsAwaiting) return -1;
+            if (bIsProofUploaded && aIsAwaiting) return 1;
+            return 0;
+        });
     }, [events]);
 
+    const activitySteps = useMemo<ActivityStep[]>(() => {
+        let aiEventCounter = 0;
+        return visibleEvents.map((event) => {
+            const hasTransition = event.from_status !== event.to_status;
+            const baseTitle = hasTransition
+                ? formatStatusLabel(event.to_status)
+                : formatEventActionLabel(event);
+            const titleColorClass = hasTransition
+                ? getStatusTextColorClass(event.to_status)
+                : getEventLabelTextColorClass(event.event_type);
+            const transition = hasTransition
+                ? `${formatStatusLabel(event.from_status)} -> ${formatStatusLabel(event.to_status)}`
+                : null;
+            const transitionFromLabel = hasTransition ? formatStatusLabel(event.from_status) : null;
+            const transitionToLabel = hasTransition ? formatStatusLabel(event.to_status) : null;
+            const transitionFromColorClass = getStatusTextColorClass(event.from_status);
+            const transitionToColorClass = getStatusTextColorClass(event.to_status);
+
+            const detailParts: string[] = [];
+            if (event.event_type === "POSTPONE") {
+                const newDeadlineRaw = event.metadata?.new_deadline;
+                const newDeadlineIso = typeof newDeadlineRaw === "string" ? newDeadlineRaw : null;
+                if (newDeadlineIso) {
+                    detailParts.push(`new deadline: ${formatDateTimeDdMmYyyy24h(newDeadlineIso)}`);
+                }
+            }
+
+            if (event.event_type === "POMO_COMPLETED") {
+                detailParts.push(`focus duration: ${formatFocusTime(getPomoElapsedSeconds(event))}`);
+            }
+
+            if (event.event_type === "AI_APPROVE" || event.event_type === "AI_DENY") {
+                const vouch = aiVouches[aiEventCounter];
+                aiEventCounter += 1;
+                if (vouch?.reason) {
+                    detailParts.push(`"${vouch.reason}"`);
+                }
+            }
+
+            const detail = detailParts.length > 0 ? detailParts.join(" | ") : null;
+
+            return {
+                id: event.id,
+                title: baseTitle,
+                transition,
+                detail,
+                timestamp: formatEventTimestamp(event),
+                tone: getActivityStepTone(event),
+                titleColorClass,
+                transitionFromLabel,
+                transitionToLabel,
+                transitionFromColorClass,
+                transitionToColorClass,
+            };
+        });
+    }, [visibleEvents, aiVouches]);
+
     return (
-        <div className="max-w-3xl mx-auto space-y-6 px-4 md:px-0">
-            <div className="flex items-start justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-                        {taskState.title}
-                        {taskState.recurrence_rule_id && (
-                            <Repeat className="h-5 w-5 text-slate-500 shrink-0" />
-                        )}
-                    </h1>
-                    {recurrenceSummary && (
-                        <p className="mt-2 text-sm text-slate-400">{recurrenceSummary}</p>
-                    )}
-                    {iterationNumber !== null && (
-                        <div className="mt-3 space-y-0.5">
-                            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Iteration</p>
-                            <p className="text-2xl font-light text-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.6)]">
-                                #{iterationNumber}
-                            </p>
+        <>
+        <style>{`
+            @keyframes riseUp {
+                from { opacity: 0; transform: translateY(24px); }
+                to   { opacity: 1; transform: translateY(0); }
+            }
+            .td-rise { animation: riseUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) both; }
+            .td-d1 { animation-delay: 0.06s; }
+            .td-d2 { animation-delay: 0.18s; }
+            .td-d3 { animation-delay: 0.30s; }
+            .td-d4 { animation-delay: 0.42s; }
+            .td-d5 { animation-delay: 0.56s; }
+        `}</style>
+
+        <div className="max-w-3xl mx-auto px-4 md:px-0 pb-12 space-y-7">
+
+            {/* Hidden proof file input */}
+            <input ref={proofInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleProofInputChange} />
+
+            {/* ① HERO HEADER */}
+            <div className="td-rise td-d1 relative pt-2">
+                <div className="relative">
+                    <div className="relative">
+                        <div className="hidden sm:flex absolute right-0 top-0">
+                            <HardRefreshButton />
                         </div>
-                    )}
+
+                        <div className="mx-auto max-w-2xl text-center">
+                            <div className="flex flex-wrap items-center justify-center gap-3">
+                                <h1 className="text-3xl font-bold text-white leading-tight">
+                                    {taskState.title}
+                                </h1>
+                                <span className={cn("text-[10px] tracking-wider uppercase px-2.5 py-1 rounded border font-bold shrink-0", statusColors[taskState.status])}>
+                                    {taskStatusLabel}
+                                </span>
+                            </div>
+                            {recurrenceSummary && (
+                                <div className="mt-2 flex items-center justify-center gap-1.5 text-purple-400">
+                                    <Repeat className="h-3.5 w-3.5 shrink-0" />
+                                    <p className="text-xs uppercase tracking-wider font-bold">
+                                        {recurrenceSummary}
+                                    </p>
+                                </div>
+                            )}
+                            {taskState.description && (
+                                <p className="mt-3 text-slate-400 text-sm leading-relaxed">{taskState.description}</p>
+                            )}
+                        </div>
+
+                        <div className="mt-4 flex sm:hidden items-center justify-center gap-2.5">
+                            <HardRefreshButton />
+                        </div>
+                    </div>
                 </div>
-                <HardRefreshButton />
             </div>
 
-            <input
-                ref={proofInputRef}
-                type="file"
-                accept="image/*,video/*"
-                className="hidden"
-                onChange={handleProofInputChange}
-            />
+            {/* ② STATS STRIP */}
+            <div className="td-rise td-d2 rounded-xl border border-slate-800/80 bg-slate-950/40 px-4 py-4 sm:px-5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-5">
+                {/* Deadline */}
+                <div className="min-h-[82px]">
+                    <p className="mb-2 text-[10px] uppercase tracking-wider font-bold text-cyan-400">Deadline</p>
+                    <p className={`text-2xl font-light ${isOverdue ? 'text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.5)]' : 'text-white'}`}>
+                        {formatDateDdMmYy(deadline)}
+                    </p>
+                    <p className="mt-0.5 text-xs font-mono text-slate-500">{formatTime24h(deadline)}</p>
+                </div>
+                {/* Hedge */}
+                <div className="min-h-[82px]">
+                    <p className="mb-2 text-[10px] uppercase tracking-wider font-bold text-cyan-400">Failure Cost</p>
+                    <p className="text-2xl font-light text-pink-400 drop-shadow-[0_0_8px_rgba(244,114,182,0.4)]">
+                        {formattedFailureCost}
+                    </p>
+                </div>
+                {/* Focus */}
+                <div className="min-h-[82px]">
+                    <p className="mb-2 text-[10px] uppercase tracking-wider font-bold text-cyan-400">Focused</p>
+                    <p className="text-2xl font-light text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.5)]">
+                        {formatFocusTime(totalPomoSeconds)}
+                    </p>
+                    <p className="mt-0.5 text-xs font-mono text-slate-500">
+                        {pomoSummary?.sessionCount ? `${pomoSummary.sessionCount} session${pomoSummary.sessionCount !== 1 ? 's' : ''}` : 'no sessions'}
+                    </p>
+                </div>
+                {/* Voucher */}
+                <div className="min-h-[82px]">
+                    <p className="mb-2 text-[10px] uppercase tracking-wider font-bold text-cyan-400">Voucher</p>
+                    <p className="text-2xl font-light text-blue-300 truncate">
+                        {isAiVouched ? 'Orca' : (taskState.voucher?.username || 'Unassigned')}
+                    </p>
+                </div>
+                {/* Repetition */}
+                <div className="min-h-[82px]">
+                    <p className="mb-2 text-[10px] uppercase tracking-wider font-bold text-purple-400">Iteration</p>
+                    <p className="text-2xl font-light text-purple-300">
+                        {iterationNumber !== null ? `#${iterationNumber}` : "--"}
+                    </p>
+                    <p className="mt-0.5 text-xs font-mono text-slate-500">
+                        {iterationLabel}
+                    </p>
+                </div>
+                <div className="min-h-[82px]" />
+            </div>
+            </div>
 
-            <Card className="bg-slate-900/40 border-slate-800">
-                <CardHeader>
-                    <CardTitle className="text-white">Task Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-slate-400">Task State</p>
-                            <div className="mt-2">
-                                <Badge className={statusColors[taskState.status]}>{taskStatusLabel}</Badge>
-                            </div>
-                        </div>
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-slate-400">Voucher</p>
-                            <p className="mt-2 text-white font-medium">{taskState.voucher?.username || "Unassigned"}</p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-slate-400">Deadline</p>
-                            <p className={`mt-2 text-lg font-medium ${isOverdue ? "text-red-400" : "text-white"}`}>
-                                {formatDateTimeDdMmYy(deadline)}
-                            </p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-slate-400">Hedge</p>
-                            <p className="mt-2 text-lg font-medium text-pink-400">
-                                {formattedFailureCost}
-                            </p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-slate-400">Time Spent</p>
-                            <p className="mt-2 text-lg font-medium text-cyan-300">
-                                {formatFocusTime(totalPomoSeconds)}
-                            </p>
-                        </div>
-                        <div>
-                            <p className="text-[11px] uppercase tracking-wide text-slate-400">Proof</p>
-                            <p className="mt-2 text-white font-medium">{proofSummary}</p>
-                        </div>
-                        {googleSyncDirectionLabel && (
-                            <div>
-                                <p className="text-[11px] uppercase tracking-wide text-slate-400">Google Sync</p>
-                                <p className={`mt-2 font-medium ${googleSyncDirectionClassName}`}>
-                                    {googleSyncDirectionLabel}
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
-                    {taskState.description && (
-                        <div>
-                            <p className="text-sm text-slate-400">Description</p>
-                            <p className="text-white">{taskState.description}</p>
-                        </div>
-                    )}
-
-                    {taskState.postponed_at && (
-                        <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                            <p className="text-sm text-amber-300">
-                                Postponed once on {formatDateTimeDdMmYy(taskState.postponed_at)} to {formatDateTimeMmDdYyyy24h(taskState.deadline)}
-                            </p>
-                        </div>
-                    )}
-
-                    {taskState.voucher_response_deadline && (taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETED") && (
-                        <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
-                            <p className="text-sm text-purple-300">
-                                Voucher must respond before {voucherDeadlineForDisplay ? formatDateTimeDdMmYy(voucherDeadlineForDisplay) : formatDateTimeDdMmYy(taskState.voucher_response_deadline)}
-                            </p>
-                        </div>
-                    )}
-
-                    {storedProof && storedProofSrc && (
-                        <div className="p-3 rounded-lg border border-slate-700 bg-slate-950/40 space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                                <p className="text-xs text-slate-300 uppercase tracking-wider font-mono">
-                                    Completion proof ({storedProof.media_kind})
-                                </p>
-                                {isOwner && ["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(taskState.status) && (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        onClick={handleRemoveStoredProof}
-                                        disabled={isActionPending("removeStoredProof")}
-                                        className="h-7 px-2 text-[11px] text-red-300 hover:text-red-200 hover:bg-red-950/40"
-                                    >
-                                        Remove proof
-                                    </Button>
-                                )}
-                            </div>
-                            <ProofMedia
-                                mediaKind={storedProof.media_kind}
-                                src={storedProofSrc}
-                                alt="Completion proof"
-                                overlayTimestampText={storedProof.overlay_timestamp_text}
-                                imageClassName="max-h-64 rounded-md object-cover cursor-zoom-in"
-                                videoClassName="max-h-64 rounded-md cursor-zoom-in"
-                                imageProps={{
-                                    loading: "lazy",
-                                    onClick: () => setIsStoredProofFullscreen(true),
-                                }}
-                                videoProps={{
-                                    controls: true,
-                                    preload: "metadata",
-                                    onClick: () => setIsStoredProofFullscreen(true),
-                                }}
-                            />
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            <Card className="bg-slate-900/40 border-slate-800">
-                <CardHeader>
-                    <CardTitle className="text-white">Actions</CardTitle>
-                    <CardDescription className="text-slate-400">
-                        Available actions for this task
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    {isOwner && (
-                        <div className="space-y-3">
-                            <div>
-                                <button
-                                    type="button"
-                                    onClick={() => setRemindersSectionOpen((prev) => !prev)}
-                                    className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-900/50"
-                                    aria-expanded={remindersSectionOpen}
-                                >
-                                    <span className="text-sm font-medium text-slate-100">Reminders</span>
-                                    <span className="flex items-center gap-2">
-                                        <span className="text-xs text-slate-400">{reminders.length}</span>
-                                        <ChevronDown
-                                            className={cn(
-                                                "h-4 w-4 text-slate-400 transition-transform",
-                                                remindersSectionOpen && "rotate-180"
-                                            )}
-                                        />
-                                    </span>
-                                </button>
-                                {remindersSectionOpen && (
-                                    <div className="space-y-3 px-3 pb-3">
-                                        <form onSubmit={handleAddReminder}>
-                                            <div className="flex items-center gap-2">
-                                                <Input
-                                                    type="datetime-local"
-                                                    value={newReminderLocal}
-                                                    onChange={(e) => setNewReminderLocal(e.target.value)}
-                                                    disabled={!canManageActionChildren || isActionPending("saveReminders")}
-                                                    className={cn(
-                                                        "bg-slate-800/70 border-slate-600 text-white [color-scheme:dark]",
-                                                        (!canManageActionChildren || isActionPending("saveReminders")) &&
-                                                        "cursor-not-allowed border-slate-800 bg-slate-900/50 text-slate-500"
-                                                    )}
-                                                />
-                                                <Button
-                                                    type="submit"
-                                                    variant="outline"
-                                                    disabled={
-                                                        !canManageActionChildren ||
-                                                        isActionPending("saveReminders") ||
-                                                        !newReminderLocal.trim()
-                                                    }
-                                                    className="bg-slate-800/80 border-slate-600 text-slate-100 hover:bg-slate-700/80 disabled:opacity-100 disabled:border-slate-800 disabled:bg-slate-900/50 disabled:text-slate-500"
-                                                >
-                                                    Add
-                                                </Button>
-                                            </div>
-                                        </form>
-
-                                        {reminders.length > 0 && (
-                                            <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2">
-                                                {reminders.map((reminder) => {
-                                                    const reminderDate = new Date(reminder.reminder_at);
-                                                    const reminderMs = reminderDate.getTime();
-                                                    const reminderIso = Number.isNaN(reminderMs)
-                                                        ? reminder.reminder_at
-                                                        : reminderDate.toISOString();
-                                                    const isPastReminder = Number.isNaN(reminderMs) || reminderMs <= nowMs;
-                                                    const notifiedAtMs = reminder.notified_at
-                                                        ? new Date(reminder.notified_at).getTime()
-                                                        : Number.NaN;
-                                                    const createdAtMs = new Date(reminder.created_at).getTime();
-                                                    const showPastForSeededHistory =
-                                                        isDefaultDeadlineReminderSource(reminder.source) &&
-                                                        !Number.isNaN(notifiedAtMs) &&
-                                                        !Number.isNaN(createdAtMs) &&
-                                                        createdAtMs === notifiedAtMs;
-                                                    const pastReminderLabel = showPastForSeededHistory
-                                                        ? "Past"
-                                                        : (reminder.notified_at ? "Sent" : "Past");
-                                                    return (
-                                                        <div key={reminder.id} className="flex items-center justify-between gap-2">
-                                                            <span className="text-xs text-slate-300">
-                                                                {Number.isNaN(reminderMs)
-                                                                    ? reminder.reminder_at
-                                                                    : formatDateTimeDdMmYy(reminderIso)}
-                                                            </span>
-                                                            {isPastReminder ? (
-                                                                <span className="text-[11px] uppercase tracking-wide text-slate-500">
-                                                                    {pastReminderLabel}
-                                                                </span>
-                                                            ) : (
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={!canManageActionChildren || isActionPending("saveReminders")}
-                                                                    onClick={() => void handleRemoveReminder(reminderIso)}
-                                                                    className={cn(
-                                                                        "text-xs text-red-300 hover:text-red-200",
-                                                                        (!canManageActionChildren || isActionPending("saveReminders")) &&
-                                                                        "cursor-not-allowed text-slate-500 hover:text-slate-500"
-                                                                    )}
-                                                                >
-                                                                    Remove
-                                                                </button>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div>
-                                <button
-                                    type="button"
-                                    onClick={() => setSubtasksSectionOpen((prev) => !prev)}
-                                    className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-900/50"
-                                    aria-expanded={subtasksSectionOpen}
-                                >
-                                    <span className="text-sm font-medium text-slate-100">Subtasks</span>
-                                    <span className="flex items-center gap-2 text-xs text-slate-400">
-                                        {completedSubtasksCount}/{subtasks.length} completed
-                                        <ChevronDown
-                                            className={cn(
-                                                "h-4 w-4 transition-transform",
-                                                subtasksSectionOpen && "rotate-180"
-                                            )}
-                                        />
-                                    </span>
-                                </button>
-                                {subtasksSectionOpen && (
-                                    <div className="space-y-3 px-3 pb-3">
-                                        {subtasks.length > 0 && (
-                                            <div className="ml-3 space-y-2 border-l border-slate-800/80 pl-3">
-                                                {subtasks.map((subtask) => {
-                                                    const isPending = pendingSubtaskIds.has(subtask.id);
-                                                    return (
-                                                        <div key={subtask.id} className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                disabled={!canManageActionChildren || isPending}
-                                                                onClick={() => handleToggleSubtask(subtask.id)}
-                                                                className={cn(
-                                                                    "h-5 w-5 rounded-full border flex items-center justify-center",
-                                                                    subtask.is_completed
-                                                                        ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-300"
-                                                                        : "border-slate-600 text-transparent",
-                                                                    (!canManageActionChildren || isPending) && "cursor-not-allowed opacity-60"
-                                                                )}
-                                                                title={canManageActionChildren ? "Toggle subtask" : "Subtasks are locked in this status"}
-                                                            >
-                                                                {subtask.is_completed && <Check className="h-3 w-3" strokeWidth={3} />}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled={!canManageActionChildren || isPending}
-                                                                onClick={() => handleToggleSubtask(subtask.id)}
-                                                                className={cn(
-                                                                    "flex-1 min-w-0 text-left text-sm",
-                                                                    subtask.is_completed ? "text-slate-500 line-through" : "text-slate-200",
-                                                                    (!canManageActionChildren || isPending) && "cursor-not-allowed"
-                                                                )}
-                                                                title={subtask.title}
-                                                            >
-                                                                <span className="truncate block">{subtask.title}</span>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                disabled={!canManageActionChildren || isPending}
-                                                                onClick={() => handleDeleteSubtask(subtask.id)}
-                                                                className={cn(
-                                                                    "h-7 w-7 rounded border border-red-500/30 text-red-400 flex items-center justify-center hover:bg-red-500/10",
-                                                                    (!canManageActionChildren || isPending) && "cursor-not-allowed opacity-60 hover:bg-transparent"
-                                                                )}
-                                                                title={canManageActionChildren ? "Delete subtask" : "Subtasks are locked in this status"}
-                                                                aria-label="Delete subtask"
-                                                            >
-                                                                <Trash2 className="h-3.5 w-3.5" />
-                                                            </button>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
-
-                                        <form onSubmit={handleAddSubtask}>
-                                            <div className="flex items-center gap-2">
-                                                <Input
-                                                    ref={newSubtaskInputRef}
-                                                    value={newSubtaskTitle}
-                                                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                                                    placeholder="e.g., draft intro paragraph"
-                                                    maxLength={500}
-                                                    className={cn(
-                                                        "bg-slate-900/60 border-slate-700 text-slate-200",
-                                                        !canManageActionChildren && "border-slate-800 text-slate-500 bg-slate-900/50 cursor-not-allowed"
-                                                    )}
-                                                    disabled={
-                                                        !canManageActionChildren ||
-                                                        isAddingSubtask
-                                                    }
-                                                />
-                                                <Button
-                                                    type="submit"
-                                                    size="sm"
-                                                    onPointerDown={(e) => e.preventDefault()}
-                                                    disabled={
-                                                        !canManageActionChildren ||
-                                                        isAddingSubtask
-                                                    }
-                                                    className="bg-slate-200/10 border border-slate-600 text-slate-200 hover:bg-slate-200/20 disabled:opacity-100 disabled:border-slate-800 disabled:bg-slate-900/50 disabled:text-slate-500"
-                                                >
-                                                    <Plus className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </form>
-
-                                        {subtaskError && (
-                                            <p className="text-xs text-red-400">{subtaskError}</p>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {isOwner && isActiveParentTask && potentialRp !== null && potentialRp > 0 && (
-                        <p
-                            className="text-xs font-mono"
-                            style={{ color: "rgba(251,146,60,0.85)" }}
-                        >
-                            You may earn +{potentialRp} RP
-                        </p>
-                    )}
-
-                    <div className="flex flex-wrap items-center gap-3">
-                        {(taskState.status === "CREATED" || taskState.status === "POSTPONED") && (
-                            <>
-                                <PomoButton
-                                    taskId={taskState.id}
-                                    variant="full"
-                                    className="shrink-0"
-                                    defaultDurationMinutes={defaultPomoDurationMinutes}
-                                />
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    onClick={() => openProofPicker("draft")}
-                                    disabled={isActionPending("markComplete")}
-                                    className={cn(
-                                        "h-9 w-9 p-0 border",
-                                        proofDraft
-                                            ? "text-blue-300 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20"
-                                            : "text-slate-300 border-slate-700/80 hover:text-white hover:bg-slate-800"
-                                    )}
-                                    title={proofDraft ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
-                                    aria-label="Attach proof"
-                                >
-                                    <Camera className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                    onClick={handleMarkComplete}
-                                    disabled={isActionPending("markComplete") || isOverdue || isBeforeStart || incompleteSubtasksCount > 0 || hasIncompletePomoRequirement || hasRunningPomoForTask}
-                                    className={cn(
-                                        "h-9 border text-emerald-300",
-                                        (isBeforeStart || incompleteSubtasksCount > 0 || hasIncompletePomoRequirement || hasRunningPomoForTask)
-                                            ? "bg-slate-800/50 border-slate-700/60 text-slate-500 cursor-not-allowed"
-                                            : "bg-emerald-600/20 hover:bg-emerald-600/30 border-emerald-500/40"
-                                    )}
-                                    title={
-                                        isBeforeStart
-                                            ? beforeStartMessage
-                                            : "Mark complete"
-                                    }
-                                >
-                                    Mark Complete
-                                </Button>
-
-                                {proofDraft && (
-                                    <div className="w-full rounded-lg border border-blue-500/20 bg-blue-950/20 p-3">
-                                        <div className="mb-2 flex items-center justify-between gap-2">
-                                            <p className="text-xs text-blue-200 uppercase tracking-wider font-mono">
-                                                Proof attached ({proofDraft.proof.mediaKind})
-                                            </p>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                className="h-7 px-2 text-[11px] text-blue-200 hover:text-white hover:bg-blue-900/30"
-                                                onClick={() => setTaskProofDraft(null)}
-                                            >
-                                                Remove
-                                            </Button>
-                                        </div>
-                                        <ProofMedia
-                                            mediaKind={proofDraft.proof.mediaKind}
-                                            src={proofDraft.previewUrl}
-                                            alt="Selected proof"
-                                            overlayTimestampText={proofDraft.proof.overlayTimestampText}
-                                            imageClassName="max-h-44 rounded-md object-cover"
-                                            videoClassName="max-h-44 rounded-md"
-                                            videoProps={{
-                                                controls: true,
-                                                preload: "metadata",
-                                            }}
-                                        />
-                                    </div>
-                                )}
-
-                                {proofUploadError && (
-                                    <div className="w-full rounded-lg border border-red-900/60 bg-red-950/30 p-3">
-                                        <p className="text-sm text-red-300">{proofUploadError}</p>
-                                    </div>
-                                )}
-
-                                {taskState.status === "CREATED" && !taskState.postponed_at && !isOverdue && (
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        onClick={() => setIsPostponeDialogOpen(true)}
-                                        disabled={isActionPending("postpone")}
-                                        className="h-9 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-amber-300 disabled:opacity-60"
-                                    >
-                                        {isActionPending("postpone") ? "Postponing..." : "Postpone deadline (1x only)"}
-                                    </Button>
-                                )}
-
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    onClick={handleTempDelete}
-                                    disabled={isActionPending("tempDelete") || !canTempDelete}
-                                    className={canTempDelete
-                                        ? "h-9 w-9 p-0 bg-red-950/30 text-red-400 border border-red-900/50 hover:bg-red-900/40 hover:text-red-300"
-                                        : "h-9 w-9 p-0 bg-slate-800/50 text-slate-500 border border-slate-700/60 cursor-not-allowed"}
-                                    title={canTempDelete
-                                        ? "Delete task (available for 5 minutes after creation)"
-                                        : "Delete available only within 5 minutes of creation"}
-                                    aria-label="Delete task"
-                                >
-                                    <Trash2 className="h-4 w-4" />
-                                </Button>
-                            </>
-                        )}
-
-                        {(taskState.status === "CREATED" || taskState.status === "POSTPONED") && incompleteSubtasksCount > 0 && (
-                            <div className="w-full p-3 rounded-lg bg-slate-800/40 border border-slate-700/70">
-                                <p className="text-sm text-slate-300">
-                                    Complete all subtasks to enable parent completion ({completedSubtasksCount}/{subtasks.length}).
-                                </p>
-                            </div>
-                        )}
-
-                        {(taskState.status === "CREATED" || taskState.status === "POSTPONED") && hasIncompletePomoRequirement && (
-                            <div className="w-full p-3 rounded-lg bg-slate-800/40 border border-slate-700/70">
-                                <p className="text-sm text-slate-300">
-                                    Log {formatFocusTime(remainingRequiredPomoSeconds)} more focus time to enable parent completion ({formatFocusTime(totalPomoSeconds)}/{taskState.required_pomo_minutes}m).
-                                </p>
-                            </div>
-                        )}
-
-                        {(taskState.status === "CREATED" || taskState.status === "POSTPONED") && hasRunningPomoForTask && (
-                            <div className="w-full p-3 rounded-lg bg-slate-800/40 border border-slate-700/70">
-                                <p className="text-sm text-slate-300">
-                                    Stop the running pomodoro to enable parent completion.
-                                </p>
-                            </div>
-                        )}
-
-                        {taskState.status === "FAILED" && (
-                            <div className="flex gap-2 flex-wrap">
-                                {taskState.voucher_id === "00000000-0000-0000-0000-000000000001" && taskState.marked_completed_at && (
-                                    <Button
-                                        variant="ghost"
-                                        onClick={() => {
-                                            if (!friends.length && !friendsLoading) {
-                                                loadFriendsForEscalation();
-                                            }
-                                            setShowEscalationPicker(true);
-                                        }}
-                                        disabled={escalationPending}
-                                        className="bg-blue-800/40 border border-blue-700 text-blue-300 hover:text-blue-100 hover:bg-blue-700/40"
-                                    >
-                                        Escalate to Friend
-                                    </Button>
-                                )}
-                                <Button
-                                    variant="ghost"
-                                    onClick={handleForceMajeure}
-                                    disabled={isActionPending("forceMajeure")}
-                                    className="bg-slate-800/40 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/40"
-                                >
-                                    Use Force Majeure
-                                </Button>
-                            </div>
-                        )}
-
-                        {(taskState.recurrence_rule_id || isRepetitionStopped) && (
-                            <Button
-                                variant="destructive"
-                                onClick={handleCancelRepetition}
-                                disabled={isActionPending("cancelRepetition") || isRepetitionStopped}
-                                className={isRepetitionStopped
-                                    ? "bg-slate-800/50 text-slate-500 border border-slate-700/60 cursor-not-allowed"
-                                    : "bg-red-950/30 text-red-400 border border-red-900/50 hover:bg-red-900/40"}
-                            >
-                                <Repeat className="mr-2 h-4 w-4" />
-                                {isRepetitionStopped ? "Repetition Stopped" : "Stop Future Repetitions"}
-                            </Button>
-                        )}
-
-                        {taskState.status === "AWAITING_VOUCHER" && (
-                            <div className="w-full p-3 rounded-lg bg-purple-500/10 border border-purple-500/30 space-y-3">
-                                <p className="text-slate-300">Waiting for voucher response...</p>
-                                {hasOpenProofRequest && (
-                                    <p className="text-amber-300 text-sm">
-                                        {proofRequestedByLabel} has asked for proof.
-                                    </p>
-                                )}
-                                <div className="flex flex-wrap items-center gap-3">
-                                    {isOwner && (
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={() => openProofPicker("awaiting-upload")}
-                                            disabled={isActionPending("awaitingProofUpload")}
-                                            className="bg-slate-800/60 border-slate-600 text-slate-200 hover:bg-slate-700/60"
-                                        >
-                                            {storedProof ? "Replace Proof" : "Add Proof"}
-                                        </Button>
-                                    )}
-                                    {isOwner && !isOverdue && (
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={handleUndoComplete}
-                                            disabled={isActionPending("undoComplete")}
-                                            className="bg-slate-800/60 border-slate-600 text-slate-200 hover:bg-slate-700/60"
-                                        >
-                                            Undo Complete
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {taskState.status === "AWAITING_VOUCHER" && proofDraft && (
-                            <div className="w-full rounded-lg border border-blue-500/20 bg-blue-950/20 p-3">
-                                <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-xs text-blue-200 uppercase tracking-wider font-mono">
-                                        Ready to upload ({proofDraft.proof.mediaKind})
-                                    </p>
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        className="h-7 px-2 text-[11px] text-blue-200 hover:text-white hover:bg-blue-900/30"
-                                        onClick={() => setTaskProofDraft(null)}
-                                    >
-                                        Remove
-                                    </Button>
-                                </div>
-                                <ProofMedia
-                                    mediaKind={proofDraft.proof.mediaKind}
-                                    src={proofDraft.previewUrl}
-                                    alt="Selected proof"
-                                    overlayTimestampText={proofDraft.proof.overlayTimestampText}
-                                    imageClassName="max-h-44 rounded-md object-cover"
-                                    videoClassName="max-h-44 rounded-md"
-                                    videoProps={{
-                                        controls: true,
-                                        preload: "metadata",
-                                    }}
-                                />
-                            </div>
-                        )}
-
-                        {taskState.status === "AWAITING_VOUCHER" && proofUploadError && (
-                            <div className="w-full rounded-lg border border-red-900/60 bg-red-950/30 p-3">
-                                <p className="text-sm text-red-300">{proofUploadError}</p>
-                            </div>
-                        )}
-
-                        {taskState.status === "AWAITING_USER" && isAiVouched && (
-                            <div className="space-y-3">
-                                {latestDenial && (
-                                    <div className="w-full p-3 rounded-lg bg-orange-500/10 border border-orange-500/30">
-                                        <div className="flex justify-between items-start gap-2 mb-2">
-                                            <p className="text-sm font-semibold text-orange-300">
-                                                Proof Denied (Attempt {latestDenial.attempt_number}/3)
-                                            </p>
-                                        </div>
-                                        <p className="text-sm text-orange-200">{latestDenial.reason}</p>
-                                    </div>
-                                )}
-
-                                {denials.length > 1 && (
-                                    <details className="w-full">
-                                        <summary className="cursor-pointer text-sm text-orange-300 hover:text-orange-200 font-medium">
-                                            View all denial reasons ({denials.length})
-                                        </summary>
-                                        <div className="mt-2 space-y-2 ml-2 border-l border-orange-500/30 pl-3">
-                                            {denials.map((denial) => (
-                                                <div key={denial.id} className="text-xs">
-                                                    <p className="text-orange-300 font-mono">Attempt {denial.attempt_number}:</p>
-                                                    <p className="text-orange-200">{denial.reason}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </details>
-                                )}
-
-                                <div className="flex flex-wrap gap-2">
-                                    {canResubmit && isOwner && (
-                                        <button
-                                            type="button"
-                                            onClick={() => openProofPicker("awaiting-upload")}
-                                            disabled={isActionPending("awaitingProofUpload")}
-                                            className="flex items-center gap-2 rounded-md border border-orange-600 bg-orange-800/40 px-4 py-2 text-sm font-medium text-orange-300 transition-colors hover:bg-orange-700/40 hover:text-orange-100 disabled:pointer-events-none disabled:opacity-50 select-none"
-                                        >
-                                            <Camera className="h-4 w-4 pointer-events-none" />
-                                            <span className="pointer-events-none">Upload New Proof</span>
-                                        </button>
-                                    )}
-                                    {isOwner && (
-                                        <Button
-                                            variant="ghost"
-                                            onClick={() => {
-                                                if (!friends.length && !friendsLoading) {
-                                                    loadFriendsForEscalation();
-                                                }
-                                                setShowEscalationPicker(true);
-                                            }}
-                                            disabled={escalationPending}
-                                            className="bg-blue-800/40 border border-blue-700 text-blue-300 hover:text-blue-100 hover:bg-blue-700/40"
-                                        >
-                                            Escalate to Friend
-                                        </Button>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-
-                        {taskState.status === "COMPLETED" && (
-                            <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 w-full">
-                                <p className="text-green-300">Task completed successfully.</p>
-                            </div>
-                        )}
-
-                        {taskState.status === "FAILED" && (
-                            <div className="space-y-3">
-                                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 w-full">
-                                    <p className="text-red-300">
-                                        {taskState.marked_completed_at
-                                            ? (isAiVouched && latestDenial?.reason
-                                                ? `Denied by AI voucher: ${latestDenial.reason}`
-                                                : "Denied by voucher.")
-                                            : "Deadline missed. Failure cost:"} {formattedFailureCost} added to ledger.
-                                    </p>
-                                </div>
-                                {isAiVouched && denials.length > 0 && (
-                                    <div className="w-full p-3 rounded-lg bg-red-500/10 border border-red-500/30">
-                                        <p className="text-sm font-semibold text-red-300 mb-2">AI Voucher Denial History</p>
-                                        <div className="space-y-2">
-                                            {denials.map((denial) => (
-                                                <div key={denial.id} className="text-xs">
-                                                    <p className="text-red-300 font-mono">Attempt {denial.attempt_number}:</p>
-                                                    <p className="text-red-200">{denial.reason}</p>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
-
-            <Card className="bg-slate-900/40 border-slate-800">
-                <CardHeader>
-                    <CardTitle className="text-white">Activity Log</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    {visibleEvents.length === 0 ? (
-                        <p className="text-slate-400">No activity yet</p>
-                    ) : (
-                        <div className="space-y-3">
-                            {visibleEvents.map((event) => (
-                                <div key={event.id} className="flex items-start gap-3">
-                                    <div className="h-2 w-2 rounded-full bg-purple-500 mt-2" />
-                                    <div>
-                                        <p className="text-white text-sm">
-                                            {formatEventLabel(event)}
-                                        </p>
-                                        {(event.event_type === "AI_APPROVE" || event.event_type === "AI_DENY") && (() => {
-                                            const aiEventIndex = visibleEvents.filter((e, i) => i <= visibleEvents.indexOf(event) && (e.event_type === "AI_APPROVE" || e.event_type === "AI_DENY")).length - 1;
-                                            const vouch = aiVouches[aiEventIndex];
-                                            return vouch?.reason ? (
-                                                <p className={`text-xs mt-0.5 ${event.event_type === "AI_APPROVE" ? "text-green-400" : "text-red-400"}`}>
-                                                    {vouch.reason}
-                                                </p>
-                                            ) : null;
-                                        })()}
-                                        <p className="text-xs text-slate-500">
-                                            {formatEventTimestamp(event)}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            <PostponeDeadlineDialog
-                open={isPostponeDialogOpen}
-                onOpenChange={setIsPostponeDialogOpen}
-                currentDeadlineIso={taskState.deadline}
-                isSubmitting={isActionPending("postpone")}
-                onConfirm={(newDeadlineIso) => handlePostpone(newDeadlineIso)}
-            />
-
-            {isStoredProofFullscreen && storedProof && storedProofSrc && (
-                <div
-                    className="fixed inset-0 z-[100] bg-black/95 p-3 md:p-6 flex items-center justify-center"
-                    onClick={() => setIsStoredProofFullscreen(false)}
-                >
-                    <button
-                        type="button"
-                        onClick={(event) => {
-                            event.stopPropagation();
-                            setIsStoredProofFullscreen(false);
-                        }}
-                        className="absolute top-3 right-3 md:top-5 md:right-5 h-9 w-9 rounded-full bg-slate-900/80 border border-slate-700 text-slate-200 hover:text-white"
-                        aria-label="Close fullscreen proof"
-                        title="Close"
-                    >
-                        <X className="h-4 w-4 mx-auto" />
-                    </button>
-
-                    <ProofMedia
-                        mediaKind={storedProof.media_kind}
-                        src={storedProofSrc}
-                        alt="Completion proof fullscreen"
-                        overlayTimestampText={storedProof.overlay_timestamp_text}
-                        imageClassName="max-h-[95vh] max-w-[95vw] object-contain rounded-md"
-                        videoClassName="max-h-[95vh] max-w-[95vw] rounded-md"
-                        imageProps={{
-                            onClick: (event) => event.stopPropagation(),
-                        }}
-                        videoProps={{
-                            controls: true,
-                            autoPlay: true,
-                            preload: "auto",
-                            onClick: (event) => event.stopPropagation(),
-                        }}
-                    />
+            {/* Google Sync */}
+            {googleSyncDirectionLabel && (
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-600">Sync</span>
+                    <span className={`text-xs font-medium font-mono ${googleSyncDirectionClassName}`}>{googleSyncDirectionLabel}</span>
                 </div>
             )}
 
+            {/* Postponed notice */}
+            {taskState.postponed_at && (
+                <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border-l-2 border-amber-400/60 bg-amber-500/5">
+                    <p className="text-xs font-mono text-amber-300/80">
+                        Postponed once — {formatDateTimeDdMmYy(taskState.postponed_at)} → {formatDateTimeMmDdYyyy24h(taskState.deadline)}
+                    </p>
+                </div>
+            )}
+
+            {/* ③ STATUS CONTEXT BANNER */}
+            {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETE") && (
+                <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
+                    <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
+                    <div className="px-5 py-4 space-y-3">
+                        <div className="flex items-center gap-3 mb-1">
+                            <div style={{ width: 24, height: 1, background: '#c084fc', boxShadow: '0 0 6px rgba(192,132,252,0.4)', flexShrink: 0 }} />
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-purple-400">awaiting voucher</span>
+                        </div>
+                        <p className="text-base font-medium text-purple-200">
+                            Waiting for {isAiVouched ? 'Orca' : (taskState.voucher?.username || 'your voucher')} to respond
+                        </p>
+                        {voucherDeadlineForDisplay && (
+                            <p className="text-xs font-mono text-purple-400/60">
+                                Review deadline: {formatDateTimeDdMmYy(voucherDeadlineForDisplay)}
+                            </p>
+                        )}
+                        {hasOpenProofRequest && (
+                            <p className="text-xs font-mono text-amber-300/80">
+                                ↳ {proofRequestedByLabel} has asked for proof
+                            </p>
+                        )}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                            {isOwner && (
+                                <Button type="button" variant="outline" onClick={() => openProofPicker("awaiting-upload")} disabled={isActionPending("awaitingProofUpload")}
+                                    className={cn(uniformActionButtonClass, "bg-transparent border-purple-500/25 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 hover:text-purple-200")}>
+                                    {storedProof ? "Replace Proof" : "Add Proof"}
+                                </Button>
+                            )}
+                            {isOwner && (
+                                <Button type="button" variant="outline" onClick={handleUndoComplete}
+                                    disabled={isActionPending("undoComplete") || isOverdue}
+                                    title={isOverdue ? "Undo complete is unavailable after deadline" : "Undo complete"}
+                                    className={cn(uniformActionButtonClass, "bg-transparent border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200")}>
+                                    Undo Complete
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {taskState.status === "AWAITING_ORCA" && (
+                <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
+                    <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
+                    <div className="px-5 py-4 space-y-3">
+                        <div className="flex items-center gap-3 mb-1">
+                            <div style={{ width: 24, height: 1, background: '#c084fc', boxShadow: '0 0 6px rgba(192,132,252,0.4)', flexShrink: 0 }} />
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-purple-400">awaiting orca</span>
+                        </div>
+                        <p className="text-base font-medium text-purple-200">
+                            Waiting for Orca to review your completion
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                            {isOwner && (
+                                <Button type="button" variant="outline" onClick={() => openProofPicker("awaiting-upload")} disabled={isActionPending("awaitingProofUpload")}
+                                    className={cn(uniformActionButtonClass, "bg-transparent border-purple-500/25 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 hover:text-purple-200")}>
+                                    {storedProof ? "Replace Proof" : "Add Proof"}
+                                </Button>
+                            )}
+                            {isOwner && (
+                                <Button type="button" variant="outline" onClick={handleUndoComplete}
+                                    disabled={isActionPending("undoComplete") || isOverdue}
+                                    title={isOverdue ? "Undo complete is unavailable after deadline" : "Undo complete"}
+                                    className={cn(uniformActionButtonClass, "bg-transparent border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200")}>
+                                    Undo Complete
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {taskState.status === "AWAITING_USER" && isAiVouched && (
+                <div className="td-rise td-d3 rounded-xl border border-orange-500/20 bg-orange-950/10 overflow-hidden">
+                    <div className="h-px bg-gradient-to-r from-orange-500/60 via-orange-400/20 to-transparent" />
+                    <div className="px-5 py-4 space-y-3">
+                        <div className="flex items-center gap-3 mb-1">
+                            <div style={{ width: 24, height: 1, background: '#fb923c', boxShadow: '0 0 6px rgba(251,146,60,0.4)', flexShrink: 0 }} />
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-orange-400">orca denied</span>
+                        </div>
+                        {latestDenial && (
+                            <>
+                                <p className="text-base font-medium text-orange-200">
+                                    Attempt {latestDenial.attempt_number} of {MAX_RESUBMITS}
+                                </p>
+                                <p className="text-sm text-orange-300/70 leading-relaxed">{latestDenial.reason}</p>
+                            </>
+                        )}
+                        {denials.length > 1 && (
+                            <details>
+                                <summary className="cursor-pointer text-xs font-mono text-orange-400/70 hover:text-orange-300 transition-colors">
+                                    View all denials ({denials.length})
+                                </summary>
+                                <div className="mt-2 space-y-2 border-l border-orange-500/25 pl-3">
+                                    {denials.map((denial) => (
+                                        <div key={denial.id}>
+                                            <p className="text-xs font-mono text-orange-400/70">Attempt {denial.attempt_number}:</p>
+                                            <p className="text-orange-200/50 text-xs mt-0.5">{denial.reason}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </details>
+                        )}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                            {canResubmit && isOwner && (
+                                <button type="button" onClick={() => openProofPicker("awaiting-upload")} disabled={isActionPending("awaitingProofUpload")}
+                                    className={cn("flex items-center gap-2 rounded border border-orange-500/30 bg-orange-900/15 text-orange-300 hover:bg-orange-800/25 hover:text-orange-100 transition-colors cursor-pointer disabled:opacity-50", uniformActionButtonClass)}>
+                                    <Camera className="h-3.5 w-3.5" />
+                                    Upload New Proof
+                                </button>
+                            )}
+                            {isOwner && (
+                                <Button variant="ghost" onClick={() => { if (!friends.length && !friendsLoading) loadFriendsForEscalation(); setShowEscalationPicker(true); }} disabled={escalationPending}
+                                    className={cn(uniformActionButtonClass, "border border-blue-700/40 bg-blue-900/15 text-blue-300 hover:bg-blue-800/25 hover:text-blue-100")}>
+                                    Escalate to Friend
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {(taskState.status === "DENIED" || taskState.status === "MISSED") && (
+                <div className="td-rise td-d3 rounded-xl border border-red-500/20 bg-red-950/10 overflow-hidden">
+                    <div className="h-px bg-gradient-to-r from-red-500/60 via-red-400/20 to-transparent" />
+                    <div className="px-5 py-4 space-y-3">
+                        <div className="flex items-center gap-3 mb-1">
+                            <div style={{ width: 24, height: 1, background: '#f87171', boxShadow: '0 0 6px rgba(248,113,113,0.4)', flexShrink: 0 }} />
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-red-400">
+                                {taskState.status === "DENIED" ? "task denied" : "task missed"}
+                            </span>
+                        </div>
+                        <p className="text-base font-medium text-red-200">
+                            {taskState.status === "DENIED"
+                                ? (isAiVouched && latestDenial?.reason ? `Denied — ${latestDenial.reason}` : "Denied by voucher.")
+                                : `Missed deadline. ${formattedFailureCost} added to ledger.`}
+                        </p>
+                        {isAiVouched && denials.length > 0 && (
+                            <div className="space-y-1.5">
+                                {denials.map((denial) => (
+                                    <div key={denial.id} className="border-l border-red-500/25 pl-3">
+                                        <p className="text-xs font-mono text-red-400/70">Attempt {denial.attempt_number}:</p>
+                                        <p className="text-red-200/50 text-xs mt-0.5">{denial.reason}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div className="flex flex-wrap gap-2 pt-1">
+                            <Button variant="ghost" onClick={handleForceMajeure} disabled={isActionPending("forceMajeure")}
+                                className={cn(uniformActionButtonClass, "border border-slate-700 bg-slate-800/30 text-slate-400 hover:text-white hover:bg-slate-700/50")}>
+                                Use Force Majeure
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {(taskState.status === "ACCEPTED" || taskState.status === "AUTO_ACCEPTED" || taskState.status === "ORCA_ACCEPTED") && (
+                <div className="td-rise td-d3 rounded-xl border border-emerald-500/20 bg-emerald-950/10 overflow-hidden">
+                    <div className="h-px bg-gradient-to-r from-emerald-500/60 via-emerald-400/20 to-transparent" />
+                    <div className="px-5 py-3 flex items-center gap-3">
+                        <div style={{ width: 24, height: 1, background: '#34d399', boxShadow: '0 0 6px rgba(52,211,153,0.4)', flexShrink: 0 }} />
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-emerald-400">
+                            {taskState.status === "AUTO_ACCEPTED"
+                                ? 'accepted — voucher did not respond'
+                                : taskState.status === "ORCA_ACCEPTED"
+                                    ? 'accepted by orca'
+                                    : 'accepted'}
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {taskState.status === "RECTIFIED" && (
+                <div className="td-rise td-d3 rounded-xl border border-orange-500/20 bg-orange-950/10 overflow-hidden">
+                    <div className="h-px bg-gradient-to-r from-orange-500/60 via-orange-400/20 to-transparent" />
+                    <div className="px-5 py-3 flex items-center gap-3">
+                        <div style={{ width: 24, height: 1, background: '#fb923c', boxShadow: '0 0 6px rgba(251,146,60,0.4)', flexShrink: 0 }} />
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-orange-400">rectified</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Proof upload error */}
+            {proofUploadError && (
+                <div className="rounded-xl border border-red-900/50 bg-red-950/15 px-4 py-3">
+                    <p className="text-sm font-mono text-red-300">{proofUploadError}</p>
+                </div>
+            )}
+
+            {/* Stored proof */}
+            {storedProof && storedProofSrc && (
+                <div className="td-rise td-d3 space-y-2">
+                    <div className="flex items-center gap-3">
+                        <div style={{ width: 24, height: 1, background: '#00d9ff', boxShadow: '0 0 6px rgba(0,217,255,0.35)', flexShrink: 0 }} />
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">
+                            completion proof ({storedProof.media_kind})
+                        </span>
+                        {isOwner && ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(taskState.status) && (
+                            <Button type="button" variant="ghost" onClick={handleRemoveStoredProof} disabled={isActionPending("removeStoredProof")}
+                                className="ml-auto h-7 px-2 text-[11px] text-red-400/70 hover:text-red-300 bg-transparent hover:bg-red-950/30 border border-red-900/30">
+                                Remove
+                            </Button>
+                        )}
+                    </div>
+                    <div className="relative rounded-xl overflow-hidden border border-slate-800">
+                        <ProofMedia mediaKind={storedProof.media_kind} src={storedProofSrc} alt="Completion proof"
+                            overlayTimestampText={storedProof.overlay_timestamp_text}
+                            imageClassName="w-full max-h-72 object-cover cursor-zoom-in"
+                            videoClassName="w-full max-h-72 cursor-zoom-in"
+                            imageProps={{ loading: "lazy", onClick: () => setIsStoredProofFullscreen(true) }}
+                            videoProps={{ controls: true, preload: "metadata", onClick: () => setIsStoredProofFullscreen(true) }} />
+                    </div>
+                </div>
+            )}
+
+            {/* Proof draft preview */}
+            {proofDraft && (
+                <div className="td-rise td-d3 space-y-2">
+                    <div className="flex items-center gap-3">
+                        <div style={{ width: 24, height: 1, background: '#00d9ff', boxShadow: '0 0 6px rgba(0,217,255,0.35)', flexShrink: 0 }} />
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">
+                            {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_ORCA" || taskState.status === "AWAITING_USER" || taskState.status === "MARKED_COMPLETE")
+                                ? `ready to upload (${proofDraft.proof.mediaKind})`
+                                : `proof attached (${proofDraft.proof.mediaKind})`}
+                        </span>
+                        <Button type="button" variant="ghost" onClick={() => setTaskProofDraft(null)}
+                            className="ml-auto h-7 px-2 text-[11px] text-slate-500 hover:text-slate-300 bg-transparent border border-slate-800">
+                            Remove
+                        </Button>
+                    </div>
+                    <div className="rounded-xl overflow-hidden border border-blue-500/15 bg-blue-950/10">
+                        <ProofMedia mediaKind={proofDraft.proof.mediaKind} src={proofDraft.previewUrl} alt="Selected proof"
+                            overlayTimestampText={proofDraft.proof.overlayTimestampText}
+                            imageClassName="w-full max-h-56 object-cover"
+                            videoClassName="w-full max-h-56"
+                            videoProps={{ controls: true, preload: "metadata" }} />
+                    </div>
+                </div>
+            )}
+
+            {/* ④ ACTIONS BAR — active tasks only */}
+            {(taskState.status === "ACTIVE" || taskState.status === "POSTPONED") && (
+                <div className="td-rise td-d3 space-y-3">
+                    {isOwner && isActiveParentTask && potentialRp !== null && potentialRp > 0 && (
+                        <p className="text-xs font-mono text-orange-400/80">
+                            ↑ +{potentialRp} RP on completion
+                        </p>
+                    )}
+                    {incompleteSubtasksCount > 0 && (
+                        <div className="px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800">
+                            <p className="text-xs font-mono text-slate-500">
+                                Complete all subtasks first ({completedSubtasksCount}/{subtasks.length})
+                            </p>
+                        </div>
+                    )}
+                    {hasIncompletePomoRequirement && (
+                        <div className="px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800">
+                            <p className="text-xs font-mono text-slate-500">
+                                Log {formatFocusTime(remainingRequiredPomoSeconds)} more focus time ({formatFocusTime(totalPomoSeconds)}/{taskState.required_pomo_minutes}m)
+                            </p>
+                        </div>
+                    )}
+                    {hasRunningPomoForTask && (
+                        <div className="px-3 py-2 rounded-lg bg-slate-900/50 border border-slate-800">
+                            <p className="text-xs font-mono text-slate-500">
+                                Stop the running pomodoro before completing
+                            </p>
+                        </div>
+                    )}
+                    <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-3 sm:p-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <PomoButton taskId={taskState.id} variant="full" className="h-12 w-full" defaultDurationMinutes={defaultPomoDurationMinutes} />
+                        <Button type="button" variant="ghost" onClick={() => openProofPicker("draft")} disabled={isActionPending("markComplete")}
+                            className={cn("h-12 w-full p-0 border transition-all justify-center",
+                                proofDraft
+                                    ? "border-cyan-500/40 bg-cyan-500/8 text-cyan-300"
+                                    : "border-slate-700 text-slate-500 hover:text-slate-300 hover:border-slate-600")}
+                            style={proofDraft ? { boxShadow: '0 0 12px rgba(0,217,255,0.18)' } : {}}
+                            title={proofDraft ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
+                            aria-label="Attach proof">
+                            <Camera className="h-5 w-5" />
+                        </Button>
+                        {/* Primary CTA */}
+                        <Button onClick={handleMarkComplete}
+                            disabled={isActionPending("markComplete") || isOverdue || isBeforeStart || incompleteSubtasksCount > 0 || hasIncompletePomoRequirement || hasRunningPomoForTask}
+                            className={cn(activeRowActionButtonClass, "w-full justify-center tracking-[0.1em] uppercase font-bold transition-all border",
+                                (isBeforeStart || incompleteSubtasksCount > 0 || hasIncompletePomoRequirement || hasRunningPomoForTask || isOverdue)
+                                    ? "border-slate-800 bg-transparent text-slate-500 cursor-not-allowed"
+                                    : "border-cyan-500/35 bg-cyan-500/8 text-cyan-300 hover:bg-cyan-500/15 hover:text-cyan-200")}
+                            title={isBeforeStart ? beforeStartMessage : "Mark complete"}>
+                            {isActionPending("markComplete") ? "..." : "Mark Complete"}
+                        </Button>
+                        {taskState.status === "ACTIVE" && !taskState.postponed_at && !isOverdue && (
+                            <Button type="button" variant="outline" onClick={() => setIsPostponeDialogOpen(true)} disabled={isActionPending("postpone")}
+                                className={cn(activeRowActionButtonClass, "w-full justify-center bg-transparent border-amber-500/25 text-amber-400/80 hover:bg-amber-500/8 hover:border-amber-400/50 hover:text-amber-300")}>
+                                Postpone (1×)
+                            </Button>
+                        )}
+                        {(taskState.recurrence_rule_id || isRepetitionStopped) && (
+                            <Button variant="ghost" onClick={handleCancelRepetition} disabled={isActionPending("cancelRepetition") || isRepetitionStopped}
+                                className={cn(activeRowActionButtonClass, "w-full justify-center border",
+                                    isRepetitionStopped
+                                        ? "border-slate-800 text-slate-600 cursor-not-allowed"
+                                        : "border-red-900/40 bg-red-950/15 text-red-400/80 hover:bg-red-900/25 hover:text-red-300")}>
+                                <Repeat className="mr-1.5 h-3.5 w-3.5" />
+                                {isRepetitionStopped ? "Repetitions Stopped" : "Stop Repeating"}
+                            </Button>
+                        )}
+                        <Button type="button" variant="ghost" onClick={handleTempDelete} disabled={isActionPending("tempDelete") || !canTempDelete}
+                            className={cn("h-12 w-full p-0 border transition-colors justify-center",
+                                canTempDelete
+                                    ? "border-red-900/40 text-red-400/70 hover:bg-red-950/25 hover:text-red-300"
+                                    : "border-slate-800 text-slate-700 cursor-not-allowed")}
+                            title={canTempDelete ? "Delete task" : "Delete available only within 5 min of creation"}
+                            aria-label="Delete task">
+                            <Trash2 className="h-5 w-5" />
+                        </Button>
+                    </div>
+                </div>
+                </div>
+            )}
+
+            {/* Stop repetitions — non-active tasks */}
+            {(taskState.status !== "ACTIVE" && taskState.status !== "POSTPONED") && (taskState.recurrence_rule_id || isRepetitionStopped) && (
+                <div className="td-rise td-d3">
+                    <Button variant="ghost" onClick={handleCancelRepetition} disabled={isActionPending("cancelRepetition") || isRepetitionStopped}
+                        className={cn(uniformActionButtonClass, "border",
+                            isRepetitionStopped
+                                ? "border-slate-800 text-slate-600 cursor-not-allowed"
+                                : "border-red-900/40 bg-red-950/15 text-red-400/80 hover:bg-red-900/25 hover:text-red-300")}>
+                        <Repeat className="mr-1.5 h-3.5 w-3.5" />
+                        {isRepetitionStopped ? "Repetitions Stopped" : "Stop Repeating"}
+                    </Button>
+                </div>
+            )}
+
+            {/* ⑤ SUBTASKS — owner only */}
+            {isOwner && (
+                <div className="td-rise td-d4 space-y-3">
+                    <button type="button" onClick={() => setSubtasksSectionOpen((prev) => !prev)}
+                        className="w-full flex items-center justify-between cursor-pointer" aria-expanded={subtasksSectionOpen}>
+                        <div className="flex flex-1 items-center gap-3">
+                            <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">subtasks</span>
+                            <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                        </div>
+                        <div className="ml-3 flex items-center gap-2">
+                            <span className="text-xs font-mono text-slate-600">{completedSubtasksCount}/{subtasks.length}</span>
+                            <ChevronDown className={cn("h-4 w-4 text-slate-600 transition-transform", subtasksSectionOpen && "rotate-180")} />
+                        </div>
+                    </button>
+                    {subtasksSectionOpen && (
+                        <div className="space-y-2">
+                            {subtasks.length > 0 && (
+                                <div className="space-y-0.5">
+                                    {subtasks.map((subtask) => {
+                                        const isPending = pendingSubtaskIds.has(subtask.id);
+                                        return (
+                                            <div key={subtask.id} className="flex items-center gap-3 px-1 py-1.5 rounded-lg hover:bg-slate-900/40 transition-colors group/sub">
+                                                <button type="button" disabled={!canManageActionChildren || isPending}
+                                                    onClick={() => handleToggleSubtask(subtask.id)}
+                                                    className={cn("h-5 w-5 rounded-full border flex items-center justify-center shrink-0 transition-all",
+                                                        subtask.is_completed ? "border-emerald-500/50 bg-emerald-600/15 text-emerald-400" : "border-slate-700 text-transparent hover:border-slate-500",
+                                                        (!canManageActionChildren || isPending) && "cursor-not-allowed opacity-40")}
+                                                    style={subtask.is_completed ? { boxShadow: '0 0 6px rgba(52,211,153,0.25)' } : {}}>
+                                                    {subtask.is_completed && <Check className="h-3 w-3" strokeWidth={3} />}
+                                                </button>
+                                                <button type="button" disabled={!canManageActionChildren || isPending}
+                                                    onClick={() => handleToggleSubtask(subtask.id)}
+                                                    className={cn("flex-1 min-w-0 text-left text-sm font-mono transition-colors",
+                                                        subtask.is_completed ? "text-slate-600 line-through" : "text-slate-300",
+                                                        (!canManageActionChildren || isPending) && "cursor-not-allowed")}>
+                                                    <span className="truncate block">{subtask.title}</span>
+                                                </button>
+                                                <button type="button" disabled={!canManageActionChildren || isPending}
+                                                    onClick={() => handleDeleteSubtask(subtask.id)}
+                                                    className="h-6 w-6 flex items-center justify-center text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover/sub:opacity-100 cursor-pointer"
+                                                    aria-label="Delete subtask">
+                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                </button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            <form onSubmit={handleAddSubtask}>
+                                <div className="flex items-center gap-2">
+                                    <Input ref={newSubtaskInputRef} value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                                        placeholder="add a subtask..." maxLength={500}
+                                        className={cn("h-8 font-mono text-xs bg-slate-900/50 border-slate-800 text-slate-300 placeholder:text-slate-700",
+                                            !canManageActionChildren && "border-slate-900 text-slate-600 cursor-not-allowed")}
+                                        disabled={!canManageActionChildren || isAddingSubtask} />
+                                    <Button type="submit" size="sm" onPointerDown={(e) => e.preventDefault()}
+                                        disabled={!canManageActionChildren || isAddingSubtask}
+                                        className="h-8 w-8 p-0 bg-transparent border border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700 disabled:opacity-30">
+                                        <Plus className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </form>
+                            {subtaskError && <p className="text-xs font-mono text-red-400">{subtaskError}</p>}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ⑥ REMINDERS — owner only */}
+            {isOwner && (
+                <div className="td-rise td-d4 space-y-3">
+                    <button type="button" onClick={() => setRemindersSectionOpen((prev) => !prev)}
+                        className="w-full flex items-center justify-between cursor-pointer" aria-expanded={remindersSectionOpen}>
+                        <div className="flex flex-1 items-center gap-3">
+                            <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">reminders</span>
+                            <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                        </div>
+                        <div className="ml-3 flex items-center gap-2">
+                            <span className="text-xs font-mono text-slate-600">{reminders.length}</span>
+                            <ChevronDown className={cn("h-4 w-4 text-slate-600 transition-transform", remindersSectionOpen && "rotate-180")} />
+                        </div>
+                    </button>
+                    {remindersSectionOpen && (
+                        <div className="space-y-2">
+                            {reminders.length > 0 && (
+                                <div className="space-y-0.5">
+                                    {reminders.map((reminder) => {
+                                        const reminderDate = new Date(reminder.reminder_at);
+                                        const reminderMs = reminderDate.getTime();
+                                        const reminderIso = Number.isNaN(reminderMs) ? reminder.reminder_at : reminderDate.toISOString();
+                                        const isPastReminder = Number.isNaN(reminderMs) || reminderMs <= nowMs;
+                                        const notifiedAtMs = reminder.notified_at ? new Date(reminder.notified_at).getTime() : Number.NaN;
+                                        const createdAtMs = new Date(reminder.created_at).getTime();
+                                        const showPastForSeededHistory = isDefaultDeadlineReminderSource(reminder.source) && !Number.isNaN(notifiedAtMs) && !Number.isNaN(createdAtMs) && createdAtMs === notifiedAtMs;
+                                        const pastReminderLabel = showPastForSeededHistory ? "Past" : (reminder.notified_at ? "Sent" : "Past");
+                                        return (
+                                            <div key={reminder.id} className="flex items-center justify-between gap-3 px-1 py-1.5">
+                                                <span className="text-xs font-mono text-slate-400">
+                                                    {Number.isNaN(reminderMs) ? reminder.reminder_at : formatDateTimeDdMmYy(reminderIso)}
+                                                </span>
+                                                {isPastReminder ? (
+                                                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-700">
+                                                        {pastReminderLabel}
+                                                    </span>
+                                                ) : (
+                                                    <button type="button"
+                                                        disabled={!canManageActionChildren || isActionPending("saveReminders")}
+                                                        onClick={() => void handleRemoveReminder(reminderIso)}
+                                                        className="text-xs font-mono text-red-500/60 hover:text-red-400 transition-colors disabled:text-slate-700 disabled:cursor-not-allowed cursor-pointer">
+                                                        Remove
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            <form onSubmit={handleAddReminder}>
+                                <div className="flex items-center gap-2">
+                                    <Input type="datetime-local" value={newReminderLocal} onChange={(e) => setNewReminderLocal(e.target.value)}
+                                        disabled={!canManageActionChildren || isActionPending("saveReminders")}
+                                        className={cn("h-8 font-mono text-xs bg-slate-900/50 border-slate-800 text-slate-300 [color-scheme:dark]",
+                                            (!canManageActionChildren || isActionPending("saveReminders")) && "opacity-40 cursor-not-allowed")} />
+                                    <Button type="submit" variant="outline"
+                                        disabled={!canManageActionChildren || isActionPending("saveReminders") || !newReminderLocal.trim()}
+                                        className="h-8 text-[11px] bg-transparent border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700 disabled:opacity-30">
+                                        Add
+                                    </Button>
+                                </div>
+                            </form>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Divider */}
+            <div className="h-px bg-gradient-to-r from-transparent via-slate-800/80 to-transparent" />
+
+            {/* ⑦ ACTIVITY LOG */}
+            <div className="td-rise td-d5 space-y-4">
+                <div className="mx-auto flex w-full max-w-2xl items-center gap-3">
+                    <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                    <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">activity</span>
+                    <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                </div>
+                {activitySteps.length === 0 ? (
+                    <p className="text-center text-xs font-mono text-slate-700">No activity yet</p>
+                ) : (
+                    <div className="relative mx-auto w-full max-w-2xl">
+                        <div className="pointer-events-none absolute left-[5px] top-2 bottom-2 w-px bg-gradient-to-b from-cyan-500/35 via-slate-800 to-transparent md:left-1/2 md:-translate-x-1/2" />
+                        {activitySteps.map((step, index) => {
+                            const isRightSide = index % 2 === 0;
+                            const toneConfig =
+                                step.tone === "success"
+                                    ? {
+                                        dot: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.45)]",
+                                        title: "text-emerald-200",
+                                    }
+                                    : step.tone === "danger"
+                                        ? {
+                                            dot: "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.45)]",
+                                            title: "text-red-200",
+                                        }
+                                        : step.tone === "warning"
+                                            ? {
+                                                dot: "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.45)]",
+                                                title: "text-amber-200",
+                                            }
+                                            : step.tone === "info"
+                                                ? {
+                                                    dot: "bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.45)]",
+                                                    title: "text-cyan-200",
+                                                }
+                                                : {
+                                                    dot: "bg-slate-500 shadow-[0_0_6px_rgba(100,116,139,0.45)]",
+                                                    title: "text-slate-200",
+                                                };
+
+                            return (
+                                <div key={step.id} className="relative pl-7 pb-4 last:pb-0 md:pl-0">
+                                    <div className={cn("absolute left-0 top-1.5 h-2.5 w-2.5 rounded-full md:left-1/2 md:-translate-x-1/2", toneConfig.dot)} />
+                                    <div className={cn(
+                                        "space-y-1.5",
+                                        isRightSide
+                                            ? "md:ml-[calc(50%+1rem)] md:max-w-[calc(50%-1rem)]"
+                                            : "md:mr-[calc(50%+1rem)] md:max-w-[calc(50%-1rem)] md:text-right"
+                                    )}>
+                                        <p className={cn("text-xs font-mono tracking-wide uppercase", toneConfig.title, step.titleColorClass)}>
+                                            {step.title}
+                                        </p>
+                                        <p className={cn("text-[10px] font-mono text-slate-500", !isRightSide && "md:text-right")}>
+                                            {step.timestamp}
+                                        </p>
+                                        {step.detail && (
+                                            <p className={cn("text-[11px] font-mono text-slate-500 break-words", !isRightSide && "md:text-right")}>
+                                                {step.detail}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Postpone dialog */}
+            <PostponeDeadlineDialog open={isPostponeDialogOpen} onOpenChange={setIsPostponeDialogOpen}
+                currentDeadlineIso={taskState.deadline} isSubmitting={isActionPending("postpone")}
+                onConfirm={(newDeadlineIso) => handlePostpone(newDeadlineIso)} />
+
+            {/* Fullscreen proof overlay */}
+            {isStoredProofFullscreen && storedProof && storedProofSrc && (
+                <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4" onClick={() => setIsStoredProofFullscreen(false)}>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setIsStoredProofFullscreen(false); }}
+                        className="absolute top-4 right-4 h-9 w-9 rounded-full bg-slate-900/80 border border-slate-700 text-slate-300 hover:text-white flex items-center justify-center"
+                        aria-label="Close fullscreen">
+                        <X className="h-4 w-4" />
+                    </button>
+                    <ProofMedia mediaKind={storedProof.media_kind} src={storedProofSrc} alt="Completion proof fullscreen"
+                        overlayTimestampText={storedProof.overlay_timestamp_text}
+                        imageClassName="max-h-[95vh] max-w-[95vw] object-contain rounded-md"
+                        videoClassName="max-h-[95vh] max-w-[95vw] rounded-md"
+                        imageProps={{ onClick: (e) => e.stopPropagation() }}
+                        videoProps={{ controls: true, autoPlay: true, preload: "auto", onClick: (e) => e.stopPropagation() }} />
+                </div>
+            )}
+
+            {/* Escalation dialog */}
             {showEscalationPicker && (
                 <Dialog open={showEscalationPicker} onOpenChange={setShowEscalationPicker}>
                     <DialogContent className="bg-slate-900 border-slate-800 text-slate-300">
                         <DialogHeader>
-                            <DialogTitle>Escalate to a Friend</DialogTitle>
-                            <DialogDescription>Choose a friend to review the Orca's decision</DialogDescription>
+                            <DialogTitle className="text-xl font-bold text-white">
+                                Escalate to a Friend
+                            </DialogTitle>
+                            <DialogDescription className="text-xs font-mono text-slate-600">
+                                Choose a friend to review Orca's decision
+                            </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
                             {friendsLoading ? (
-                                <p className="text-slate-400 text-sm py-4">Loading friends...</p>
+                                <p className="text-xs font-mono text-slate-600 py-4">Loading friends...</p>
                             ) : friends.length === 0 ? (
-                                <p className="text-slate-400 text-sm py-4">No friends available to escalate to</p>
+                                <p className="text-xs font-mono text-slate-600 py-4">No friends available</p>
                             ) : (
                                 friends.map((friend) => (
-                                    <button
-                                        key={friend.id}
-                                        onClick={() => handleEscalateToFriend(friend.id)}
-                                        disabled={escalationPending}
-                                        className="w-full text-left p-3 rounded-lg bg-slate-800/40 hover:bg-slate-800/60 border border-slate-700 text-slate-300 hover:text-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        <div className="font-medium">{friend.username || friend.email}</div>
-                                        {friend.username && <div className="text-xs text-slate-400">{friend.email}</div>}
+                                    <button key={friend.id} onClick={() => handleEscalateToFriend(friend.id)} disabled={escalationPending}
+                                        className="w-full text-left px-4 py-3 rounded-lg bg-slate-800/40 hover:bg-slate-800/70 border border-slate-800 hover:border-slate-700 transition-colors cursor-pointer disabled:opacity-50">
+                                        <div className="text-sm font-medium text-slate-200">{friend.username || friend.email}</div>
+                                        {friend.username && <div className="text-xs font-mono text-slate-600">{friend.email}</div>}
                                     </button>
                                 ))
                             )}
@@ -2258,5 +2367,6 @@ export default function TaskDetailClient({
                 </Dialog>
             )}
         </div>
+        </>
     );
 }

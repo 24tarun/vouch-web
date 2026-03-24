@@ -41,6 +41,12 @@ import {
     parseProofRequiredFromTitle,
     stripProofRequiredTokens,
 } from "@/lib/task-title-parser";
+import {
+    canFinalizeOrRevertProof,
+    canInitAwaitingProofUpload,
+    getAwaitingProofReviewStatus,
+    PROOF_FINALIZE_OR_REVERT_STATUSES,
+} from "@/lib/task-proof-routing";
 import { isValidPomoDurationMinutes } from "@/lib/pomodoro";
 import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
 import { aiEvaluationLimiter, checkRateLimit } from "@/lib/rate-limit";
@@ -51,7 +57,7 @@ import {
 
 const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
-const ACTIVE_PARENT_TASK_STATUSES: TaskStatus[] = ["CREATED", "POSTPONED"];
+const ACTIVE_PARENT_TASK_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
 const SUBTASK_LIMIT_ERROR = `A task can have at most ${MAX_SUBTASKS_PER_TASK} subtasks.`;
 const SUBTASK_TITLE_MAX_LENGTH = 500;
 const INCOMPLETE_SUBTASKS_ERROR = "Complete all subtasks before marking this task complete.";
@@ -654,7 +660,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             failure_cost_cents: defaultFailureCostCents,
             requires_proof: finalRequiresProofSimple,
             deadline: deadline.toISOString(),
-            status: shouldAutoCompletePastEvent ? "COMPLETED" : "CREATED",
+            status: shouldAutoCompletePastEvent ? "ACCEPTED" : "ACTIVE",
             marked_completed_at: shouldAutoCompletePastEvent ? creationNowIso : null,
             voucher_response_deadline: null,
             google_sync_for_task: normalizedTitle.googleSyncForTask,
@@ -702,10 +708,10 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
     // @ts-ignore
     const taskEvents: Array<Record<string, unknown>> = [{
         task_id: (task as any).id,
-        event_type: "CREATED",
+        event_type: "ACTIVE",
         actor_id: user.id,
-        from_status: "CREATED",
-        to_status: "CREATED",
+        from_status: "ACTIVE",
+        to_status: "ACTIVE",
         metadata: {
             title: normalizedTitle.normalizedTitle,
             type: "simple",
@@ -717,8 +723,8 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             task_id: (task as any).id,
             event_type: "MARK_COMPLETE",
             actor_id: user.id,
-            from_status: "CREATED",
-            to_status: "COMPLETED",
+            from_status: "ACTIVE",
+            to_status: "ACCEPTED",
             metadata: {
                 auto_completed_past_event: true,
                 auto_accepted: true,
@@ -747,7 +753,7 @@ export async function getCachedActiveTasksForUser(userId: string) {
             const { data, error } = await (supabaseAdmin.from("tasks") as any)
                 .select("*")
                 .eq("user_id", userId as any)
-                .in("status", ["CREATED", "POSTPONED"])
+                .in("status", ["ACTIVE", "POSTPONED"])
                 .order("deadline", { ascending: true });
 
             if (error) {
@@ -1022,7 +1028,7 @@ export async function createTask(formData: FormData) {
             required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,
             requires_proof: finalRequiresProof,
             deadline: validatedDeadline.toISOString(),
-            status: shouldAutoCompletePastEvent ? "COMPLETED" : "CREATED",
+            status: shouldAutoCompletePastEvent ? "ACCEPTED" : "ACTIVE",
             marked_completed_at: shouldAutoCompletePastEvent ? creationNowIso : null,
             voucher_response_deadline: null,
             google_sync_for_task: titleSelection.googleSyncForTask,
@@ -1079,14 +1085,14 @@ export async function createTask(formData: FormData) {
         }
     }
 
-    // Log the creation event
+    // Log the task activation event
     // @ts-ignore
     const taskEvents: Array<Record<string, unknown>> = [{
         task_id: (task as any).id,
-        event_type: "CREATED",
+        event_type: "ACTIVE",
         actor_id: (user as any).id,
-        from_status: "CREATED",
-        to_status: "CREATED",
+        from_status: "ACTIVE",
+        to_status: "ACTIVE",
         metadata: {
             title,
             deadline: validatedDeadline.toISOString(),
@@ -1102,8 +1108,8 @@ export async function createTask(formData: FormData) {
             task_id: (task as any).id,
             event_type: "MARK_COMPLETE",
             actor_id: (user as any).id,
-            from_status: "CREATED",
-            to_status: "COMPLETED",
+            from_status: "ACTIVE",
+            to_status: "ACCEPTED",
             metadata: {
                 auto_completed_past_event: true,
                 auto_accepted: true,
@@ -1277,7 +1283,7 @@ export async function markTaskCompleteWithProofIntent(
 
         const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
             .update({
-                status: "COMPLETED",
+                status: "ACCEPTED",
                 marked_completed_at: nowIso,
                 voucher_response_deadline: null,
                 proof_request_open: false,
@@ -1287,7 +1293,7 @@ export async function markTaskCompleteWithProofIntent(
             } as any)
             .eq("id", taskId as any)
             .eq("user_id", (user as any).id)
-            .in("status", ["CREATED", "POSTPONED"] as any)
+            .in("status", ["ACTIVE", "POSTPONED"] as any)
             .gt("deadline", nowIso)
             .select("id");
 
@@ -1304,7 +1310,7 @@ export async function markTaskCompleteWithProofIntent(
             event_type: "MARK_COMPLETE",
             actor_id: (user as any).id,
             from_status: (task as any).status,
-            to_status: "COMPLETED",
+            to_status: "ACCEPTED",
             metadata: {
                 self_vouched: true,
                 auto_accepted: true,
@@ -1330,14 +1336,18 @@ export async function markTaskCompleteWithProofIntent(
     if (requiresProofForCompletion && !proofIntent) {
         return { error: REQUIRED_PROOF_FOR_COMPLETION_ERROR };
     }
-    const voucherResponseDeadline = getVoucherResponseDeadlineUtc(new Date(), userTimeZone);
+
+    // Route based on voucher type: Orca -> AWAITING_ORCA, human -> AWAITING_VOUCHER
+    const completionStatus = getAwaitingProofReviewStatus((task as any).voucher_id);
+    const isOrcaVoucher = completionStatus === "AWAITING_ORCA";
+    const voucherResponseDeadline = isOrcaVoucher ? null : getVoucherResponseDeadlineUtc(new Date(), userTimeZone);
 
     // @ts-ignore
     const { data: updatedRows, error } = await (supabase.from("tasks") as any)
         .update({
-            status: "AWAITING_VOUCHER",
+            status: completionStatus,
             marked_completed_at: nowIso,
-            voucher_response_deadline: voucherResponseDeadline.toISOString(),
+            voucher_response_deadline: voucherResponseDeadline ? voucherResponseDeadline.toISOString() : null,
             proof_request_open: false,
             proof_requested_at: null,
             proof_requested_by: null,
@@ -1345,7 +1355,7 @@ export async function markTaskCompleteWithProofIntent(
         } as any)
         .eq("id", (taskId as any))
         .eq("user_id", (user as any).id)
-        .in("status", ["CREATED", "POSTPONED"] as any)
+        .in("status", ["ACTIVE", "POSTPONED"] as any)
         .gt("deadline", nowIso)
         .select("id");
 
@@ -1398,7 +1408,7 @@ export async function markTaskCompleteWithProofIntent(
             // Roll back to active state if we cannot initialize volatile proof upload.
             await (supabase.from("tasks") as any)
                 .update({
-                    status: (task as any).postponed_at ? "POSTPONED" : "CREATED",
+                    status: (task as any).postponed_at ? "POSTPONED" : "ACTIVE",
                     marked_completed_at: null,
                     voucher_response_deadline: null,
                     proof_request_open: false,
@@ -1408,7 +1418,7 @@ export async function markTaskCompleteWithProofIntent(
                 } as any)
                 .eq("id", taskId as any)
                 .eq("user_id", user.id as any)
-                .eq("status", "AWAITING_VOUCHER");
+                .eq("status", completionStatus as any);
 
             return { error: proofError.message };
         }
@@ -1422,7 +1432,7 @@ export async function markTaskCompleteWithProofIntent(
             // Revert task + cleanup proof row/object if upload token creation failed.
             await (supabase.from("tasks") as any)
                 .update({
-                    status: (task as any).postponed_at ? "POSTPONED" : "CREATED",
+                    status: (task as any).postponed_at ? "POSTPONED" : "ACTIVE",
                     marked_completed_at: null,
                     voucher_response_deadline: null,
                     proof_request_open: false,
@@ -1432,7 +1442,7 @@ export async function markTaskCompleteWithProofIntent(
                 } as any)
                 .eq("id", taskId as any)
                 .eq("user_id", user.id as any)
-                .eq("status", "AWAITING_VOUCHER");
+                .eq("status", completionStatus as any);
 
             await deleteTaskProof(taskId, "signed_upload_url_failure");
             return { error: signedUploadError?.message || "Could not create proof upload session." };
@@ -1455,7 +1465,7 @@ export async function markTaskCompleteWithProofIntent(
         event_type: "MARK_COMPLETE",
         actor_id: (user as any).id,
         from_status: (task as any).status,
-        to_status: "AWAITING_VOUCHER",
+        to_status: completionStatus,
         metadata: proofIntent
             ? {
                 has_proof: true,
@@ -1504,7 +1514,7 @@ export async function initAwaitingVoucherProofUpload(
         return { error: "Task not found" };
     }
 
-    if ((task as any).status !== "AWAITING_VOUCHER" && (task as any).status !== "AWAITING_USER") {
+    if (!canInitAwaitingProofUpload((task as any).status)) {
         return { error: "Task is no longer awaiting voucher response." };
     }
 
@@ -1548,12 +1558,14 @@ export async function initAwaitingVoucherProofUpload(
 
     const supabaseAdmin = createAdminClient();
 
-    // If task was in AWAITING_USER (resubmit), transition back to AWAITING_VOUCHER for AI evaluation
-    if ((task as any).status === "AWAITING_USER") {
+    const routedAwaitingStatus = getAwaitingProofReviewStatus((task as any).voucher_id);
+
+    // Route special transition states back to their correct queue.
+    if ((task as any).status === "AWAITING_USER" || (task as any).status === "MARKED_COMPLETE") {
         const { error: transitionError } = await (supabaseAdmin.from("tasks") as any)
-            .update({ status: "AWAITING_VOUCHER" })
+            .update({ status: routedAwaitingStatus })
             .eq("id", taskId)
-            .eq("status", "AWAITING_USER");
+            .eq("status", (task as any).status as any);
 
         if (transitionError) {
             return { error: "Another resubmit is already in progress" };
@@ -1615,7 +1627,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         return { error: "Task not found" };
     }
 
-    if ((task as any).status !== "AWAITING_VOUCHER") {
+    if (!canFinalizeOrRevertProof((task as any).status)) {
         return { error: "Task is no longer awaiting voucher response." };
     }
 
@@ -1664,10 +1676,27 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         } as any)
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
-        .eq("status", "AWAITING_VOUCHER");
+        .in("status", PROOF_FINALIZE_OR_REVERT_STATUSES as any);
 
     if (clearProofRequestError) {
         return { error: clearProofRequestError.message };
+    }
+
+    const { error: proofUploadedEventError } = await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "PROOF_UPLOADED",
+        actor_id: user.id as any,
+        from_status: (task as any).status,
+        to_status: (task as any).status,
+        metadata: {
+            media_kind: proofMeta.mediaKind,
+            mime_type: proofMeta.mimeType,
+            size_bytes: proofMeta.sizeBytes,
+            duration_ms: proofMeta.durationMs ?? null,
+        },
+    });
+    if (proofUploadedEventError) {
+        console.error("Failed to log PROOF_UPLOADED event:", proofUploadedEventError);
     }
 
     // AI Voucher: trigger evaluation for image proofs inline, video proofs async
@@ -1685,7 +1714,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
                 await processAiVoucherDecision(taskId);
             } catch (error) {
                 console.error(`AI voucher evaluation failed: ${error}`);
-                // Leave task in AWAITING_VOUCHER; user can retry or escalate
+                // Leave task in AWAITING_ORCA; user can retry or escalate
             }
         } else {
             // Video evaluation is async; trigger Trigger.dev job
@@ -1694,7 +1723,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
                 await triggerTasks.trigger("ai-voucher-evaluate", { taskId });
             } catch (error) {
                 console.error(`Failed to queue AI voucher video evaluation: ${error}`);
-                // Leave task in AWAITING_VOUCHER for manual handling
+                // Leave task in AWAITING_ORCA for manual handling
             }
         }
     }
@@ -1727,7 +1756,7 @@ export async function removeAwaitingVoucherProof(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if (!["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes((task as any).status)) {
+    if (!canFinalizeOrRevertProof((task as any).status)) {
         return { error: "Proof can only be removed while awaiting voucher response." };
     }
 
@@ -1772,7 +1801,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if ((task as any).status !== "AWAITING_VOUCHER") {
+    if (!canFinalizeOrRevertProof((task as any).status)) {
         return { error: `Cannot revert completion from ${(task as any).status} status` };
     }
 
@@ -1786,7 +1815,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
         return { error: "Deadline has passed" };
     }
 
-    const restoredStatus: "CREATED" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "CREATED";
+    const restoredStatus: "ACTIVE" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "ACTIVE";
 
     const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
         .update({
@@ -1800,7 +1829,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
         } as any)
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
-        .eq("status", "AWAITING_VOUCHER")
+        .eq("status", (task as any).status as any)
         .gt("deadline", nowIso)
         .select("id");
 
@@ -1816,7 +1845,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
         task_id: taskId as any,
         event_type: "PROOF_UPLOAD_FAILED_REVERT",
         actor_id: user.id,
-        from_status: "AWAITING_VOUCHER",
+        from_status: (task as any).status,
         to_status: restoredStatus,
     });
 
@@ -1852,7 +1881,7 @@ export async function undoTaskComplete(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if ((task as any).status !== "AWAITING_VOUCHER") {
+    if (!canFinalizeOrRevertProof((task as any).status)) {
         return { error: `Cannot undo completion from ${(task as any).status} status` };
     }
 
@@ -1866,7 +1895,7 @@ export async function undoTaskComplete(taskId: string) {
         return { error: cleanup.error || "Could not remove proof media." };
     }
 
-    const restoredStatus: "CREATED" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "CREATED";
+    const restoredStatus: "ACTIVE" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "ACTIVE";
 
     // @ts-ignore
     const { data: updatedRows, error } = await (supabase.from("tasks") as any)
@@ -1881,7 +1910,7 @@ export async function undoTaskComplete(taskId: string) {
         } as any)
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
-        .eq("status", "AWAITING_VOUCHER")
+        .eq("status", (task as any).status as any)
         .gt("deadline", nowIso)
         .select("id");
 
@@ -1897,7 +1926,7 @@ export async function undoTaskComplete(taskId: string) {
         task_id: taskId as any,
         event_type: "UNDO_COMPLETE",
         actor_id: user.id,
-        from_status: "AWAITING_VOUCHER",
+        from_status: (task as any).status,
         to_status: restoredStatus,
     });
 
@@ -2408,7 +2437,7 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         return { error: "Task has already been postponed once" };
     }
 
-    if (["AWAITING_VOUCHER", "MARKED_COMPLETED", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
+    if (["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
 
@@ -2533,7 +2562,7 @@ export async function ownerTempDeleteTask(taskId: string) {
         .delete()
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
-        .in("status", ["CREATED", "POSTPONED"] as any)
+        .in("status", ["ACTIVE", "POSTPONED"] as any)
         .select("id");
 
     if (error) {
@@ -2575,7 +2604,7 @@ export async function forceMajeureTask(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if ((task as any).status !== "FAILED") {
+    if ((task as any).status !== "DENIED" && (task as any).status !== "MISSED") {
         return { error: "Force Majeure can only be used on tasks that have failed or been denied." };
     }
 
@@ -2663,7 +2692,7 @@ export async function getTask(taskId: string) {
     if (task) {
         const isOwner = (task as any).user_id === user.id;
         const isVoucher = (task as any).voucher_id === user.id;
-        const isActiveTask = ["CREATED", "POSTPONED"].includes((task as any).status);
+        const isActiveTask = ["ACTIVE", "POSTPONED"].includes((task as any).status);
         const ownerAllowsVoucherActiveView = (task as any).user?.voucher_can_view_active_tasks === true;
         const voucherActiveViewBlocked = isVoucher && !isOwner && isActiveTask && !ownerAllowsVoucherActiveView;
 
@@ -2676,13 +2705,13 @@ export async function getTask(taskId: string) {
             const deadline = new Date((task as any).deadline);
             const shouldAutoFail =
                 now >= deadline &&
-                ["CREATED", "POSTPONED"].includes((task as any).status);
+                ["ACTIVE", "POSTPONED"].includes((task as any).status);
 
             if (shouldAutoFail) {
                 const currentPeriod = now.toISOString().slice(0, 7);
 
                 await (supabase.from("tasks") as any)
-                    .update({ status: "FAILED", updated_at: now.toISOString() } as any)
+                    .update({ status: "MISSED", updated_at: now.toISOString() } as any)
                     .eq("id", (taskId as any));
 
                 await (supabase.from("ledger_entries") as any).insert({
@@ -2698,7 +2727,7 @@ export async function getTask(taskId: string) {
                     event_type: "DEADLINE_MISSED",
                     actor_id: null,
                     from_status: (task as any).status,
-                    to_status: "FAILED",
+                    to_status: "MISSED",
                     metadata: { reason: "Deadline passed without completion" },
                 });
                 if (deadlineEventError && deadlineEventError.code !== "23505") {
@@ -2707,7 +2736,7 @@ export async function getTask(taskId: string) {
 
                 await enqueueGoogleCalendarUpsert((task as any).user_id, taskId);
 
-                (task as any).status = "FAILED";
+                (task as any).status = "MISSED";
                 (task as any).updated_at = now.toISOString();
 
                 invalidateActiveTasksCache((task as any).user_id);
@@ -2823,7 +2852,7 @@ export async function getTaskPomoSummary(taskId: string) {
     if (!canView) return null;
     const isVoucher = task.voucher_id === user.id;
     const isOwner = task.user_id === user.id;
-    const isActiveTask = ["CREATED", "POSTPONED"].includes((task as any).status);
+    const isActiveTask = ["ACTIVE", "POSTPONED"].includes((task as any).status);
     const ownerAllowsVoucherActiveView = (task as any).user?.voucher_can_view_active_tasks === true;
     if (isVoucher && !isOwner && isActiveTask && !ownerAllowsVoucherActiveView) return null;
 

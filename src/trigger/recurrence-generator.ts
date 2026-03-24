@@ -4,7 +4,7 @@
  * What it does when it runs:
  * 1) Loads all recurrence_rules (table only stores active rules).
  * 2) For each rule, evaluates whether a task should be generated for the current date in the rule's timezone.
- * 3) If due, creates a new CREATED task using the rule settings (title, voucher, cost, deadline, recurrence_rule_id).
+ * 3) If due, creates a new ACTIVE task using the rule settings (title, voucher, cost, deadline, recurrence_rule_id).
  * 4) Updates recurrence_rules.last_generated_date so the same date is not generated twice.
  */
 import { schedules } from "@trigger.dev/sdk/v3";
@@ -499,7 +499,7 @@ async function processRule(
                 required_pomo_minutes: rule.required_pomo_minutes ?? null,
                 requires_proof: Boolean(rule.requires_proof),
                 deadline: deadlineIso,
-                status: "CREATED",
+                status: "ACTIVE",
                 google_sync_for_task: Boolean(rule.google_sync_for_rule),
                 google_event_start_at: eventStartIso,
                 google_event_end_at: hasEventDuration ? deadlineIso : null,
@@ -521,10 +521,10 @@ async function processRule(
         if (createdTask?.id) {
             const { error: createdEventError } = await (supabase.from("task_events") as any).insert({
                 task_id: createdTask.id,
-                event_type: "CREATED",
+                event_type: "ACTIVE",
                 actor_id: null,
-                from_status: "CREATED",
-                to_status: "CREATED",
+                from_status: "ACTIVE",
+                to_status: "ACTIVE",
                 metadata: {
                     source: "recurrence_generator",
                     recurrence_rule_id: rule.id,
@@ -534,7 +534,7 @@ async function processRule(
             });
 
             if (createdEventError) {
-                console.error(`Failed to insert CREATED event for generated task ${createdTask.id}:`, createdEventError);
+                console.error(`Failed to insert ACTIVE event for generated task ${createdTask.id}:`, createdEventError);
             }
         }
 

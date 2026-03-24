@@ -21,8 +21,9 @@ import {
 } from "./constants";
 import type { ReputationTaskInput, CategoryScores, ReputationScoreData } from "./types";
 
-const SUCCESS_STATUSES = new Set(["COMPLETED", "RECTIFIED", "SETTLED"]);
-const FINALIZED_STATUSES = new Set(["COMPLETED", "RECTIFIED", "SETTLED", "FAILED"]);
+const SUCCESS_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "RECTIFIED", "SETTLED"]);
+const FAILURE_STATUSES = new Set(["DENIED", "MISSED"]);
+const FINALIZED_STATUSES = new Set([...SUCCESS_STATUSES, ...FAILURE_STATUSES]);
 
 function getTier(score: number): string {
     for (const tier of SCORE_TIERS) {
@@ -120,7 +121,7 @@ function computeAccountability(tasks: ReputationTaskInput[]): number | null {
         const ageInDays = (now.getTime() - new Date(t.updated_at).getTime()) / (1000 * 60 * 60 * 24);
         const decayFactor = Math.pow(0.5, ageInDays / ACCOUNTABILITY_DECAY_HALF_LIFE_DAYS);
 
-        if (t.status === "FAILED") {
+        if (FAILURE_STATUSES.has(t.status)) {
             const taskDate = new Date(t.updated_at);
             const inWindow =
                 lastFailureDate != null &&
@@ -273,5 +274,4 @@ export function computeFullReputationScore(
         computedAt: new Date().toISOString(),
     };
 }
-
 

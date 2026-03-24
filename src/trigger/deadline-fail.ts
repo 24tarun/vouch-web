@@ -2,8 +2,8 @@
  * Trigger: deadline-fail
  * Runs: Every 5 minutes (configured with a 5-minute cron interval).
  * What it does when it runs:
- * 1) Finds tasks in CREATED or POSTPONED whose deadline has passed.
- * 2) Marks each matched task as FAILED.
+ * 1) Finds tasks in ACTIVE or POSTPONED whose deadline has passed.
+ * 2) Marks each matched task as MISSED.
  * 3) Writes a positive failure ledger entry for the task owner.
  * 4) Logs a DEADLINE_MISSED system event in task_events.
  */
@@ -26,13 +26,13 @@ export const deadlineFail = schedules.task({
         const { data, error } = await supabase
             .from("tasks")
             .select("id, user_id, status, failure_cost_cents, deadline, recurrence_rule_id")
-            .in("status", ["CREATED", "POSTPONED"])
+            .in("status", ["ACTIVE", "POSTPONED"])
             .lt("deadline", nowIso as any) as any;
 
         const rawCandidates = (data || []) as Array<{
             id: string;
             user_id: string;
-            status: "CREATED" | "POSTPONED";
+            status: "ACTIVE" | "POSTPONED";
             failure_cost_cents: number;
             deadline: string;
             recurrence_rule_id: string | null;
@@ -54,23 +54,23 @@ export const deadlineFail = schedules.task({
         }
 
         const byId = new Map(candidates.map((task) => [task.id, task]));
-        const createdIds = candidates.filter((task) => task.status === "CREATED").map((task) => task.id);
+        const activeIds = candidates.filter((task) => task.status === "ACTIVE").map((task) => task.id);
         const postponedIds = candidates.filter((task) => task.status === "POSTPONED").map((task) => task.id);
 
         const claimedIds: string[] = [];
-        if (createdIds.length > 0) {
-            const { data: updatedCreated } = await (supabase.from("tasks") as any)
-                .update({ status: "FAILED", updated_at: nowIso })
-                .in("id", createdIds as any)
-                .eq("status", "CREATED" as any)
+        if (activeIds.length > 0) {
+            const { data: updatedActive } = await (supabase.from("tasks") as any)
+                .update({ status: "MISSED", updated_at: nowIso })
+                .in("id", activeIds as any)
+                .eq("status", "ACTIVE" as any)
                 .select("id");
-            for (const row of (updatedCreated as Array<{ id: string }> | null) || []) {
+            for (const row of (updatedActive as Array<{ id: string }> | null) || []) {
                 claimedIds.push(row.id);
             }
         }
         if (postponedIds.length > 0) {
             const { data: updatedPostponed } = await (supabase.from("tasks") as any)
-                .update({ status: "FAILED", updated_at: nowIso })
+                .update({ status: "MISSED", updated_at: nowIso })
                 .in("id", postponedIds as any)
                 .eq("status", "POSTPONED" as any)
                 .select("id");
@@ -99,7 +99,7 @@ export const deadlineFail = schedules.task({
             event_type: "DEADLINE_MISSED",
             actor_id: null,
             from_status: task.status,
-            to_status: "FAILED",
+            to_status: "MISSED",
             metadata: { reason: "Deadline passed without completion" },
         }));
 

@@ -3,7 +3,7 @@
  * Runs: Every hour at minute 0 (`0 * * * *`).
  * What it does when it runs:
  * 1) Finds tasks still in AWAITING_VOUCHER where voucher_response_deadline has passed.
- * 2) Atomically flips each matched task to COMPLETED (auto-accept).
+ * 2) Atomically flips each matched task to AUTO_ACCEPTED.
  * 3) Adds only a voucher timeout penalty ledger entry for the voucher.
  * 4) Deletes volatile proof media and logs a VOUCHER_TIMEOUT system event.
  * 5) Skips AI-vouched tasks (Orca processes deterministically, no timeout).
@@ -51,7 +51,7 @@ export const voucherTimeout = schedules.task({
         const candidateIds = candidates.map((task) => task.id);
         const { data: updatedRows, error: bulkUpdateError } = await (supabase
             .from("tasks") as any)
-            .update({ status: "COMPLETED", voucher_timeout_auto_accepted: true, updated_at: now })
+            .update({ status: "AUTO_ACCEPTED", voucher_timeout_auto_accepted: true, updated_at: now })
             .in("id", candidateIds as any)
             .eq("status", "AWAITING_VOUCHER" as any)
             .select("id");
@@ -82,7 +82,7 @@ export const voucherTimeout = schedules.task({
             event_type: "VOUCHER_TIMEOUT",
             actor_id: null,
             from_status: "AWAITING_VOUCHER",
-            to_status: "COMPLETED",
+            to_status: "AUTO_ACCEPTED",
             metadata: {
                 reason: "Voucher did not respond in time; task auto-accepted",
                 voucher_penalty_cents: VOUCHER_TIMEOUT_PENALTY_CENTS,
@@ -117,6 +117,5 @@ export const voucherTimeout = schedules.task({
         console.log(`Auto-accepted ${claimedTasks.length} tasks due to voucher timeout`);
     },
 });
-
 
 

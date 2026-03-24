@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import SettingsClient from "./settings-client";
 import { getFriends } from "@/actions/friends";
 import { getGoogleCalendarIntegrationState } from "@/actions/google-calendar";
+import { BuildStamp } from "@/components/BuildStamp";
 
 export default async function SettingsPage() {
     const supabase = await createClient();
@@ -33,10 +34,17 @@ export default async function SettingsPage() {
     ]);
 
     return (
-        <SettingsClient
-            profile={profile}
-            friends={friends}
-            googleCalendarIntegration={googleCalendarIntegration}
-        />
+        <div className="flex min-h-[calc(100dvh-8rem)] flex-col">
+            <div className="flex-1">
+                <SettingsClient
+                    profile={profile}
+                    friends={friends}
+                    googleCalendarIntegration={googleCalendarIntegration}
+                />
+            </div>
+            <div className="pt-6 pb-safe">
+                <BuildStamp className="text-center text-[10px] leading-4 tracking-[0.03em] text-slate-400 font-mono" />
+            </div>
+        </div>
     );
 }

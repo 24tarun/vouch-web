@@ -23,7 +23,7 @@ export default async function NewCommitmentPage() {
             .from("tasks")
             .select("id, title, deadline, failure_cost_cents")
             .eq("user_id", user.id)
-            .in("status", ["CREATED", "POSTPONED"])
+            .in("status", ["ACTIVE", "POSTPONED"])
             .is("recurrence_rule_id", null)
             .order("deadline", { ascending: true }),
         supabase

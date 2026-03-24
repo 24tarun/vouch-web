@@ -21,6 +21,12 @@ interface CommitmentCardProps {
     onAbandonRollback?: (commitment: CommitmentListItem) => void;
 }
 
+function toUtcDateOnly(value: string | Date): string | null {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString().slice(0, 10);
+}
+
 function statusStyle(status: string): { className: string; glow: string } {
     if (status === "ACTIVE")
         return { className: "text-cyan-400", glow: "0 0 6px rgba(34,211,238,0.5)" };
@@ -40,6 +46,7 @@ export function CommitmentCard({
     const router = useRouter();
     const storageKey = `commitment_expanded_${commitment.id}`;
     const [isExpanded, setIsExpanded] = useState(false);
+    const [selectedTaskDate, setSelectedTaskDate] = useState<string | null>(null);
     const [pendingAction, setPendingAction] = useState<"activate" | "abandon" | null>(null);
     const [draftDescription, setDraftDescription] = useState(commitment.description?.trim() ?? "");
     const [isSavingDescription, setIsSavingDescription] = useState(false);
@@ -68,10 +75,28 @@ export function CommitmentCard({
     const earnedLabel = formatCurrencyFromCents(commitment.earned_so_far_cents, currency);
     const goalLabel = formatCurrencyFromCents(commitment.total_target_cents, currency);
     const goalLabelNoSymbol = goalLabel.replace(getCurrencySymbol(currency), "");
+    const selectedDateLabel = useMemo(() => {
+        if (!selectedTaskDate) return null;
+        const parsed = new Date(`${selectedTaskDate}T00:00:00.000Z`);
+        if (Number.isNaN(parsed.getTime())) return selectedTaskDate;
+        return parsed.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+    }, [selectedTaskDate]);
 
     const taskRows = useMemo<CompactStatsTask[]>(() => {
+        const now = new Date();
+        const todayDateOnly = toUtcDateOnly(now);
+
         return [...commitment.task_instances]
             .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+            .filter((task) => {
+                if (!todayDateOnly) return false;
+                const deadlineDateOnly = toUtcDateOnly(task.deadline);
+                if (!deadlineDateOnly) return false;
+                if (selectedTaskDate) {
+                    return deadlineDateOnly === selectedTaskDate;
+                }
+                return deadlineDateOnly === todayDateOnly;
+            })
             .map((task) => ({
                 id: task.id,
                 title: task.title,
@@ -85,7 +110,7 @@ export function CommitmentCard({
                 voucher: null,
                 pomo_total_seconds: 0,
             }));
-    }, [commitment.task_instances]);
+    }, [commitment.task_instances, selectedTaskDate]);
 
     const handleToggle = () => {
         setIsExpanded((prev) => {
@@ -248,15 +273,21 @@ export function CommitmentCard({
                         startDate={commitment.start_date}
                         endDate={commitment.end_date}
                         dayStatuses={commitment.day_statuses}
+                        selectedDate={selectedTaskDate}
+                        onSelectDate={(date) => {
+                            setSelectedTaskDate((previous) => (previous === date ? null : date));
+                        }}
                     />
 
                     {/* Task list */}
                     <div className="mt-6">
                         <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-1">
-                            Tasks for today linked to this commitment
+                            {selectedDateLabel ? `Linked tasks for ${selectedDateLabel}` : "Linked tasks due today"}
                         </p>
                         {taskRows.length === 0 ? (
-                            <p className="mt-3 text-sm text-slate-500">No tasks linked yet.</p>
+                            <p className="mt-3 text-sm text-slate-500">
+                                {selectedDateLabel ? "No linked tasks for this day." : "No linked tasks due today."}
+                            </p>
                         ) : (
                             <div className="flex flex-col border-t border-slate-900/50">
                                 {taskRows.map((task) => (

@@ -108,18 +108,12 @@ export const voucherDeadlineWarning = schedules.task({
 
             try {
                 await sendNotification({
-                    to: summary.email,
                     userId: voucherId,
-                    subject: "Vouch Requests",
                     title: "Vouch Requests",
                     text: body,
-                    html: `
-                        <h1>Vouch Requests</h1>
-                        <p>Hi ${summary.username || "there"},</p>
-                        <p>${body}</p>
-                        <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/friends">Open friends tab</a></p>
-                    `,
-                    url: "/friends",
+                    email: false,
+                    push: true,
+                    url: "/voucher",
                     tag: `voucher-digest-${voucherId}-${utcDate}`,
                     data: {
                         kind: "VOUCH_REQUEST_DIGEST",

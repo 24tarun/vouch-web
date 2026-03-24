@@ -21,7 +21,7 @@ export interface CompactStatsTask {
     pomo_total_seconds?: number;
 }
 
-const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED", "AWAITING_USER"]);
+const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE", "AWAITING_USER"]);
 
 interface CompactStatsItemProps {
     task: CompactStatsTask;
@@ -38,25 +38,34 @@ export function CompactStatsItem({
     const detailPath = `/tasks/${task.id}`;
 
     const statusColors: Record<string, string> = {
-        CREATED: "text-blue-400",
+        ACTIVE: "text-blue-400",
         POSTPONED: "text-amber-400",
-        MARKED_COMPLETED: "text-yellow-400",
+        MARKED_COMPLETE: "text-yellow-400",
         AWAITING_VOUCHER: "text-yellow-400",
+        AWAITING_ORCA: "text-yellow-400",
         AWAITING_USER: "text-orange-300",
-        COMPLETED: "text-lime-300",
-        FAILED: "text-red-500",
+        ACCEPTED: "text-lime-300",
+        AUTO_ACCEPTED: "text-lime-300",
+        ORCA_ACCEPTED: "text-lime-300",
+        DENIED: "text-red-500",
+        MISSED: "text-red-500",
         RECTIFIED: "text-orange-500",
         SETTLED: "text-cyan-400",
         DELETED: "text-slate-500",
     };
 
     const statusLabels: Record<string, string> = {
-        CREATED: "ACTIVE",
+        ACTIVE: "ACTIVE",
         POSTPONED: "POSTPONED",
-        MARKED_COMPLETED: "AWAITING VOUCHER",
+        MARKED_COMPLETE: "AWAITING VOUCHER",
         AWAITING_VOUCHER: "AWAITING VOUCHER",
+        AWAITING_ORCA: "AWAITING VOUCHER",
         AWAITING_USER: "AWAITING USER",
-        FAILED: "FAILED",
+        ACCEPTED: "ACCEPTED",
+        AUTO_ACCEPTED: "VOUCHER DID NOT RESPOND",
+        ORCA_ACCEPTED: "ACCEPTED",
+        DENIED: "DENIED",
+        MISSED: "MISSED",
         RECTIFIED: "RECTIFIED",
         SETTLED: "FORCE MAJEURE",
         DELETED: "DELETED",
@@ -76,10 +85,10 @@ export function CompactStatsItem({
 
     const pomoTotalSeconds = task.pomo_total_seconds || 0;
     const statusColorClass = statusColors[task.status] || "text-slate-500";
-    const isActiveTask = task.status === "CREATED" || task.status === "POSTPONED";
+    const isActiveTask = task.status === "ACTIVE" || task.status === "POSTPONED";
     const hasOpenProofRequest =
         Boolean(task.proof_request_open) &&
-        (task.status === "AWAITING_VOUCHER" || task.status === "MARKED_COMPLETED");
+        (task.status === "AWAITING_VOUCHER" || task.status === "AWAITING_ORCA" || task.status === "MARKED_COMPLETE");
     const proofRequestedByLabel = task.voucher?.username || "Your voucher";
     const shouldPrefetchDetail = PREFETCH_STATUSES.has(task.status);
     const openTaskDetails = () => {
@@ -111,13 +120,9 @@ export function CompactStatsItem({
                             ACTIVE
                         </Badge>
                     )}
-                    {!(forceActiveBadge && task.status === "CREATED") && (
+                    {!(forceActiveBadge && task.status === "ACTIVE") && (
                         <Badge variant="outline" className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${statusColorClass}`}>
-                            {task.status === "FAILED"
-                                ? (task.marked_completed_at ? "DENIED" : "FAILED")
-                                : task.status === "COMPLETED"
-                                    ? (task.voucher_timeout_auto_accepted ? "VOUCHER DID NOT RESPOND" : "ACCEPTED")
-                                : (statusLabels[task.status] || task.status)}
+                            {statusLabels[task.status] || task.status}
                         </Badge>
                     )}
                     {task.recurrence_rule_id && (
@@ -138,7 +143,7 @@ export function CompactStatsItem({
                     )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1" suppressHydrationWarning>
-                    {["CREATED", "POSTPONED"].includes(task.status)
+                    {["ACTIVE", "POSTPONED"].includes(task.status)
                         ? `Deadline on ${formatDate(task.deadline)}`
                         : `Updated on ${formatDate(task.updated_at || task.deadline)}`}
                 </p>

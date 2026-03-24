@@ -973,18 +973,11 @@ export async function notifyCommitmentFailureIfNeeded(taskId: string, recurrence
     for (const commitment of uniqueCommitments.values()) {
         const profile = profileById.get(commitment.user_id);
         await sendNotification({
-            to: profile?.email || undefined,
             userId: commitment.user_id,
-            subject: `Commitment failed: ${commitment.name}`,
             title: "Commitment failed",
             text: `Your commitment "${commitment.name}" has failed. Rectify the failed task to revive it.`,
-            html: `
-                <h1>Commitment failed</h1>
-                <p>Hi ${profile?.username || "there"},</p>
-                <p>Your commitment <strong>${commitment.name}</strong> has failed.</p>
-                <p>Rectify the failed task to revive the commitment.</p>
-                <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/commit/${commitment.id}">Open commitment</a></p>
-            `,
+            email: false,
+            push: true,
             url: `/commit/${commitment.id}`,
             tag: `commitment-failed-${commitment.id}`,
             data: { commitmentId: commitment.id, kind: "COMMITMENT_FAILED" },
@@ -1131,17 +1124,11 @@ export async function notifyCommitmentRevivedIfNeeded(taskId: string, recurrence
 
         const profile = profileById.get(commitment.user_id);
         await sendNotification({
-            to: profile?.email || undefined,
             userId: commitment.user_id,
-            subject: notificationSubject,
             title: notificationTitle,
             text: notificationText,
-            html: `
-                <h1>${notificationTitle}</h1>
-                <p>Hi ${profile?.username || "there"},</p>
-                <p><strong>${commitment.name}</strong>: ${bodyLine}</p>
-                <p><a href="${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/commit/${commitment.id}">Open commitment</a></p>
-            `,
+            email: false,
+            push: true,
             url: `/commit/${commitment.id}`,
             tag: `commitment-revived-${commitment.id}`,
             data: { commitmentId: commitment.id, kind: "COMMITMENT_REVIVED" },

@@ -1133,7 +1133,7 @@ export default function SettingsClient({
                                     Allow vouchers to view my active tasks
                                 </Label>
                                 <p className="text-xs text-slate-400">
-                                    Controls whether selected vouchers can see your tasks in CREATED or POSTPONED status.
+                                    Controls whether selected vouchers can see your tasks in ACTIVE or POSTPONED status.
                                 </p>
                             </div>
                             <GlassToggle

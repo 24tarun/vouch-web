@@ -17,15 +17,18 @@ const GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/calendar",
 ];
 
-const ACTIVE_SYNC_TASK_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
+const ACTIVE_SYNC_TASK_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"]);
 const RETAINED_SYNC_TASK_STATUSES = new Set([
     ...ACTIVE_SYNC_TASK_STATUSES,
-    "COMPLETED",
-    "FAILED",
+    "ACCEPTED",
+    "AUTO_ACCEPTED",
+    "ORCA_ACCEPTED",
+    "DENIED",
+    "MISSED",
     "RECTIFIED",
     "SETTLED",
 ]);
-const SOFT_DELETEABLE_STATUSES = new Set(["CREATED", "POSTPONED"]);
+const SOFT_DELETEABLE_STATUSES = new Set(["ACTIVE", "POSTPONED"]);
 
 export interface GoogleCalendarListItem {
     id: string;
@@ -1455,7 +1458,7 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                         google_event_end_at: eventEndIso,
                         google_event_color_id: eventColorId,
                         google_sync_for_task: true,
-                        status: SOFT_DELETEABLE_STATUSES.has((task as any).status) ? (task as any).status : "CREATED",
+                        status: SOFT_DELETEABLE_STATUSES.has((task as any).status) ? (task as any).status : "ACTIVE",
                         updated_at: new Date().toISOString(),
                     } as any)
                     .eq("id", existingLink.task_id as any)
@@ -1484,7 +1487,7 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                     google_event_start_at: eventStartIso,
                     google_event_end_at: eventEndIso,
                     google_event_color_id: eventColorId,
-                    status: "CREATED",
+                    status: "ACTIVE",
                     google_sync_for_task: true,
                     postponed_at: null,
                     marked_completed_at: null,
@@ -1507,10 +1510,10 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
 
             await (supabase.from("task_events") as any).insert({
                 task_id: insertedTask.id,
-                event_type: "CREATED",
+                event_type: "ACTIVE",
                 actor_id: null,
-                from_status: "CREATED",
-                to_status: "CREATED",
+                from_status: "ACTIVE",
+                to_status: "ACTIVE",
                 metadata: {
                     source: "google_calendar",
                     google_event_id: event.id,

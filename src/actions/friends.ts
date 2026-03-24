@@ -10,11 +10,13 @@ import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { type SupabaseClient } from "@supabase/supabase-js";
 
 const PENDING_VOUCHER_STATUSES = [
-    "CREATED",
+    "ACTIVE",
     "POSTPONED",
-    "MARKED_COMPLETED",
+    "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
+    "AWAITING_ORCA",
     "AWAITING_USER",
+    "ESCALATED",
 ];
 
 const REPUTATION_TASK_SELECT =
@@ -544,4 +546,3 @@ export async function getWorkingFriendActivities(): Promise<FriendPomoActivity[]
             return a.friend_username.localeCompare(b.friend_username);
         });
 }
-

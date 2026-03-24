@@ -2,7 +2,7 @@ import { isTaskScheduledForTodayOrTomorrow } from "./dashboard-task-buckets";
 import type { Task } from "./types";
 import type { TaskStatus } from "./xstate/task-machine";
 
-const ACTIVE_PENDING_STATUS_SET = new Set<TaskStatus>(["CREATED", "POSTPONED"]);
+const ACTIVE_PENDING_STATUS_SET = new Set<TaskStatus>(["ACTIVE", "POSTPONED"]);
 
 export function canVoucherSeeTask(
     task: Pick<Task, "status" | "deadline"> & { user?: { voucher_can_view_active_tasks?: boolean } | null },

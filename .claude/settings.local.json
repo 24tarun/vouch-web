@@ -41,7 +41,13 @@
       "Bash(find \"src/app/\\(app\\)\" -type f)",
       "Bash(cat \"src/app/\\(app\\)/voucher/page.tsx\")",
       "Bash(mkdir -p \"C:\\\\LocalFiles\\\\coding\\\\vouch\\\\src\\\\components\\\\task-creator-variants\")",
-      "Bash(mkdir -p \"C:\\\\LocalFiles\\\\coding\\\\vouch\\\\src\\\\app\\\\task-creator-preview\")"
+      "Bash(mkdir -p \"C:\\\\LocalFiles\\\\coding\\\\vouch\\\\src\\\\app\\\\task-creator-preview\")",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(head -n 2115 \"C:/LocalFiles/coding/vouch/src/app/\\(app\\)/tasks/[id]/task-detail-client.tsx\")",
+      "Bash(\"/tmp/task-detail-clean.tsx\")",
+      "Read(//tmp/**)",
+      "Bash(tail:*)"
     ]
   }
 }

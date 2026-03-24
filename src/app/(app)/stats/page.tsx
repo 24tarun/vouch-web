@@ -5,7 +5,15 @@ import { StatsActiveTaskList } from "@/components/StatsActiveTaskList";
 import { StatsHistoryTaskList } from "@/components/StatsHistoryTaskList";
 import { sortStatsActiveTasks } from "@/lib/stats-active-task-sort";
 
-const ACTIVE_SECTION_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED", "AWAITING_USER"]);
+const ACTIVE_SECTION_STATUSES = new Set([
+    "ACTIVE",
+    "POSTPONED",
+    "MARKED_COMPLETE",
+    "AWAITING_VOUCHER",
+    "AWAITING_ORCA",
+    "AWAITING_USER",
+    "ESCALATED",
+]);
 
 export default async function OverviewPage() {
     const supabase = await createClient();
@@ -56,7 +64,7 @@ export default async function OverviewPage() {
     const taskStatusById = new Map(tasks.map((task) => [task.id, task.status]));
     const validSessions = allSessions.filter((session) => {
         const status = taskStatusById.get(session.task_id);
-        return status !== "FAILED" && status !== "DELETED";
+        return status !== "DENIED" && status !== "MISSED" && status !== "DELETED";
     });
 
     const totalSeconds = validSessions.reduce((sum, session) => sum + (session.elapsed_seconds || 0), 0);
@@ -67,11 +75,11 @@ export default async function OverviewPage() {
 
     const activeTasksCount = activeTasks.length;
     const pendingVouchCount = tasks.filter((t) =>
-        ["AWAITING_VOUCHER", "MARKED_COMPLETED"].includes(t.status)
+        ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(t.status)
     ).length;
-    const acceptedCount = tasks.filter((t) => t.status === "COMPLETED").length;
-    const failedCount = tasks.filter((t) => t.status === "FAILED" && !t.marked_completed_at).length;
-    const deniedCount = tasks.filter((t) => t.status === "FAILED" && Boolean(t.marked_completed_at)).length;
+    const acceptedCount = tasks.filter((t) => ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED"].includes(t.status)).length;
+    const failedCount = tasks.filter((t) => t.status === "MISSED").length;
+    const deniedCount = tasks.filter((t) => t.status === "DENIED").length;
 
     const historyTasks = tasks.filter((t) => !ACTIVE_SECTION_STATUSES.has(t.status));
 

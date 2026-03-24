@@ -26,7 +26,7 @@ export default async function DashboardLayout({
             .select("*", { count: "exact", head: true })
             .eq("user_id", user.id)
             .eq("proof_request_open", true)
-            .in("status", ["AWAITING_VOUCHER", "MARKED_COMPLETED"]),
+            .in("status", ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"]),
     ]);
     const statsBadgeCount = proofRequestCountResult.count || 0;
 
@@ -35,7 +35,7 @@ export default async function DashboardLayout({
             <div className="min-h-screen bg-slate-950 text-slate-200">
                 <RealtimeListener userId={user.id} />
                 {/* Navigation */}
-                <nav className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 pt-safe">
+                <nav aria-label="Primary" className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 pt-safe">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="h-14 flex items-center">
                             <div className="mx-auto w-full max-w-3xl px-4 md:px-0">

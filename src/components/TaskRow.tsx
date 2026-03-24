@@ -34,7 +34,7 @@ interface TaskRowProps {
     layoutVariant?: "active" | "completed";
 }
 
-const PREFETCH_STATUSES = new Set(["CREATED", "POSTPONED", "AWAITING_VOUCHER", "MARKED_COMPLETED"]);
+const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_ORCA", "AWAITING_USER"]);
 
 export function TaskRow({
     task,
@@ -64,7 +64,21 @@ export function TaskRow({
     const newSubtaskInputRef = useRef<HTMLInputElement>(null);
 
     const isActuallyCompleted = useMemo(
-        () => ["AWAITING_VOUCHER", "COMPLETED", "FAILED", "RECTIFIED", "SETTLED", "DELETED"].includes(task.status),
+        () =>
+            [
+                "MARKED_COMPLETE",
+                "AWAITING_VOUCHER",
+                "AWAITING_ORCA",
+                "AWAITING_USER",
+                "ACCEPTED",
+                "AUTO_ACCEPTED",
+                "ORCA_ACCEPTED",
+                "DENIED",
+                "MISSED",
+                "RECTIFIED",
+                "SETTLED",
+                "DELETED",
+            ].includes(task.status),
         [task.status]
     );
     const deadline = new Date(task.deadline);
@@ -89,7 +103,7 @@ export function TaskRow({
     const isBeforeStart = submissionWindow.beforeStart && !isActuallyCompleted;
     const beforeStartMessage = buildBeforeStartSubmissionMessage(submissionWindow.startDate);
     const isTempTask = task.id.startsWith("temp-");
-    const isParentActive = ["CREATED", "POSTPONED"].includes(task.status);
+    const isParentActive = ["ACTIVE", "POSTPONED"].includes(task.status);
     const hasSubtasks = subtasks.length > 0;
     const completedSubtasksCount = subtasks.filter((subtask) => subtask.is_completed).length;
     const hasIncompleteSubtasks = subtasks.some((subtask) => !subtask.is_completed);
@@ -123,7 +137,7 @@ export function TaskRow({
     const canPostpone = Boolean(
         onPostpone &&
         !isTempTask &&
-        task.status === "CREATED" &&
+        task.status === "ACTIVE" &&
         !task.postponed_at &&
         !isOverdue &&
         !isPostponing
@@ -375,9 +389,17 @@ export function TaskRow({
     }, [subtaskExpandStorageKey]);
 
     const statusColors: Record<string, string> = {
+        ACTIVE: "text-blue-400 border-blue-400",
+        POSTPONED: "text-amber-400 border-amber-400",
+        MARKED_COMPLETE: "text-amber-400 border-amber-400",
         AWAITING_VOUCHER: "text-amber-400 border-amber-400",
-        COMPLETED: "text-emerald-400 border-emerald-400",
-        FAILED: "text-red-500 border-red-500",
+        AWAITING_ORCA: "text-amber-400 border-amber-400",
+        AWAITING_USER: "text-orange-300 border-orange-300",
+        ACCEPTED: "text-emerald-400 border-emerald-400",
+        AUTO_ACCEPTED: "text-emerald-400 border-emerald-400",
+        ORCA_ACCEPTED: "text-emerald-400 border-emerald-400",
+        DENIED: "text-red-500 border-red-500",
+        MISSED: "text-red-500 border-red-500",
         DELETED: "text-slate-400 border-slate-600 opacity-60",
         SETTLED: "text-cyan-400 border-cyan-400",
         RECTIFIED: "text-orange-500 border-orange-500",

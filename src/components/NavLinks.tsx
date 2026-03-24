@@ -91,8 +91,19 @@ export function NavLinks({ vouchCount = 0, statsBadgeCount = 0 }: NavLinksProps)
         <div className="w-full overflow-hidden">
             <div className="grid w-full grid-cols-6 items-center justify-items-center px-1">
                 {links.map((link) => {
-                    const isActive = pathname === link.href || (link.href !== "/tasks" && pathname.startsWith(link.href));
-
+                    const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+                    const ariaLabel =
+                        link.badge !== undefined
+                            ? link.href === "/stats"
+                                ? `${link.label}, ${link.badge} proof request${link.badge === 1 ? "" : "s"}`
+                                : `${link.label}, ${link.badge} pending voucher request${link.badge === 1 ? "" : "s"}`
+                            : link.label;
+                    const badgeText =
+                        link.badge !== undefined
+                            ? link.badge > 99
+                                ? "99+"
+                                : String(link.badge)
+                            : null;
 
                     return (
                         <Link
@@ -101,7 +112,8 @@ export function NavLinks({ vouchCount = 0, statsBadgeCount = 0 }: NavLinksProps)
                             prefetch
                             className={`relative flex h-8 w-full min-w-0 items-center justify-center whitespace-nowrap text-[10px] sm:text-xs font-mono uppercase leading-none tracking-[0.08em] sm:tracking-[0.12em] transition-colors ${isActive ? "text-white font-bold" : "text-slate-400 hover:text-white"
                                 }`}
-                            aria-label={link.label}
+                            aria-label={ariaLabel}
+                            aria-current={isActive ? "page" : undefined}
                             onMouseEnter={() => prefetchLink(link.href)}
                             onFocus={() => prefetchLink(link.href)}
                             onTouchStart={() => prefetchLink(link.href)}
@@ -115,14 +127,14 @@ export function NavLinks({ vouchCount = 0, statsBadgeCount = 0 }: NavLinksProps)
                                         className="text-emerald-300 text-[20px] leading-none font-semibold normal-case tracking-normal"
                                         style={{ textShadow: "0 0 8px rgba(52, 211, 153, 0.95), 0 0 14px rgba(52, 211, 153, 0.55)" }}
                                     >
-                                        €
+                                        {"\u20AC"}
                                     </span>
                                     <span
                                         aria-hidden
                                         className="text-red-300 text-[20px] leading-none font-semibold normal-case tracking-normal"
                                         style={{ textShadow: "0 0 8px rgba(248, 113, 113, 0.95), 0 0 14px rgba(248, 113, 113, 0.55)" }}
                                     >
-                                        €
+                                        {"\u20AC"}
                                     </span>
                                 </>
                             ) : link.href === "/friends" ? (
@@ -161,17 +173,15 @@ export function NavLinks({ vouchCount = 0, statsBadgeCount = 0 }: NavLinksProps)
                             ) : (
                                 link.label
                             )}
-                            {link.badge !== undefined && (
-                                <span className="absolute right-[2px] top-[1px] flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white ring-2 ring-slate-950">
-                                    {link.badge}
+                            {badgeText !== null && (
+                                <span className="absolute right-[1px] top-[1px] inline-flex min-h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-slate-950">
+                                    {badgeText}
                                 </span>
                             )}
                         </Link>
                     );
                 })}
-
             </div>
         </div>
     );
 }
-

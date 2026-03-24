@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import type { DayStatus } from "@/lib/commitment-status";
 
 interface CommitmentDayStripProps {
     startDate: string;
     endDate: string;
     dayStatuses: { date: string; status: DayStatus }[];
+    selectedDate?: string | null;
+    onSelectDate?: (date: string) => void;
 }
 
 const CELL_W = 48;
@@ -27,7 +30,15 @@ function getToday(): string {
     return new Date().toISOString().slice(0, 10);
 }
 
-function cellStyle(status: DayStatus | undefined, isToday: boolean): React.CSSProperties {
+function cellStyle(status: DayStatus | undefined, isToday: boolean, isSelected: boolean): React.CSSProperties {
+    if (isSelected) {
+        return {
+            background: "rgba(234,179,8,0.10)",
+            border: "1px solid rgba(250,204,21,0.70)",
+            color: "rgb(254,240,138)",
+            boxShadow: "0 0 10px rgba(250,204,21,0.20)",
+        };
+    }
     if (isToday) {
         return {
             background: "rgba(59,130,246,0.15)",
@@ -72,9 +83,15 @@ function dotColor(status: DayStatus | undefined, isToday: boolean): string {
     return "transparent";
 }
 
-export function CommitmentDayStrip({ startDate, endDate, dayStatuses }: CommitmentDayStripProps) {
+export function CommitmentDayStrip({
+    startDate,
+    endDate,
+    dayStatuses,
+    selectedDate = null,
+    onSelectDate,
+}: CommitmentDayStripProps) {
     const scrollRef = useRef<HTMLDivElement>(null);
-    const todayRef = useRef<HTMLDivElement>(null);
+    const todayRef = useRef<HTMLButtonElement>(null);
     const today = getToday();
 
     const statusMap = new Map(dayStatuses.map((d) => [d.date, d.status]));
@@ -100,6 +117,8 @@ export function CommitmentDayStrip({ startDate, endDate, dayStatuses }: Commitme
             <div className="flex flex-nowrap gap-1 py-1" style={{ width: "max-content" }}>
                 {dates.map((date) => {
                     const isToday = date === today;
+                    const isSelected = selectedDate === date;
+                    const isFuture = date > today;
                     const status = statusMap.get(date);
                     const dayNum = parseInt(date.slice(8), 10);
                     const monthShort = new Date(`${date}T00:00:00.000Z`).toLocaleString("en", {
@@ -109,11 +128,22 @@ export function CommitmentDayStrip({ startDate, endDate, dayStatuses }: Commitme
                     const dot = dotColor(status, isToday);
 
                     return (
-                        <div
+                        <button
                             key={date}
+                            type="button"
                             ref={isToday ? todayRef : undefined}
-                            className="flex flex-col items-center justify-center rounded select-none flex-shrink-0"
-                            style={{ width: CELL_W, height: CELL_H, ...cellStyle(status, isToday) }}
+                            onClick={() => {
+                                if (isFuture) {
+                                    toast.error("Wait for tmrw dont hurry");
+                                    return;
+                                }
+                                onSelectDate?.(date);
+                            }}
+                            className={`flex flex-col items-center justify-center rounded select-none flex-shrink-0 ${isFuture ? "cursor-not-allowed opacity-70" : "cursor-pointer"}`}
+                            style={{ width: CELL_W, height: CELL_H, ...cellStyle(status, isToday, isSelected) }}
+                            aria-pressed={isSelected}
+                            aria-disabled={isFuture}
+                            aria-label={`Filter tasks for ${date}`}
                         >
                             <span
                                 style={{
@@ -146,7 +176,7 @@ export function CommitmentDayStrip({ startDate, endDate, dayStatuses }: Commitme
                                     background: dot,
                                 }}
                             />
-                        </div>
+                        </button>
                     );
                 })}
             </div>

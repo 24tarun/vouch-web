@@ -50,7 +50,7 @@ export default async function LedgerPage() {
         .from("tasks")
         .select("failure_cost_cents")
         .eq("user_id", user?.id as any)
-        .eq("status", "COMPLETED")
+        .in("status", ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED"])
         .gte("deadline", periodStart)
         .lt("deadline", periodEnd);
 

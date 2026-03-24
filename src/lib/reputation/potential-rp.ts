@@ -15,7 +15,7 @@ export function computePotentialRpGain(
     const simulatedNow = new Date().toISOString();
     const simulatedTasks = tasks.map((t) =>
         t.id === taskId
-            ? { ...t, status: "COMPLETED", marked_completed_at: simulatedNow }
+            ? { ...t, status: "ACCEPTED", marked_completed_at: simulatedNow }
             : t
     );
 

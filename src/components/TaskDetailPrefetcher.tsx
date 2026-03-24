@@ -22,12 +22,14 @@ interface TaskDetailPrefetcherProps {
 }
 
 const PREFETCH_STATUSES = new Set<TaskStatus>([
-    "CREATED",
+    "ACTIVE",
     "POSTPONED",
+    "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
-    "MARKED_COMPLETED",
+    "AWAITING_ORCA",
+    "AWAITING_USER",
 ]);
-const MEDIA_PREFETCH_STATUSES = new Set<TaskStatus>(["AWAITING_VOUCHER", "MARKED_COMPLETED"]);
+const MEDIA_PREFETCH_STATUSES = new Set<TaskStatus>(["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"]);
 
 const prefetchedDetailTaskIds = new Set<string>();
 

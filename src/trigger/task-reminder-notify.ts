@@ -40,7 +40,7 @@ interface ReminderUser {
     username: string | null;
 }
 
-const ACTIVE_STATUSES: TaskStatus[] = ["CREATED", "POSTPONED"];
+const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
 const ONE_HOUR_REMINDER_EVENT = "DEADLINE_WARNING_1H";
 const FIVE_MIN_REMINDER_EVENT = "DEADLINE_WARNING_5M";
 
@@ -160,22 +160,15 @@ async function processDueTaskReminders(
 
         try {
             if (task && ACTIVE_STATUSES.includes(task.status)) {
-                const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
                 const reminderEventType = getReminderEventType(reminder.source);
 
                 if (reminder.source === MANUAL_REMINDER_SOURCE) {
                     await sendNotification({
-                        to: owner?.email,
                         userId: reminder.user_id,
-                        subject: `Task reminder: ${task.title}`,
                         title: "Task reminder",
                         text: `Reminder for "${task.title}".`,
-                        html: `
-                            <h1>Task reminder</h1>
-                            <p>Hi ${owner?.username || "there"},</p>
-                            <p>This is your reminder for <strong>${task.title}</strong>.</p>
-                            <p><a href="${appUrl}/tasks/${task.id}">Open task details</a></p>
-                        `,
+                        email: false,
+                        push: true,
                         url: `/tasks/${task.id}`,
                         tag: `task-reminder-${reminder.id}`,
                         data: {

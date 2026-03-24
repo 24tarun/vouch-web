@@ -11,7 +11,6 @@ import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
 import DashboardClient from "./dashboard-client";
 import { getCachedActiveTasksForUser } from "@/actions/tasks";
 import { getUserReputationScore } from "@/actions/reputation";
-import { BuildStamp } from "@/components/BuildStamp";
 
 export default async function DashboardPage() {
     const supabase = await createClient();
@@ -20,7 +19,21 @@ export default async function DashboardPage() {
     } = await supabase.auth.getUser();
     const userId = user?.id;
 
-    const finalStatuses = ["COMPLETED", "AWAITING_VOUCHER", "RECTIFIED", "SETTLED", "FAILED", "DELETED"];
+    const finalStatuses = [
+        "MARKED_COMPLETE",
+        "AWAITING_VOUCHER",
+        "AWAITING_ORCA",
+        "AWAITING_USER",
+        "ESCALATED",
+        "ACCEPTED",
+        "AUTO_ACCEPTED",
+        "ORCA_ACCEPTED",
+        "DENIED",
+        "MISSED",
+        "RECTIFIED",
+        "SETTLED",
+        "DELETED",
+    ];
 
     const [friends, rawProfileDefaults, activeTasks, completedTasksResult, reputationScore] = await Promise.all([
         getFriends(),
@@ -130,25 +143,18 @@ export default async function DashboardPage() {
     }));
 
     return (
-        <div className="flex min-h-[calc(100dvh-8rem)] flex-col">
-            <div className="flex-1">
-                <DashboardClient
-                    initialTasks={initialTasksWithSubtasks}
-                    friends={friends}
-                    defaultFailureCostEuros={defaultFailureCostEuros}
-                    currency={currency}
-                    defaultVoucherId={defaultVoucherId}
-                    defaultPomoDurationMinutes={defaultPomoDurationMinutes}
-                    defaultEventDurationMinutes={defaultEventDurationMinutes}
-                    userId={userId || ""}
-                    username={username}
-                    initialHideTips={initialHideTips}
-                    reputationScore={reputationScore}
-                />
-            </div>
-            <div className="pt-6 pb-safe">
-                <BuildStamp className="text-center text-[10px] leading-4 tracking-[0.03em] text-slate-400 font-mono" />
-            </div>
-        </div>
+        <DashboardClient
+            initialTasks={initialTasksWithSubtasks}
+            friends={friends}
+            defaultFailureCostEuros={defaultFailureCostEuros}
+            currency={currency}
+            defaultVoucherId={defaultVoucherId}
+            defaultPomoDurationMinutes={defaultPomoDurationMinutes}
+            defaultEventDurationMinutes={defaultEventDurationMinutes}
+            userId={userId || ""}
+            username={username}
+            initialHideTips={initialHideTips}
+            reputationScore={reputationScore}
+        />
     );
 }

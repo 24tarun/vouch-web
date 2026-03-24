@@ -129,7 +129,7 @@ self.addEventListener('push', (event) => {
     let payload = {
         title: 'TAS',
         body: 'You have a new notification.',
-        url: '/dashboard',
+        url: '/tasks',
         tag: undefined,
         sound: undefined,
         data: {},
@@ -183,7 +183,7 @@ self.addEventListener('notificationclick', (event) => {
     event.notification.close();
 
     const notificationData = event.notification.data || {};
-    const rawTargetUrl = notificationData.url || '/dashboard';
+    const rawTargetUrl = notificationData.url || '/tasks';
     const targetUrl = new URL(rawTargetUrl, self.location.origin).href;
 
     event.waitUntil(

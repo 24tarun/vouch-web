@@ -8,7 +8,7 @@ type TaskDeleteCandidate = {
 };
 
 export function isOwnerTempDeletableStatus(status: TaskStatus): boolean {
-    return status === "CREATED" || status === "POSTPONED";
+    return status === "ACTIVE" || status === "POSTPONED";
 }
 
 export function getOwnerDeleteRemainingMs(createdAtIso: string, nowMs: number = Date.now()): number {

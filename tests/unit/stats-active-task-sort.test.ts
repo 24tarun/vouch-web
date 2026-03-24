@@ -28,7 +28,7 @@ function buildTask(
         failure_cost_cents: 100,
         required_pomo_minutes: null,
         deadline: toLocalIso(2026, 2, 8, 18, 0),
-        status: "CREATED",
+        status: "ACTIVE",
         postponed_at: null,
         marked_completed_at: null,
         voucher_response_deadline: null,
@@ -48,12 +48,12 @@ test("stats active tasks sort by recent completion action first", () => {
             updated_at: toLocalIso(2026, 2, 6, 8, 0),
         }),
         buildTask("recent-complete", {
-            status: "MARKED_COMPLETED",
+            status: "MARKED_COMPLETE",
             marked_completed_at: toLocalIso(2026, 2, 6, 12, 0),
             updated_at: toLocalIso(2026, 2, 6, 12, 30),
         }),
         buildTask("plain-active", {
-            status: "CREATED",
+            status: "ACTIVE",
             updated_at: toLocalIso(2026, 2, 7, 9, 0),
         }),
     ];
@@ -87,7 +87,7 @@ test("stats active tasks use the newest timestamp across updated and marked comp
             updated_at: toLocalIso(2026, 2, 7, 10, 0),
         }),
         buildTask("newer-updated", {
-            status: "MARKED_COMPLETED",
+            status: "MARKED_COMPLETE",
             marked_completed_at: toLocalIso(2026, 2, 7, 9, 0),
             updated_at: toLocalIso(2026, 2, 7, 13, 0),
         }),

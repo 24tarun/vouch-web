@@ -1,14 +1,20 @@
 import { setup, assign } from "xstate";
 
-// Task status types matching the PRD
+// Task status types — V2 lifecycle
 export type TaskStatus =
-    | "CREATED"
+    | "ACTIVE"
     | "POSTPONED"
-    | "MARKED_COMPLETED"
+    | "MARKED_COMPLETE"
     | "AWAITING_VOUCHER"
+    | "AWAITING_ORCA"
+    | "ORCA_DENIED"
     | "AWAITING_USER"
-    | "COMPLETED"
-    | "FAILED"
+    | "ESCALATED"
+    | "ACCEPTED"
+    | "AUTO_ACCEPTED"
+    | "ORCA_ACCEPTED"
+    | "DENIED"
+    | "MISSED"
     | "RECTIFIED"
     | "DELETED"
     | "SETTLED";
@@ -20,11 +26,15 @@ export type TaskEvent =
     | { type: "DEADLINE_PASSED" }
     | { type: "VOUCHER_ACCEPT" }
     | { type: "VOUCHER_DENY" }
-    | { type: "TIMEOUT_24H" }
+    | { type: "ORCA_APPROVE" }
+    | { type: "ORCA_DENY" }
+    | { type: "APPEAL" }
+    | { type: "ACCEPT_DENIAL" }
+    | { type: "ESCALATE" }
+    | { type: "TIMEOUT_VOUCHER" }
     | { type: "RECTIFY" }
     | { type: "MONTH_CLOSE" }
-    | { type: "FORCE_MAJEURE" }
-    | { type: "VOUCHER_DELETE" };
+    | { type: "FORCE_MAJEURE" };
 
 // Context for the task machine
 export interface TaskContext {
@@ -64,7 +74,8 @@ export const taskMachine = setup({
         setVoucherResponseDeadline: assign({
             voucherResponseDeadline: () => {
                 const deadline = new Date();
-                deadline.setDate(deadline.getDate() + 7);
+                deadline.setDate(deadline.getDate() + 2);
+                deadline.setHours(23, 59, 59, 999);
                 return deadline;
             },
             updatedAt: () => new Date(),
@@ -75,7 +86,6 @@ export const taskMachine = setup({
     },
     guards: {
         canPostpone: ({ context }) => {
-            // Can only postpone once (if postponedAt is not set)
             return context.postponedAt === undefined;
         },
         canPostponeBeforeDeadline: ({ context }) => {
@@ -87,10 +97,10 @@ export const taskMachine = setup({
     },
 }).createMachine({
     id: "task",
-    initial: "CREATED",
+    initial: "ACTIVE",
     context: {} as TaskContext,
     states: {
-        CREATED: {
+        ACTIVE: {
             on: {
                 POSTPONE: {
                     target: "POSTPONED",
@@ -104,20 +114,16 @@ export const taskMachine = setup({
                     ],
                 },
                 MARK_COMPLETE: {
-                    target: "MARKED_COMPLETED",
+                    target: "MARKED_COMPLETE",
                     guard: "isBeforeDeadline",
                     actions: ["setMarkedCompletedAt"],
                 },
                 DEADLINE_PASSED: {
-                    target: "FAILED",
+                    target: "MISSED",
                     actions: ["updateTimestamp"],
                 },
                 FORCE_MAJEURE: {
                     target: "SETTLED",
-                    actions: ["updateTimestamp"],
-                },
-                VOUCHER_DELETE: {
-                    target: "DELETED",
                     actions: ["updateTimestamp"],
                 },
             },
@@ -125,67 +131,103 @@ export const taskMachine = setup({
         POSTPONED: {
             on: {
                 MARK_COMPLETE: {
-                    target: "MARKED_COMPLETED",
+                    target: "MARKED_COMPLETE",
                     guard: "isBeforeDeadline",
                     actions: ["setMarkedCompletedAt"],
                 },
                 DEADLINE_PASSED: {
-                    target: "FAILED",
+                    target: "MISSED",
                     actions: ["updateTimestamp"],
                 },
                 FORCE_MAJEURE: {
                     target: "SETTLED",
                     actions: ["updateTimestamp"],
                 },
-                VOUCHER_DELETE: {
-                    target: "DELETED",
-                    actions: ["updateTimestamp"],
-                },
             },
         },
-        MARKED_COMPLETED: {
-            always: {
-                target: "AWAITING_VOUCHER",
-                actions: ["setVoucherResponseDeadline"],
+        MARKED_COMPLETE: {
+            on: {
+                VOUCHER_ACCEPT: {
+                    target: "ACCEPTED",
+                    actions: ["updateTimestamp"],
+                },
+                VOUCHER_DENY: {
+                    target: "DENIED",
+                    actions: ["updateTimestamp"],
+                },
+                TIMEOUT_VOUCHER: {
+                    target: "AUTO_ACCEPTED",
+                    actions: ["updateTimestamp"],
+                },
+                ORCA_APPROVE: {
+                    target: "ORCA_ACCEPTED",
+                    actions: ["updateTimestamp"],
+                },
+                ORCA_DENY: {
+                    target: "ORCA_DENIED",
+                    actions: ["updateTimestamp"],
+                },
             },
         },
         AWAITING_VOUCHER: {
             on: {
                 VOUCHER_ACCEPT: {
-                    target: "COMPLETED",
+                    target: "ACCEPTED",
                     actions: ["updateTimestamp"],
                 },
                 VOUCHER_DENY: {
-                    target: "AWAITING_USER",
+                    target: "DENIED",
                     actions: ["updateTimestamp"],
                 },
-                TIMEOUT_24H: {
-                    target: "COMPLETED",
+                TIMEOUT_VOUCHER: {
+                    target: "AUTO_ACCEPTED",
                     actions: ["updateTimestamp"],
                 },
-                VOUCHER_DELETE: {
-                    target: "DELETED",
+            },
+        },
+        AWAITING_ORCA: {
+            on: {
+                ORCA_APPROVE: {
+                    target: "ORCA_ACCEPTED",
                     actions: ["updateTimestamp"],
                 },
+                ORCA_DENY: {
+                    target: "ORCA_DENIED",
+                    actions: ["updateTimestamp"],
+                },
+            },
+        },
+        ORCA_DENIED: {
+            // Auto-transitions to AWAITING_USER (transitional, logged)
+            always: {
+                target: "AWAITING_USER",
             },
         },
         AWAITING_USER: {
             on: {
-                VOUCHER_ACCEPT: {
-                    target: "AWAITING_VOUCHER",
+                APPEAL: {
+                    // Resubmit to Orca (if denial count < 3)
+                    target: "AWAITING_ORCA",
                     actions: ["updateTimestamp"],
                 },
-                VOUCHER_DENY: {
-                    target: "FAILED",
+                ESCALATE: {
+                    target: "ESCALATED",
                     actions: ["updateTimestamp"],
                 },
-                VOUCHER_DELETE: {
-                    target: "DELETED",
+                ACCEPT_DENIAL: {
+                    target: "DENIED",
                     actions: ["updateTimestamp"],
                 },
             },
         },
-        COMPLETED: {
+        ESCALATED: {
+            // Auto-transitions to AWAITING_VOUCHER (transitional, logged)
+            always: {
+                target: "AWAITING_VOUCHER",
+                actions: ["setVoucherResponseDeadline"],
+            },
+        },
+        ACCEPTED: {
             on: {
                 MONTH_CLOSE: {
                     target: "SETTLED",
@@ -193,7 +235,35 @@ export const taskMachine = setup({
                 },
             },
         },
-        FAILED: {
+        AUTO_ACCEPTED: {
+            on: {
+                MONTH_CLOSE: {
+                    target: "SETTLED",
+                    actions: ["updateTimestamp"],
+                },
+            },
+        },
+        ORCA_ACCEPTED: {
+            on: {
+                MONTH_CLOSE: {
+                    target: "SETTLED",
+                    actions: ["updateTimestamp"],
+                },
+            },
+        },
+        DENIED: {
+            on: {
+                RECTIFY: {
+                    target: "RECTIFIED",
+                    actions: ["updateTimestamp"],
+                },
+                MONTH_CLOSE: {
+                    target: "SETTLED",
+                    actions: ["updateTimestamp"],
+                },
+            },
+        },
+        MISSED: {
             on: {
                 RECTIFY: {
                     target: "RECTIFIED",
@@ -225,13 +295,19 @@ export const taskMachine = setup({
 // Helper function to get valid transitions from a state
 export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     const transitions: Record<TaskStatus, TaskEvent["type"][]> = {
-        CREATED: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
-        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE", "VOUCHER_DELETE"],
-        MARKED_COMPLETED: [], // Auto-transitions to AWAITING_VOUCHER
-        AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_24H", "VOUCHER_DELETE"],
-        AWAITING_USER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "VOUCHER_DELETE"],
-        COMPLETED: ["MONTH_CLOSE"],
-        FAILED: ["RECTIFY", "MONTH_CLOSE"],
+        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE"],
+        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "FORCE_MAJEURE"],
+        MARKED_COMPLETE: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER", "ORCA_APPROVE", "ORCA_DENY"],
+        AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER"],
+        AWAITING_ORCA: ["ORCA_APPROVE", "ORCA_DENY"],
+        ORCA_DENIED: [], // Auto-transitions to AWAITING_USER
+        AWAITING_USER: ["APPEAL", "ESCALATE", "ACCEPT_DENIAL"],
+        ESCALATED: [], // Auto-transitions to AWAITING_VOUCHER
+        ACCEPTED: ["MONTH_CLOSE"],
+        AUTO_ACCEPTED: ["MONTH_CLOSE"],
+        ORCA_ACCEPTED: ["MONTH_CLOSE"],
+        DENIED: ["RECTIFY", "MONTH_CLOSE"],
+        MISSED: ["RECTIFY", "MONTH_CLOSE"],
         RECTIFIED: ["MONTH_CLOSE"],
         DELETED: [],
         SETTLED: [],
@@ -246,3 +322,21 @@ export function canTransition(
 ): boolean {
     return getValidTransitions(currentStatus).includes(event);
 }
+
+// Success statuses (task completed one way or another)
+export const SUCCESS_STATUSES: TaskStatus[] = ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED"];
+
+// Failure statuses (task not completed)
+export const FAILURE_STATUSES: TaskStatus[] = ["DENIED", "MISSED"];
+
+// Active (pre-completion) statuses
+export const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
+
+// Terminal statuses
+export const TERMINAL_STATUSES: TaskStatus[] = [
+    ...SUCCESS_STATUSES,
+    ...FAILURE_STATUSES,
+    "RECTIFIED",
+    "SETTLED",
+    "DELETED",
+];

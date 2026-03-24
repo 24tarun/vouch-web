@@ -223,15 +223,15 @@ export function DesktopLanding() {
             {/* Flow diagram */}
             <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "48px" }}>
               {[
-                { label: "CREATED",          cls: "badge-blue"    },
+                { label: "ACTIVE",           cls: "badge-blue"    },
                 { arrow: true },
                 { label: "POSTPONED",        cls: "badge-amber",  note: "once" },
                 { arrow: true },
                 { label: "AWAITING VOUCHER", cls: "badge-orange"  },
                 { arrow: true },
-                { label: "COMPLETED",        cls: "badge-emerald" },
+                { label: "ACCEPTED",         cls: "badge-emerald" },
                 { slash: true },
-                { label: "FAILED",           cls: "badge-red"     },
+                { label: "DENIED",           cls: "badge-red"     },
                 { arrow: true },
                 { label: "RECTIFIED",        cls: "badge-purple",  note: "≤5/mo" },
               ].map((item, i) => {
@@ -248,11 +248,11 @@ export function DesktopLanding() {
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1px", background: "var(--border)" }}>
               {[
-                { n: "01", title: "Commit",           badge: "CREATED",          cls: "badge-blue",    body: "Create a task with a title, deadline, failure cost (EUR/USD/INR), voucher, and optional subtasks, reminders, and pomodoro requirement. NLP tokens let you set all of this inline." },
+                { n: "01", title: "Commit",           badge: "ACTIVE",           cls: "badge-blue",    body: "Create a task with a title, deadline, failure cost (EUR/USD/INR), voucher, and optional subtasks, reminders, and pomodoro requirement. NLP tokens let you set all of this inline." },
                 { n: "02", title: "Work",             badge: "ACTIVE",           cls: "badge-cyan",    body: "Use the built-in Pomodoro timer to log focus sessions. Set required pomo minutes on the task — completion is blocked until they're met." },
                 { n: "03", title: "Submit",           badge: "AWAITING VOUCHER", cls: "badge-orange",  body: "Mark the task complete before the deadline. Optionally upload image or video proof. The task enters the voucher's review queue." },
                 { n: "04", title: "Voucher Reviews",  badge: "PENDING REVIEW",   cls: "badge-amber",   body: "Your voucher has ~2 days to accept or deny. They can request proof at any time. If they don't respond, the system auto-accepts and charges them 30¢." },
-                { n: "05", title: "Outcome",          badge: "COMPLETED / FAILED", cls: "badge-emerald", body: "Accept → COMPLETED, costs cleared. Deny → FAILED, failure cost logged to your monthly ledger. Voucher can rectify a failure within 7 days (max 5/month)." },
+                { n: "05", title: "Outcome",          badge: "ACCEPTED / DENIED", cls: "badge-emerald", body: "Accept → ACCEPTED, costs cleared. Deny → DENIED, failure cost logged to your monthly ledger. Voucher can rectify a failure within 7 days (max 5/month)." },
                 { n: "06", title: "Settle",           badge: "SETTLED",          cls: "badge-purple",  body: "At month-end a settlement email summarises your ledger. Outstanding balances go to a charity of your choice — automated payment coming soon." },
               ].map(({ n, title, badge, cls, body }) => (
                 <div key={n} className="step-card" style={{ background: "var(--bg)", padding: "40px 36px", border: "1px solid transparent" }}>
