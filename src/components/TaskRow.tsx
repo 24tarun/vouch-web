@@ -14,7 +14,7 @@ import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
-import { RecurringIndicator } from "@/components/tasks/RecurringIndicator";
+import { RecurringIndicator } from "@/design-system/badges";
 import {
     buildBeforeStartSubmissionMessage,
     getTaskSubmissionWindowState,
@@ -396,7 +396,7 @@ export function TaskRow({
     const statusColors: Record<string, string> = {
         ACTIVE: "text-blue-400 border-blue-400",
         POSTPONED: "text-amber-400 border-amber-400",
-        MARKED_COMPLETE: "text-amber-400 border-amber-400",
+        MARKED_COMPLETE: "text-emerald-400 border-emerald-400",
         AWAITING_VOUCHER: "text-amber-400 border-amber-400",
         AWAITING_ORCA: "text-amber-400 border-amber-400",
         AWAITING_USER: "text-orange-300 border-orange-300",
@@ -469,7 +469,7 @@ export function TaskRow({
                 disabled={!canAttachProof}
                 className={cn(
                     quickActionButtonClass,
-                    "text-blue-300 hover:text-blue-200 hover:bg-slate-800",
+                    "text-pink-400 hover:text-pink-300 hover:bg-slate-800",
                     !canAttachProof && "cursor-not-allowed opacity-50"
                 )}
                 aria-label="Attach proof"
@@ -640,7 +640,7 @@ export function TaskRow({
                                 className={cn(
                                     "h-7 w-7 p-0 border",
                                     hasProofAttached
-                                        ? "text-blue-300 border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20"
+                                        ? "text-pink-400 border-pink-400/40 bg-pink-400/10 hover:bg-pink-400/20"
                                         : "text-slate-300 border-slate-700/80 hover:text-white hover:bg-slate-800"
                                 )}
                                 aria-label="Attach proof"
@@ -783,7 +783,7 @@ export function TaskRow({
                                     disabled={!canAttachProof}
                                     className={cn(
                                         "h-10 w-10 flex items-center justify-center transition-colors",
-                                        canAttachProof ? "text-blue-300" : "text-slate-600 cursor-not-allowed"
+                                        canAttachProof ? "text-pink-400" : "text-slate-600 cursor-not-allowed"
                                     )}
                                     aria-label="Attach proof"
                                     title={hasProofAttached ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
@@ -1003,4 +1003,5 @@ export function TaskRow({
         </div>
     );
 }
+
 

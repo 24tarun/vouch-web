@@ -6,7 +6,6 @@ import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny, vouc
 import { sortPendingTasks } from "@/lib/voucher-pending-sort";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { FriendPomoActivity, TaskWithRelations, VoucherPendingTask } from "@/lib/types";
 import { Check, ChevronDown, ChevronRight, CircleHelp, Loader2, Timer, X } from "lucide-react";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
@@ -22,11 +21,12 @@ import { ProofMedia } from "@/components/ProofMedia";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
 import { useCollapsibleSection } from "@/lib/ui/useCollapsibleSection";
 import {
+    TaskStatusBadge,
+    HistoryTaskStatusBadge,
     VoucherDeadlineBadge,
-    VoucherPendingStatusBadge,
     VoucherPomoAccumulatedBadge,
     VoucherProofRequestBadge,
-} from "@/components/voucher/VoucherBadges";
+} from "@/design-system/badges";
 
 interface VoucherDashboardClientProps {
     pendingTasks: VoucherPendingTask[];
@@ -654,7 +654,10 @@ export function CompactPendingItem({
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <VoucherPendingStatusBadge pendingDisplayType={task.pending_display_type} />
+                    <TaskStatusBadge
+                        status={task.pending_display_type === "ACTIVE" ? "ACTIVE" : "AWAITING_VOUCHER"}
+                        className="font-medium tracking-normal"
+                    />
                     <VoucherDeadlineBadge
                         deadlineLabel={deadlineLabel}
                         hasValidDeadline={hasValidDeadline}
@@ -735,7 +738,7 @@ export function CompactPendingItem({
                             disabled={isLoading}
                             aria-label={`Request proof for task ${task.title}`}
                             title="Request proof"
-                            className="h-9 w-9 p-0 text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-500/30"
+                            className="h-9 w-9 p-0 text-pink-400 hover:text-pink-300 hover:bg-pink-400/10 border border-pink-400/30"
                         >
                             <CircleHelp className="h-4 w-4" strokeWidth={2.5} />
                         </Button>
@@ -802,17 +805,6 @@ function CompactHistoryItem({
 }) {
     const [renderNow] = useState(() => Date.now());
 
-    const statusColors: Record<string, string> = {
-        ACCEPTED: "text-lime-300",
-        AUTO_ACCEPTED: "text-lime-300",
-        ORCA_ACCEPTED: "text-lime-300",
-        DENIED: "text-[#dc322f]",
-        MISSED: "text-[#dc322f]",
-        RECTIFIED: "text-[#cb4b16]",
-        SETTLED: "text-[#F2C7D0]",
-        DELETED: "text-slate-500",
-    };
-
     const isRectifiable = task.status === "DENIED" || task.status === "MISSED";
     const withinRectifyWindow = isWithinRectifyWindow(task.updated_at, renderNow);
     const passLimitReached = (task.rectify_passes_used ?? 0) >= 5;
@@ -829,11 +821,7 @@ function CompactHistoryItem({
                     >
                         {task.title}
                     </div>
-                    <Badge variant="outline" className={`text-[10px] h-4 py-0 px-1 border-slate-800 ${statusColors[task.status] || "text-slate-400"}`}>
-                        {task.status === "AUTO_ACCEPTED"
-                            ? "VOUCHER DID NOT RESPOND"
-                            : task.status}
-                    </Badge>
+                    <HistoryTaskStatusBadge status={task.status} />
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
                     <span className="text-slate-400">{task.user?.username || "Unknown"}</span> .{" "}
@@ -863,3 +851,4 @@ function CompactHistoryItem({
         </div>
     );
 }
+

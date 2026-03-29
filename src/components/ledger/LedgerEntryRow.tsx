@@ -1,5 +1,6 @@
-import { Badge } from "@/components/ui/badge";
 import { formatCurrencyFromCents, type SupportedCurrency } from "@/lib/currency";
+import { TaskStatusBadge } from "@/design-system/badges";
+import type { TaskStatus } from "@/lib/xstate/task-machine";
 import { ExternalLink } from "lucide-react";
 import Link from "next/link";
 
@@ -15,20 +16,36 @@ interface LedgerEntryRowProps {
     compact?: boolean;
 }
 
-function getLedgerEntryTypeLabel(entryType: string, taskStatus?: string | null): string {
-    if (entryType === "failure") return taskStatus === "DENIED" ? "Denied" : "Missed";
-    if (entryType === "voucher_timeout_penalty") return "Voucher Timeout Penalty";
-    if (entryType === "override") return "Override";
-    if (entryType === "force_majeure") return "Override";
-    if (entryType === "rectified") return "Rectified";
-    return entryType;
-}
+const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
+    "ACTIVE",
+    "POSTPONED",
+    "MARKED_COMPLETE",
+    "AWAITING_VOUCHER",
+    "AWAITING_ORCA",
+    "ORCA_DENIED",
+    "AWAITING_USER",
+    "ESCALATED",
+    "ACCEPTED",
+    "AUTO_ACCEPTED",
+    "ORCA_ACCEPTED",
+    "DENIED",
+    "MISSED",
+    "RECTIFIED",
+    "DELETED",
+    "SETTLED",
+]);
 
-function getLedgerEntryTypeColorClass(entryType: string): string {
-    if (entryType === "failure") return "text-red-500";
-    if (entryType === "voucher_timeout_penalty") return "text-orange-400";
-    if (entryType === "override" || entryType === "force_majeure") return "text-yellow-500";
-    return "text-green-500";
+function resolveLedgerBadgeStatus(entryType: string, taskStatus?: string | null): TaskStatus {
+    if (entryType === "failure") {
+        return taskStatus === "DENIED" ? "DENIED" : "MISSED";
+    }
+    if (entryType === "rectified") return "RECTIFIED";
+    if (entryType === "override" || entryType === "force_majeure") return "SETTLED";
+    if (entryType === "voucher_timeout_penalty") return "AWAITING_VOUCHER";
+    if (taskStatus && TASK_STATUS_VALUE_SET.has(taskStatus as TaskStatus)) {
+        return taskStatus as TaskStatus;
+    }
+    return "DELETED";
 }
 
 export function LedgerEntryRow({
@@ -45,6 +62,7 @@ export function LedgerEntryRow({
     const absAmountLabel = formatCurrencyFromCents(Math.abs(amountCents), currency);
     const createdAtDate = new Date(createdAt);
     const rowId = id || `${entryType}-${String(createdAt)}-${title}`;
+    const badgeStatus = resolveLedgerBadgeStatus(entryType, taskStatus);
 
     return (
         <div
@@ -56,12 +74,7 @@ export function LedgerEntryRow({
                     <p className={`${compact ? "text-base" : "text-lg"} font-medium text-slate-300 group-hover:text-slate-100 transition-colors truncate`}>
                         {title}
                     </p>
-                    <Badge
-                        variant="outline"
-                        className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${getLedgerEntryTypeColorClass(entryType)}`}
-                    >
-                        {getLedgerEntryTypeLabel(entryType, taskStatus)}
-                    </Badge>
+                    <TaskStatusBadge status={badgeStatus} className="font-medium tracking-normal" />
                     {taskHref && (
                         <Link
                             href={taskHref}

@@ -1147,7 +1147,7 @@ export async function cancelRepetition(taskId: string) {
     // Get task to find recurrence_rule_id
     // @ts-ignore
     const { data: task } = await supabase.from("tasks")
-        .select("recurrence_rule_id")
+        .select("recurrence_rule_id, status")
         .eq("id", taskId)
         .eq("user_id", user.id)
         .single();
@@ -1180,6 +1180,18 @@ export async function cancelRepetition(taskId: string) {
         .eq("user_id", user.id);
 
     if (error) return { error: error.message };
+
+    const { error: eventError } = await (supabase.from("task_events") as any).insert({
+        task_id: taskId,
+        event_type: "REPETITION_STOPPED",
+        actor_id: user.id,
+        from_status: (task as any).status,
+        to_status: (task as any).status,
+    });
+
+    if (eventError) {
+        console.error("Failed to log REPETITION_STOPPED event:", eventError);
+    }
 
     revalidatePath("/tasks");
     revalidatePath(`/tasks/${taskId}`);

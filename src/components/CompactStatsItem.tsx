@@ -1,9 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import { ExternalLink, Repeat, Timer } from "lucide-react";
-import { formatPomoBadge } from "@/lib/format-pomo";
+import { ExternalLink } from "lucide-react";
+import {
+    StatsPomoBadge,
+    StatsRecurringBadge,
+    TaskStatusBadge,
+} from "@/design-system/badges";
+import type { TaskStatus } from "@/lib/xstate/task-machine";
 
 export interface CompactStatsTask {
     id: string;
@@ -29,6 +33,35 @@ interface CompactStatsItemProps {
     onRowClick?: () => void;
 }
 
+const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
+    "ACTIVE",
+    "POSTPONED",
+    "MARKED_COMPLETE",
+    "AWAITING_VOUCHER",
+    "AWAITING_ORCA",
+    "ORCA_DENIED",
+    "AWAITING_USER",
+    "ESCALATED",
+    "ACCEPTED",
+    "AUTO_ACCEPTED",
+    "ORCA_ACCEPTED",
+    "DENIED",
+    "MISSED",
+    "RECTIFIED",
+    "DELETED",
+    "SETTLED",
+]);
+
+function resolveStatsBadgeStatus(status: string, forceActiveBadge: boolean): TaskStatus {
+    if (forceActiveBadge && (status === "ACTIVE" || status === "POSTPONED")) {
+        return "ACTIVE";
+    }
+    if (TASK_STATUS_VALUE_SET.has(status as TaskStatus)) {
+        return status as TaskStatus;
+    }
+    return "DELETED";
+}
+
 export function CompactStatsItem({
     task,
     forceActiveBadge = false,
@@ -36,40 +69,6 @@ export function CompactStatsItem({
 }: CompactStatsItemProps) {
     const router = useRouter();
     const detailPath = `/tasks/${task.id}`;
-
-    const statusColors: Record<string, string> = {
-        ACTIVE: "text-blue-400",
-        POSTPONED: "text-amber-400",
-        MARKED_COMPLETE: "text-amber-400",
-        AWAITING_VOUCHER: "text-amber-400",
-        AWAITING_ORCA: "text-amber-400",
-        AWAITING_USER: "text-orange-300",
-        ACCEPTED: "text-lime-300",
-        AUTO_ACCEPTED: "text-lime-300",
-        ORCA_ACCEPTED: "text-lime-300",
-        DENIED: "text-red-500",
-        MISSED: "text-red-500",
-        RECTIFIED: "text-orange-500",
-        SETTLED: "text-[#F2C7D0]",
-        DELETED: "text-slate-500",
-    };
-
-    const statusLabels: Record<string, string> = {
-        ACTIVE: "ACTIVE",
-        POSTPONED: "POSTPONED",
-        MARKED_COMPLETE: "AWAITING VOUCHER",
-        AWAITING_VOUCHER: "AWAITING VOUCHER",
-        AWAITING_ORCA: "AWAITING VOUCHER",
-        AWAITING_USER: "AWAITING USER",
-        ACCEPTED: "ACCEPTED",
-        AUTO_ACCEPTED: "VOUCHER DID NOT RESPOND",
-        ORCA_ACCEPTED: "ACCEPTED",
-        DENIED: "DENIED",
-        MISSED: "MISSED",
-        RECTIFIED: "RECTIFIED",
-        SETTLED: "OVERRIDE",
-        DELETED: "DELETED",
-    };
 
     const formatDate = (dateStr: string | null | undefined) => {
         if (!dateStr) return "Unknown date";
@@ -84,13 +83,13 @@ export function CompactStatsItem({
     };
 
     const pomoTotalSeconds = task.pomo_total_seconds || 0;
-    const statusColorClass = statusColors[task.status] || "text-slate-500";
     const isActiveTask = task.status === "ACTIVE" || task.status === "POSTPONED";
     const hasOpenProofRequest =
         Boolean(task.proof_request_open) &&
         (task.status === "AWAITING_VOUCHER" || task.status === "AWAITING_ORCA" || task.status === "MARKED_COMPLETE");
     const proofRequestedByLabel = task.voucher?.username || "Your voucher";
     const shouldPrefetchDetail = PREFETCH_STATUSES.has(task.status);
+    const statusBadge = resolveStatsBadgeStatus(task.status, forceActiveBadge);
     const openTaskDetails = () => {
         router.push(detailPath);
     };
@@ -115,31 +114,12 @@ export function CompactStatsItem({
                     <p className="text-lg font-medium text-white group-hover:text-blue-400 transition-colors truncate">
                         {task.title}
                     </p>
-                    {forceActiveBadge && isActiveTask && (
-                        <Badge variant="outline" className="text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter text-blue-400">
-                            ACTIVE
-                        </Badge>
-                    )}
-                    {!(forceActiveBadge && task.status === "ACTIVE") && (
-                        <Badge variant="outline" className={`text-[9px] h-4 py-0 px-1 border-slate-900 uppercase tracking-tighter ${statusColorClass}`}>
-                            {statusLabels[task.status] || task.status}
-                        </Badge>
-                    )}
+                    <TaskStatusBadge status={statusBadge} className="font-medium tracking-normal" />
                     {task.recurrence_rule_id && (
-                        <Badge
-                            variant="outline"
-                            className="h-4 py-0 px-1 border-purple-500/40 bg-purple-500/10 text-purple-300"
-                            aria-label="Repeating task"
-                            title="Repeating task"
-                        >
-                            <Repeat className="h-3 w-3 text-purple-400" />
-                        </Badge>
+                        <StatsRecurringBadge />
                     )}
-                    {!isActiveTask && pomoTotalSeconds > 0 && (
-                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-300 border-emerald-500/30 text-[10px]">
-                            <Timer className="h-3 w-3 mr-1" />
-                            {formatPomoBadge(pomoTotalSeconds)}
-                        </Badge>
+                    {!isActiveTask && (
+                        <StatsPomoBadge totalSeconds={pomoTotalSeconds} />
                     )}
                 </div>
                 <p className="text-xs text-slate-400 mt-1" suppressHydrationWarning>
@@ -148,7 +128,7 @@ export function CompactStatsItem({
                         : `Updated on ${formatDate(task.updated_at || task.deadline)}`}
                 </p>
                 {hasOpenProofRequest && (
-                    <p className="text-xs text-amber-300 mt-2">
+                    <p className="text-xs text-pink-400 mt-2">
                         {proofRequestedByLabel} has asked for proof.
                     </p>
                 )}

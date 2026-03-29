@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-// import { Timer } from "lucide-react"; // kept for easy revert
-import { TomatoPixelIcon } from "@/components/TomatoPixelIcon";
+import { Timer } from "lucide-react";
 import { usePomodoro } from "@/components/PomodoroProvider";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -58,8 +57,7 @@ export function PomoButton({
         if (isActive) {
             return (
                 <div className={cn("text-cyan-400 animate-pulse flex items-center gap-2", className)}>
-                    {/* <Timer className="w-4 h-4" /> */}
-                    <TomatoPixelIcon size={24} speed={2.2} glow={1.2} />
+                    <Timer className="w-4 h-4" />
                     <span className="text-xs font-mono">Running</span>
                 </div>
             );
@@ -79,8 +77,7 @@ export function PomoButton({
                     className="h-full px-3 text-cyan-400 hover:text-cyan-300 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)] transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Start Focus Session"
                 >
-                    {/* <Timer className="w-4 h-4" /> */}
-                    <TomatoPixelIcon size={24} speed={1.5} glow={0.8} />
+                    <Timer className="w-4 h-4" />
                 </button>
                 <div className="h-5 w-px bg-cyan-500/30" />
                 <div className={cn(
@@ -134,8 +131,7 @@ export function PomoButton({
             title={isActive ? "Pomodoro running" : `Start ${normalizedDefaultDuration} minute focus session`}
             aria-label={isActive ? "Pomodoro running" : "Start pomodoro"}
         >
-            {/* <Timer className="w-4 h-4" /> */}
-            <TomatoPixelIcon size={24} speed={isActive ? 2.2 : 1.0} glow={isActive ? 1.8 : 1.0} />
+            <Timer className="w-4 h-4" />
         </button>
     );
 }

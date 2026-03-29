@@ -72,8 +72,14 @@ import {
     buildBeforeStartSubmissionMessage,
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
-import { TaskStatusBadge } from "@/components/tasks/TaskStatusBadge";
-import { RecurringIndicator } from "@/components/tasks/RecurringIndicator";
+import type { TaskStatus } from "@/lib/xstate/task-machine";
+import {
+    ACTIVITY_TIMELINE_META_TEXT_CLASS,
+    ActivityEventBadge,
+    RecurringIndicator,
+    TaskStatusBadge,
+} from "@/design-system/badges";
+import { TASK_DETAIL_BUTTON_CLASSES } from "@/design-system/task_detail_buttons";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -100,16 +106,12 @@ type RestoredTaskStatus = "ACTIVE" | "POSTPONED";
 
 interface ActivityStep {
     id: string;
-    title: string;
-    transition: string | null;
+    tag:
+        | { kind: "status"; status: TaskStatus }
+        | { kind: "event"; eventType: string; elapsedSeconds?: number };
     detail: string | null;
     timestamp: string;
-    tone: "success" | "danger" | "warning" | "info" | "neutral";
-    titleColorClass: string;
-    transitionFromLabel: string | null;
-    transitionToLabel: string | null;
-    transitionFromColorClass: string;
-    transitionToColorClass: string;
+    tone: "success" | "danger" | "warning" | "info" | "proof" | "neutral";
 }
 
 interface ProofUploadTarget {
@@ -119,6 +121,30 @@ interface ProofUploadTarget {
 }
 
 type ProofPickerMode = "draft" | "awaiting-upload";
+
+const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
+    "ACTIVE",
+    "POSTPONED",
+    "MARKED_COMPLETE",
+    "AWAITING_VOUCHER",
+    "AWAITING_ORCA",
+    "ORCA_DENIED",
+    "AWAITING_USER",
+    "ESCALATED",
+    "ACCEPTED",
+    "AUTO_ACCEPTED",
+    "ORCA_ACCEPTED",
+    "DENIED",
+    "MISSED",
+    "RECTIFIED",
+    "DELETED",
+    "SETTLED",
+]);
+
+function isTaskStatus(value: string | null | undefined): value is TaskStatus {
+    if (!value) return false;
+    return TASK_STATUS_VALUE_SET.has(value as TaskStatus);
+}
 
 function getRestoredStatusFromRevertResult(
     result: Awaited<ReturnType<typeof revertTaskCompletionAfterProofFailure>>
@@ -211,8 +237,8 @@ export default function TaskDetailClient({
     const canManageActionChildren = isOwner && isActiveParentTask;
     const ownerCurrency = normalizeCurrency(taskState.user?.currency ?? viewerCurrency);
     const formattedFailureCost = formatCurrencyFromCents(taskState.failure_cost_cents, ownerCurrency);
-    const uniformActionButtonClass = "h-9 px-4 text-[12px] leading-none whitespace-nowrap";
-    const activeRowActionButtonClass = "h-12 px-5 text-[13px] leading-none whitespace-nowrap";
+    const uniformActionButtonClass = TASK_DETAIL_BUTTON_CLASSES.size.uniform;
+    const activeRowActionButtonClass = TASK_DETAIL_BUTTON_CLASSES.size.active;
     const canUseOverride =
         isOwner &&
         (taskState.status === "DENIED" || taskState.status === "MISSED") &&
@@ -1479,97 +1505,6 @@ export default function TaskDetailClient({
     const formatDateTimeDdMmYyyy24h = (value: Date | string) =>
         `${formatDateDdMmYyyy(value)} ${formatTime24h(value)}`;
 
-    const formatStatusLabel = (status: string | null | undefined) =>
-        status ? status.replace(/_/g, " ") : "UNKNOWN";
-
-    const statusTextColors: Record<string, string> = {
-        ACTIVE: "text-blue-300",
-        POSTPONED: "text-amber-300",
-        MARKED_COMPLETE: "text-amber-400",
-        AWAITING_VOUCHER: "text-amber-400",
-        AWAITING_ORCA: "text-amber-400",
-        ORCA_DENIED: "text-red-300",
-        AWAITING_USER: "text-orange-300",
-        ESCALATED: "text-blue-300",
-        ACCEPTED: "text-emerald-300",
-        AUTO_ACCEPTED: "text-emerald-300",
-        ORCA_ACCEPTED: "text-emerald-300",
-        DENIED: "text-red-300",
-        MISSED: "text-red-300",
-        RECTIFIED: "text-orange-300",
-        SETTLED: "text-[#F2C7D0]",
-        DELETED: "text-slate-300",
-    };
-
-    const eventLabelTextColors: Record<string, string> = {
-        ACTIVE: "text-blue-300",
-        CREATED: "text-blue-300",
-        MARK_COMPLETE: "text-purple-300",
-        UNDO_COMPLETE: "text-blue-300",
-        PROOF_UPLOAD_FAILED_REVERT: "text-amber-300",
-        PROOF_REMOVED: "text-amber-300",
-        PROOF_REQUESTED: "text-purple-300",
-        PROOF_UPLOADED: "text-cyan-300",
-        VOUCHER_ACCEPT: "text-emerald-300",
-        VOUCHER_DENY: "text-red-300",
-        VOUCHER_DELETE: "text-red-300",
-        RECTIFY: "text-orange-300",
-        OVERRIDE: "text-[#F2C7D0]",
-        DEADLINE_MISSED: "text-red-300",
-        VOUCHER_TIMEOUT: "text-amber-300",
-        POMO_COMPLETED: "text-cyan-300",
-        DEADLINE_WARNING_1H: "text-amber-300",
-        DEADLINE_WARNING_5M: "text-amber-300",
-        GOOGLE_EVENT_CANCELLED: "text-red-300",
-        POSTPONE: "text-amber-300",
-        AI_APPROVE: "text-emerald-300",
-        AI_DENY: "text-red-300",
-        ORCA_DENIED_AUTO_HOP: "text-orange-300",
-        ESCALATE: "text-blue-300",
-        AI_ESCALATE_TO_HUMAN: "text-blue-300",
-        ACCEPT_DENIAL: "text-red-300",
-    };
-
-    const getStatusTextColorClass = (status: string | null | undefined) => {
-        if (!status) return "text-slate-300";
-        return statusTextColors[status] ?? "text-slate-300";
-    };
-
-    const getEventLabelTextColorClass = (eventType: string) =>
-        eventLabelTextColors[eventType] ?? "text-slate-200";
-
-    const formatEventActionLabel = (event: TaskEvent) => {
-        if (event.event_type === "ACTIVE" || event.event_type === "CREATED") {
-            return "ACTIVE";
-        }
-        if (event.event_type === "POMO_COMPLETED") {
-            const elapsedSeconds = getPomoElapsedSeconds(event);
-            return `POMO COMPLETED (${formatFocusTime(elapsedSeconds)})`;
-        }
-        if (event.event_type === "PROOF_REQUESTED") {
-            return "PROOF REQUESTED";
-        }
-        if (event.event_type === "PROOF_UPLOADED") {
-            return "PROOF UPLOADED";
-        }
-        if (event.event_type === "PROOF_REMOVED") {
-            return "PROOF REMOVED";
-        }
-        if (event.event_type === "AI_APPROVE") {
-            return "ORCA APPROVED";
-        }
-        if (event.event_type === "AI_DENY") {
-            return "ORCA DENIED";
-        }
-        if (event.event_type === "DEADLINE_WARNING_1H") {
-            return "1HR LEFT REMINDER SENT";
-        }
-        if (event.event_type === "DEADLINE_WARNING_5M") {
-            return "5MIN LEFT REMINDER SENT";
-        }
-        return event.event_type.replace(/_/g, " ");
-    };
-
     const formatEventTimestamp = (event: TaskEvent) => {
         if (event.event_type !== "POMO_COMPLETED") {
             return formatDateTimeDdMmYyyy24h(event.created_at);
@@ -1596,7 +1531,10 @@ export default function TaskDetailClient({
         if (event.event_type === "DEADLINE_WARNING_1H" || event.event_type === "DEADLINE_WARNING_5M") {
             return "warning";
         }
-        if (["POMO_COMPLETED", "PROOF_REQUESTED", "PROOF_UPLOADED", "PROOF_REMOVED"].includes(event.event_type)) {
+        if (["PROOF_UPLOAD_FAILED_REVERT", "PROOF_REQUESTED", "PROOF_UPLOADED", "PROOF_REMOVED"].includes(event.event_type)) {
+            return "proof";
+        }
+        if (["POMO_COMPLETED", "REPETITION_STOPPED"].includes(event.event_type)) {
             return "info";
         }
         return "neutral";
@@ -1647,19 +1585,16 @@ export default function TaskDetailClient({
         let aiEventCounter = 0;
         return visibleEvents.map((event) => {
             const hasTransition = event.from_status !== event.to_status;
-            const baseTitle = hasTransition
-                ? formatStatusLabel(event.to_status)
-                : formatEventActionLabel(event);
-            const titleColorClass = hasTransition
-                ? getStatusTextColorClass(event.to_status)
-                : getEventLabelTextColorClass(event.event_type);
-            const transition = hasTransition
-                ? `${formatStatusLabel(event.from_status)} -> ${formatStatusLabel(event.to_status)}`
-                : null;
-            const transitionFromLabel = hasTransition ? formatStatusLabel(event.from_status) : null;
-            const transitionToLabel = hasTransition ? formatStatusLabel(event.to_status) : null;
-            const transitionFromColorClass = getStatusTextColorClass(event.from_status);
-            const transitionToColorClass = getStatusTextColorClass(event.to_status);
+            const toStatus = event.to_status;
+            const elapsedSeconds = event.event_type === "POMO_COMPLETED"
+                ? getPomoElapsedSeconds(event)
+                : undefined;
+            const tag: ActivityStep["tag"] =
+                event.event_type === "MARK_COMPLETE"
+                    ? { kind: "status", status: "MARKED_COMPLETE" }
+                    : hasTransition && isTaskStatus(toStatus)
+                    ? { kind: "status", status: toStatus }
+                    : { kind: "event", eventType: event.event_type, elapsedSeconds };
 
             const detailParts: string[] = [];
             if (event.event_type === "POSTPONE") {
@@ -1686,16 +1621,10 @@ export default function TaskDetailClient({
 
             return {
                 id: event.id,
-                title: baseTitle,
-                transition,
+                tag,
                 detail,
                 timestamp: formatEventTimestamp(event),
                 tone: getActivityStepTone(event),
-                titleColorClass,
-                transitionFromLabel,
-                transitionToLabel,
-                transitionFromColorClass,
-                transitionToColorClass,
             };
         });
     }, [visibleEvents, aiVouches]);
@@ -1806,14 +1735,14 @@ export default function TaskDetailClient({
                             </p>
                         )}
                         {hasOpenProofRequest && (
-                            <p className="text-xs font-mono text-amber-300/80">
+                            <p className="text-xs font-mono text-pink-400/80">
                                 ↳ {proofRequestedByLabel} has asked for proof
                             </p>
                         )}
                         <div className="flex flex-wrap gap-2 pt-1">
                             {isOwner && (
                                 <Button type="button" variant="outline" onClick={() => openProofPicker("awaiting-upload")} disabled={isActionPending("awaitingProofUpload")}
-                                    className={cn(uniformActionButtonClass, "bg-transparent border-purple-500/25 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 hover:text-purple-200")}>
+                                    className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.awaiting.addProof)}>
                                     {storedProof ? "Replace Proof" : "Add Proof"}
                                 </Button>
                             )}
@@ -1821,7 +1750,7 @@ export default function TaskDetailClient({
                                 <Button type="button" variant="outline" onClick={handleUndoComplete}
                                     disabled={isActionPending("undoComplete") || isOverdue}
                                     title={isOverdue ? "Undo complete is unavailable after deadline" : "Undo complete"}
-                                    className={cn(uniformActionButtonClass, "bg-transparent border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200")}>
+                                    className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.awaiting.undoComplete)}>
                                     Undo Complete
                                 </Button>
                             )}
@@ -1844,7 +1773,7 @@ export default function TaskDetailClient({
                         <div className="flex flex-wrap gap-2 pt-1">
                             {isOwner && (
                                 <Button type="button" variant="outline" onClick={() => openProofPicker("awaiting-upload")} disabled={isActionPending("awaitingProofUpload")}
-                                    className={cn(uniformActionButtonClass, "bg-transparent border-purple-500/25 text-purple-300 hover:bg-purple-500/10 hover:border-purple-400/50 hover:text-purple-200")}>
+                                    className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.awaiting.addProof)}>
                                     {storedProof ? "Replace Proof" : "Add Proof"}
                                 </Button>
                             )}
@@ -1852,7 +1781,7 @@ export default function TaskDetailClient({
                                 <Button type="button" variant="outline" onClick={handleUndoComplete}
                                     disabled={isActionPending("undoComplete") || isOverdue}
                                     title={isOverdue ? "Undo complete is unavailable after deadline" : "Undo complete"}
-                                    className={cn(uniformActionButtonClass, "bg-transparent border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200")}>
+                                    className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.awaiting.undoComplete)}>
                                     Undo Complete
                                 </Button>
                             )}
@@ -1895,14 +1824,14 @@ export default function TaskDetailClient({
                         <div className="flex flex-wrap gap-2 pt-1">
                             {canResubmit && isOwner && (
                                 <button type="button" onClick={() => openProofPicker("awaiting-upload")} disabled={isActionPending("awaitingProofUpload")}
-                                    className={cn("flex items-center gap-2 rounded border border-orange-500/30 bg-orange-900/15 text-orange-300 hover:bg-orange-800/25 hover:text-orange-100 transition-colors cursor-pointer disabled:opacity-50", uniformActionButtonClass)}>
+                                    className={cn(TASK_DETAIL_BUTTON_CLASSES.awaiting.resubmitProof, uniformActionButtonClass)}>
                                     <Camera className="h-3.5 w-3.5" />
                                     Upload New Proof
                                 </button>
                             )}
                             {isOwner && (
                                 <Button variant="ghost" onClick={() => { if (!friends.length && !friendsLoading) loadFriendsForEscalation(); setShowEscalationPicker(true); }} disabled={escalationPending}
-                                    className={cn(uniformActionButtonClass, "border border-blue-700/40 bg-blue-900/15 text-blue-300 hover:bg-blue-800/25 hover:text-blue-100")}>
+                                    className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.awaiting.escalateToFriend)}>
                                     Escalate to Friend
                                 </Button>
                             )}
@@ -1951,13 +1880,13 @@ export default function TaskDetailClient({
             {storedProof && storedProofSrc && (
                 <div className="td-rise td-d3 space-y-2">
                     <div className="flex items-center gap-3">
-                        <div style={{ width: 24, height: 1, background: '#00d9ff', boxShadow: '0 0 6px rgba(0,217,255,0.35)', flexShrink: 0 }} />
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">
+                        <div style={{ width: 24, height: 1, background: '#f472b6', boxShadow: '0 0 6px rgba(244,114,182,0.35)', flexShrink: 0 }} />
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
                             completion proof ({storedProof.media_kind})
                         </span>
                         {isOwner && ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(taskState.status) && (
                             <Button type="button" variant="ghost" onClick={handleRemoveStoredProof} disabled={isActionPending("removeStoredProof")}
-                                className="ml-auto h-7 px-2 text-[11px] text-red-400/70 hover:text-red-300 bg-transparent hover:bg-red-950/30 border border-red-900/30">
+                                className={TASK_DETAIL_BUTTON_CLASSES.proof.removeStored}>
                                 Remove
                             </Button>
                         )}
@@ -1977,18 +1906,18 @@ export default function TaskDetailClient({
             {proofDraft && (
                 <div className="td-rise td-d3 space-y-2">
                     <div className="flex items-center gap-3">
-                        <div style={{ width: 24, height: 1, background: '#00d9ff', boxShadow: '0 0 6px rgba(0,217,255,0.35)', flexShrink: 0 }} />
-                        <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">
+                        <div style={{ width: 24, height: 1, background: '#f472b6', boxShadow: '0 0 6px rgba(244,114,182,0.35)', flexShrink: 0 }} />
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
                             {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_ORCA" || taskState.status === "AWAITING_USER" || taskState.status === "MARKED_COMPLETE")
                                 ? `ready to upload (${proofDraft.proof.mediaKind})`
                                 : `proof attached (${proofDraft.proof.mediaKind})`}
                         </span>
                         <Button type="button" variant="ghost" onClick={() => setTaskProofDraft(null)}
-                            className="ml-auto h-7 px-2 text-[11px] text-slate-500 hover:text-slate-300 bg-transparent border border-slate-800">
+                            className={TASK_DETAIL_BUTTON_CLASSES.proof.removeDraft}>
                             Remove
                         </Button>
                     </div>
-                    <div className="rounded-xl overflow-hidden border border-blue-500/15 bg-blue-950/10">
+                    <div className="rounded-xl overflow-hidden border border-pink-400/20 bg-pink-950/10">
                         <ProofMedia mediaKind={proofDraft.proof.mediaKind} src={proofDraft.previewUrl} alt="Selected proof"
                             overlayTimestampText={proofDraft.proof.overlayTimestampText}
                             imageClassName="w-full max-h-56 object-cover"
@@ -2028,22 +1957,22 @@ export default function TaskDetailClient({
                 )}
                 <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-3 sm:p-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <div className={cn(!isOwner || !isActiveParentTask ? "pointer-events-none opacity-45 saturate-0" : "")}>
+                        <div className={cn(!isOwner || !isActiveParentTask ? TASK_DETAIL_BUTTON_CLASSES.actions.pomoWrapperDisabled : "")}>
                             <PomoButton
                                 taskId={taskState.id}
                                 variant="full"
-                                className="h-12 w-full"
+                                className={TASK_DETAIL_BUTTON_CLASSES.actions.pomoButton}
                                 defaultDurationMinutes={defaultPomoDurationMinutes}
                                 fullDurationSuffixText="m pomodoro?"
                             />
                         </div>
                         <Button type="button" variant="ghost" onClick={() => openProofPicker("draft")} disabled={isActionPending("markComplete") || !isOwner}
-                            className={cn("h-12 w-full p-0 border transition-all justify-center",
+                            className={cn(TASK_DETAIL_BUTTON_CLASSES.actions.attachProofBase,
                                 proofDraft && isOwner
-                                    ? "border-cyan-500/40 bg-cyan-500/8 text-cyan-300"
-                                    : "border-cyan-500/35 bg-cyan-500/8 text-cyan-300 hover:bg-cyan-500/15 hover:text-cyan-200",
-                                (!isOwner) && "border-slate-800 text-slate-700 cursor-not-allowed")}
-                            style={proofDraft && isOwner ? { boxShadow: '0 0 12px rgba(0,217,255,0.18)' } : {}}
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.attachProofAttached
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.attachProofEnabled,
+                                (!isOwner) && TASK_DETAIL_BUTTON_CLASSES.actions.attachProofDisabled)}
+                            style={proofDraft && isOwner ? { boxShadow: '0 0 12px rgba(244,114,182,0.2)' } : {}}
                             title={proofDraft ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
                             aria-label="Attach proof">
                             <Camera className="h-5 w-5" />
@@ -2052,8 +1981,8 @@ export default function TaskDetailClient({
                             disabled={isActionPending("markComplete") || !isOwner || !isActiveParentTask || isOverdue || isBeforeStart || incompleteSubtasksCount > 0 || hasIncompletePomoRequirement || hasRunningPomoForTask}
                             className={cn(activeRowActionButtonClass, "w-full justify-center transition-all border",
                                 (!isOwner || !isActiveParentTask || isBeforeStart || incompleteSubtasksCount > 0 || hasIncompletePomoRequirement || hasRunningPomoForTask || isOverdue)
-                                    ? "border-slate-800 bg-transparent text-slate-500 cursor-not-allowed"
-                                    : "border-emerald-500/35 bg-emerald-500/8 text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200")}
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.markCompleteDisabled
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.markCompleteEnabled)}
                             title={isBeforeStart ? beforeStartMessage : "Mark complete"}>
                             {isActionPending("markComplete") ? "..." : "Mark Complete"}
                         </Button>
@@ -2061,16 +1990,16 @@ export default function TaskDetailClient({
                             disabled={isActionPending("postpone") || !isOwner || taskState.status !== "ACTIVE" || Boolean(taskState.postponed_at) || isOverdue}
                             className={cn(activeRowActionButtonClass, "w-full justify-center border",
                                 (!isOwner || taskState.status !== "ACTIVE" || Boolean(taskState.postponed_at) || isOverdue)
-                                    ? "border-slate-800 bg-transparent text-slate-500 cursor-not-allowed"
-                                    : "border-amber-500/35 bg-amber-500/8 text-amber-300 hover:bg-amber-500/15 hover:border-amber-500/45 hover:text-amber-200")}>
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.postponeDisabled
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.postponeEnabled)}>
                             Postpone once?
                         </Button>
                         <Button variant="ghost" onClick={handleCancelRepetition}
                             disabled={isActionPending("cancelRepetition") || !isOwner || !taskState.recurrence_rule_id || isRepetitionStopped}
                             className={cn(activeRowActionButtonClass, "w-full justify-center border",
                                 (!isOwner || !taskState.recurrence_rule_id || isRepetitionStopped)
-                                    ? "border-slate-800 text-slate-600 cursor-not-allowed"
-                                    : "border-red-900/40 bg-red-950/15 text-red-400/80 hover:bg-red-900/25 hover:text-red-300")}>
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.stopRepeatingDisabled
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.stopRepeatingEnabled)}>
                             <Repeat className="mr-1.5 h-3.5 w-3.5" />
                             {isRepetitionStopped ? "Repetitions Stopped" : "Stop Repeating"}
                         </Button>
@@ -2078,36 +2007,36 @@ export default function TaskDetailClient({
                             disabled={isActionPending("override") || !canUseOverride}
                             className={cn(activeRowActionButtonClass, "w-full justify-center border",
                                 !canUseOverride
-                                    ? "border-slate-800 text-slate-600 cursor-not-allowed"
-                                    : "border-slate-700 bg-slate-800/30 text-slate-300 hover:text-white hover:bg-slate-700/50")}>
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.overrideDisabled
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.overrideEnabled)}>
                             Use Override
                         </Button>
                         <Button type="button" variant="ghost" onClick={handleTempDelete} disabled={isActionPending("tempDelete") || !isOwner || !canTempDelete}
                             className={cn("h-12 w-full p-0 border transition-colors justify-center",
                                 (isOwner && canTempDelete)
-                                    ? "border-red-900/40 text-red-400/70 hover:bg-red-950/25 hover:text-red-300"
-                                    : "border-slate-800 text-slate-700 cursor-not-allowed")}
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.deleteEnabled
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.deleteDisabled)}
                             title={canTempDelete ? "Delete task" : "Delete available only within 5 min of creation"}
                             aria-label="Delete task">
                             <Trash2 className="h-5 w-5" />
                         </Button>
                         <Button type="button" variant="ghost" onClick={handleToggleSubtasksSection} disabled={!isOwner}
-                            className={cn(activeRowActionButtonClass, "w-full justify-between border px-3",
+                            className={cn(activeRowActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.actions.toggleBase,
                                 !isOwner
-                                    ? "border-slate-800 text-slate-700 cursor-not-allowed"
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleDisabled
                                     : subtasksSectionOpen
-                                        ? "border-slate-600 bg-slate-900/70 text-slate-200"
-                                        : "border-slate-800 bg-slate-900/30 text-slate-400 hover:bg-slate-900/50 hover:text-slate-300")}>
+                                        ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleOpen
+                                        : TASK_DETAIL_BUTTON_CLASSES.actions.toggleClosed)}>
                             <span className="text-[13px] leading-none">Subtasks</span>
                             <span className="text-[13px] leading-none opacity-80">{completedSubtasksCount}/{subtasks.length}</span>
                         </Button>
                         <Button type="button" variant="ghost" onClick={handleToggleRemindersSection} disabled={!isOwner}
-                            className={cn(activeRowActionButtonClass, "w-full justify-between border px-3",
+                            className={cn(activeRowActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.actions.toggleBase,
                                 !isOwner
-                                    ? "border-slate-800 text-slate-700 cursor-not-allowed"
+                                    ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleDisabled
                                     : remindersSectionOpen
-                                        ? "border-slate-600 bg-slate-900/70 text-slate-200"
-                                        : "border-slate-800 bg-slate-900/30 text-slate-400 hover:bg-slate-900/50 hover:text-slate-300")}>
+                                        ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleOpen
+                                        : TASK_DETAIL_BUTTON_CLASSES.actions.toggleClosed)}>
                             <span className="text-[13px] leading-none">Reminders</span>
                             <span className="text-[13px] leading-none opacity-80">{reminders.length}</span>
                         </Button>
@@ -2186,7 +2115,7 @@ export default function TaskDetailClient({
                                                 disabled={!canManageActionChildren || isAddingSubtask} />
                                             <Button type="submit" size="sm" onPointerDown={(e) => e.preventDefault()}
                                                 disabled={!canManageActionChildren || isAddingSubtask}
-                                                className="h-8 w-8 p-0 bg-transparent border border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700 disabled:opacity-30">
+                                                className={TASK_DETAIL_BUTTON_CLASSES.actions.addSubtask}>
                                                 <Plus className="h-4 w-4" />
                                             </Button>
                                         </div>
@@ -2238,7 +2167,7 @@ export default function TaskDetailClient({
                                                     (!canManageActionChildren || isActionPending("saveReminders")) && "opacity-40 cursor-not-allowed")} />
                                             <Button type="submit" variant="outline"
                                                 disabled={!canManageActionChildren || isActionPending("saveReminders") || !newReminderLocal.trim()}
-                                                className="h-8 text-[11px] bg-transparent border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700 disabled:opacity-30">
+                                                className={TASK_DETAIL_BUTTON_CLASSES.actions.addReminder}>
                                                 Add
                                             </Button>
                                         </div>
@@ -2271,26 +2200,25 @@ export default function TaskDetailClient({
                                 step.tone === "success"
                                     ? {
                                         dot: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.45)]",
-                                        title: "text-emerald-200",
                                     }
                                     : step.tone === "danger"
                                         ? {
                                             dot: "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.45)]",
-                                            title: "text-red-200",
                                         }
                                         : step.tone === "warning"
                                             ? {
                                                 dot: "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.45)]",
-                                                title: "text-amber-200",
                                             }
                                             : step.tone === "info"
                                                 ? {
                                                     dot: "bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.45)]",
-                                                    title: "text-cyan-200",
                                                 }
+                                                : step.tone === "proof"
+                                                    ? {
+                                                        dot: "bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.45)]",
+                                                    }
                                                 : {
                                                     dot: "bg-slate-500 shadow-[0_0_6px_rgba(100,116,139,0.45)]",
-                                                    title: "text-slate-200",
                                                 };
 
                             return (
@@ -2310,10 +2238,17 @@ export default function TaskDetailClient({
                                             ? "ml-[calc(50%+2.75rem)] max-w-[calc(50%-2.75rem)] text-left"
                                             : "mr-[calc(50%+2.75rem)] max-w-[calc(50%-2.75rem)] text-right"
                                     )}>
-                                        <p className={cn("text-xs font-mono tracking-wide uppercase", toneConfig.title, step.titleColorClass)}>
-                                            {step.title}
-                                        </p>
-                                        <p className="text-[10px] font-mono text-slate-500">
+                                        <div className={cn("flex", isRightSide ? "justify-start" : "justify-end")}>
+                                            {step.tag.kind === "status" ? (
+                                                <TaskStatusBadge status={step.tag.status} className="font-medium tracking-normal" />
+                                            ) : (
+                                                <ActivityEventBadge
+                                                    eventType={step.tag.eventType}
+                                                    elapsedSeconds={step.tag.elapsedSeconds}
+                                                />
+                                            )}
+                                        </div>
+                                        <p className={ACTIVITY_TIMELINE_META_TEXT_CLASS}>
                                             {step.timestamp}
                                         </p>
                                         {step.detail && (
@@ -2385,3 +2320,4 @@ export default function TaskDetailClient({
         </>
     );
 }
+
