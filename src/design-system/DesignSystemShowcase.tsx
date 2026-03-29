@@ -157,20 +157,11 @@ const ACTIVITY_STEPPER_STATUSES: TaskStatus[] = [
 ];
 
 const ACTIVITY_STEPPER_EVENTS: { eventType: string; elapsedSeconds?: number }[] = [
-    { eventType: "ACTIVE" },
-    { eventType: "CREATED" },
-    { eventType: "MARK_COMPLETE" },
     { eventType: "UNDO_COMPLETE" },
     { eventType: "PROOF_UPLOAD_FAILED_REVERT" },
     { eventType: "PROOF_REMOVED" },
     { eventType: "PROOF_REQUESTED" },
     { eventType: "PROOF_UPLOADED" },
-    { eventType: "VOUCHER_ACCEPT" },
-    { eventType: "VOUCHER_DENY" },
-    { eventType: "VOUCHER_DELETE" },
-    { eventType: "RECTIFY" },
-    { eventType: "OVERRIDE" },
-    { eventType: "DEADLINE_MISSED" },
     { eventType: "VOUCHER_TIMEOUT" },
     { eventType: "POMO_COMPLETED", elapsedSeconds: 3720 },
     { eventType: "DEADLINE_WARNING_1H" },
@@ -179,7 +170,6 @@ const ACTIVITY_STEPPER_EVENTS: { eventType: string; elapsedSeconds?: number }[] 
     { eventType: "POSTPONE" },
     { eventType: "REPETITION_STOPPED" },
     { eventType: "AI_APPROVE" },
-    { eventType: "AI_DENY" },
     { eventType: "ORCA_DENIED_AUTO_HOP" },
     { eventType: "ESCALATE" },
     { eventType: "AI_ESCALATE_TO_HUMAN" },
@@ -519,7 +509,7 @@ export function DesignSystemShowcase() {
             <section className="space-y-6">
                 <SectionTitle>10. Activity Stepper</SectionTitle>
                 <SectionDescription>
-                    Complete sample timeline covering every task status and every activity event tag. This is intentionally exhaustive and not chronological.
+                    Sample timeline of task statuses and distinct activity events (deduplicated), shown for visual styling reference.
                 </SectionDescription>
 
                 <div className="rounded-xl border border-slate-800/80 bg-slate-950/40 p-4 md:p-6">
@@ -530,7 +520,7 @@ export function DesignSystemShowcase() {
                     </div>
 
                     <div className="relative mx-auto w-full max-w-3xl">
-                        <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-gradient-to-b from-cyan-500/35 via-slate-800 to-transparent" />
+                        <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-cyan-500/35" />
                         {ACTIVITY_STEPPER_ITEMS.map((item, index) => {
                             const isRightSide = index % 2 === 0;
                             const isProofEvent = item.kind === "event" && item.eventType.startsWith("PROOF_");
@@ -546,8 +536,8 @@ export function DesignSystemShowcase() {
                                     <div className={`absolute left-1/2 top-1.5 h-2.5 w-2.5 -translate-x-1/2 rounded-full ${dotClass}`} />
                                     <div
                                         className={`absolute top-[9px] h-px w-10 ${isRightSide
-                                            ? "left-1/2 ml-1.5 bg-gradient-to-r from-cyan-500/45 to-transparent"
-                                            : "right-1/2 mr-1.5 bg-gradient-to-l from-cyan-500/45 to-transparent"}`}
+                                            ? "left-1/2 ml-1.5 bg-cyan-500/45"
+                                            : "right-1/2 mr-1.5 bg-cyan-500/45"}`}
                                     />
                                     <div className={`space-y-1.5 ${isRightSide
                                         ? "ml-[calc(50%+2.75rem)] max-w-[calc(50%-2.75rem)] text-left"

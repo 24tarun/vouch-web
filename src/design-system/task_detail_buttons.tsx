@@ -6,18 +6,18 @@ import { cn } from "@/lib/utils";
 
 export const TASK_DETAIL_BUTTON_CLASSES = {
     size: {
-        uniform: "h-9 px-4 text-[12px] leading-none whitespace-nowrap",
+        uniform: "h-9 min-w-[10.5rem] px-4 text-[12px] leading-none whitespace-nowrap justify-center",
         active: "h-12 px-5 text-[13px] leading-none whitespace-nowrap",
     },
     awaiting: {
-        addProof: "bg-transparent border-pink-400/35 text-pink-400 hover:bg-pink-400/10 hover:border-pink-400/55 hover:text-pink-300",
-        undoComplete: "bg-transparent border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-slate-200",
+        addProof: "bg-pink-400/10 border-pink-400/35 text-pink-400 hover:bg-pink-400/20 hover:border-pink-400/55 hover:text-pink-300",
+        undoComplete: "bg-indigo-700/20 border-indigo-700/40 text-indigo-300 hover:bg-indigo-700/30 hover:text-indigo-200",
         resubmitProof: "flex items-center gap-2 rounded border border-pink-400/35 bg-pink-400/10 text-pink-400 hover:bg-pink-400/20 hover:text-pink-300 transition-colors cursor-pointer disabled:opacity-50",
         escalateToFriend: "border border-blue-700/40 bg-blue-900/15 text-blue-300 hover:bg-blue-800/25 hover:text-blue-100",
     },
     proof: {
-        removeStored: "ml-auto h-7 px-2 text-[11px] text-pink-400/80 hover:text-pink-300 bg-transparent hover:bg-pink-950/30 border border-pink-400/30",
-        removeDraft: "ml-auto h-7 px-2 text-[11px] text-pink-400/70 hover:text-pink-300 bg-transparent border border-pink-400/25",
+        removeStored: "ml-auto text-pink-400/80 bg-pink-400/10 hover:text-pink-300 hover:bg-pink-400/20 border border-pink-400/30",
+        removeDraft: "ml-auto text-pink-400/70 bg-pink-400/10 hover:text-pink-300 hover:bg-pink-400/20 border border-pink-400/25",
     },
     actions: {
         attachProofBase: "h-12 w-full p-0 border transition-all justify-center",
@@ -28,7 +28,7 @@ export const TASK_DETAIL_BUTTON_CLASSES = {
         markCompleteDisabled: "border-slate-800 bg-transparent text-slate-500 cursor-not-allowed",
         postponeEnabled: "border-amber-500/35 bg-amber-500/8 text-amber-300 hover:bg-amber-500/15 hover:border-amber-500/45 hover:text-amber-200",
         postponeDisabled: "border-slate-800 bg-transparent text-slate-500 cursor-not-allowed",
-        stopRepeatingEnabled: "border-red-900/40 bg-red-950/15 text-red-400/80 hover:bg-red-900/25 hover:text-red-300",
+        stopRepeatingEnabled: "border-purple-400/35 bg-purple-400/10 text-purple-400 hover:bg-purple-400/20 hover:text-purple-300",
         stopRepeatingDisabled: "border-slate-800 text-slate-600 cursor-not-allowed",
         overrideEnabled: "border-[#a21caf]/70 bg-[#a21caf]/20 text-[#f5d0fe] hover:bg-[#a21caf]/30 hover:text-[#fae8ff]",
         overrideDisabled: "border-slate-800 text-slate-600 cursor-not-allowed",
@@ -38,8 +38,8 @@ export const TASK_DETAIL_BUTTON_CLASSES = {
         toggleOpen: "border-slate-600 bg-slate-900/70 text-slate-200",
         toggleClosed: "border-slate-800 bg-slate-900/30 text-slate-400 hover:bg-slate-900/50 hover:text-slate-300",
         toggleDisabled: "border-slate-800 text-slate-700 cursor-not-allowed",
-        addReminder: "h-8 text-[11px] bg-transparent border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700 disabled:opacity-30",
-        addSubtask: "h-8 w-8 p-0 bg-transparent border border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700 disabled:opacity-30",
+        addReminder: "bg-amber-400/10 border-amber-400/30 text-amber-400 hover:bg-amber-400/20 hover:text-amber-300 hover:border-amber-400/45 disabled:opacity-30",
+        addSubtask: "bg-[#0066FF]/20 border border-[#0066FF]/40 text-[#66A3FF] hover:bg-[#0066FF]/30 hover:text-[#8FB8FF] hover:border-[#0066FF]/55 disabled:opacity-30",
         pomoButton: "h-12 w-full",
         pomoWrapperDisabled: "pointer-events-none opacity-45 saturate-0",
     },
@@ -213,24 +213,25 @@ export function TaskDetailButtonsShowcaseSection({
         {
             title: "Remove Stored Proof",
             render: () => (
-                <Button variant="ghost" className={TASK_DETAIL_BUTTON_CLASSES.proof.removeStored}>
-                    Remove
+                <Button variant="ghost" className={cn(TASK_DETAIL_BUTTON_CLASSES.size.uniform, TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
+                    Remove Proof
                 </Button>
             ),
         },
         {
             title: "Add Reminder",
             render: () => (
-                <Button variant="outline" className={TASK_DETAIL_BUTTON_CLASSES.actions.addReminder}>
-                    Add
+                <Button variant="outline" className={cn(TASK_DETAIL_BUTTON_CLASSES.size.uniform, TASK_DETAIL_BUTTON_CLASSES.actions.addReminder)}>
+                    Add Reminder
                 </Button>
             ),
         },
         {
             title: "Add Subtask",
             render: () => (
-                <Button size="sm" className={TASK_DETAIL_BUTTON_CLASSES.actions.addSubtask}>
+                <Button className={cn(TASK_DETAIL_BUTTON_CLASSES.size.uniform, TASK_DETAIL_BUTTON_CLASSES.actions.addSubtask)}>
                     <Plus className="h-4 w-4" />
+                    Add Subtask
                 </Button>
             ),
         },

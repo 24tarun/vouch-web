@@ -1242,7 +1242,7 @@ export function TaskInput({
                                         type="button"
                                         className={cn(
                                             "h-9 w-9 shrink-0 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 text-slate-400 hover:text-slate-200 rounded-lg transition-all flex items-center justify-center",
-                                            recurrenceType && "text-purple-400 border-purple-500/30 bg-purple-500/5"
+                                            recurrenceType && "text-purple-400 border-purple-400/30 bg-purple-400/10"
                                         )}
                                         title={recurrenceLabel || "Repeat Task"}
                                     >
@@ -1477,4 +1477,3 @@ export function TaskInput({
         </form>
     );
 }
-

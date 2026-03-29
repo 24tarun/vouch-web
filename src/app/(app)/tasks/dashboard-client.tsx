@@ -568,7 +568,6 @@ export default function DashboardClient({
             delete next[taskId];
             return next;
         });
-        toast.success("Proof uploaded successfully.");
         refreshInBackground();
     };
 
@@ -991,6 +990,7 @@ export default function DashboardClient({
                 defaultVoucherId={defaultVoucherId}
                 defaultCurrency={currency}
                 defaultFailureCost={parseFloat(defaultFailureCostEuros) || 1}
+                onCreateTaskOptimistic={handleCreateTaskOptimistic}
             />
             {!tipsHidden && (
                 <div className="space-y-1 px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider">

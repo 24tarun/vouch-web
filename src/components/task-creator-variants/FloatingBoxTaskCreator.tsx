@@ -8,6 +8,7 @@ import { getCurrencySymbol, getFailureCostBounds, type SupportedCurrency } from 
 import { GlassToggle } from "@/components/GlassToggle";
 import { createTask } from "@/actions/tasks";
 import { toast } from "sonner";
+import type { TaskInputCreatePayload } from "@/components/TaskInput";
 import {
     applyParserKeywordCompletion,
     buildTaskTitleOverlayModel,
@@ -37,6 +38,7 @@ interface Props {
     defaultVoucherId?: string | null;
     defaultCurrency: SupportedCurrency;
     defaultFailureCost?: number;
+    onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
 }
 
 export interface FloatingBoxTaskCreatorHandle {
@@ -52,6 +54,7 @@ function FloatingBoxTaskCreator({
     defaultVoucherId,
     defaultCurrency,
     defaultFailureCost = 1,
+    onCreateTaskOptimistic,
 }: Props, ref) {
     const [title, setTitle] = useState("");
     const [titleCaretIndex, setTitleCaretIndex] = useState(0);
@@ -560,6 +563,39 @@ function FloatingBoxTaskCreator({
             }
         }
 
+        const msLeft = deadlineDate.getTime() - Date.now();
+        const totalMinutes = Math.max(0, Math.floor(msLeft / 60000));
+        const days = Math.floor(totalMinutes / (60 * 24));
+        const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+        const minutes = totalMinutes % 60;
+        const parts: string[] = [];
+        if (days > 0) parts.push(`${days}d`);
+        if (hours > 0) parts.push(`${hours}h`);
+        if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+
+        if (onCreateTaskOptimistic) {
+            const payload: TaskInputCreatePayload = {
+                title: cleanTitle,
+                rawTitle: title,
+                subtasks,
+                requiredPomoMinutes: null,
+                requiresProof,
+                deadlineIso: deadlineDate.toISOString(),
+                eventStartIso: isEvent ? parseDateTimeLocal(eventStart).toISOString() : null,
+                eventEndIso: isEvent ? parseDateTimeLocal(eventEnd).toISOString() : null,
+                reminderIsos,
+                voucherId: selectedVoucherId,
+                failureCost: failureCost.toFixed(2),
+                recurrenceType: recurrenceType || null,
+                recurrenceDays: customDays,
+                userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+            };
+            handleClose();
+            toast.success(`Deadline in ${parts.join(" ")}`);
+            onCreateTaskOptimistic(payload);
+            return;
+        }
+
         setIsLoading(true);
         handleClose();
         try {
@@ -600,7 +636,7 @@ function FloatingBoxTaskCreator({
                 toast.error("Failed to create task");
                 console.error("Failed to create task", result.error);
             } else {
-                toast.success("Task created");
+                toast.success(`Deadline in ${parts.join(" ")}`);
             }
         } catch (error) {
             toast.error("Failed to create task");
@@ -977,7 +1013,7 @@ function FloatingBoxTaskCreator({
                                                     className={cn(
                                                         "h-7 w-7 rounded-lg text-[10px] font-mono font-semibold transition-colors",
                                                         isSelected
-                                                            ? "bg-purple-500/20 border border-purple-400/40 text-purple-300"
+                                                            ? "bg-purple-400/20 border border-purple-400/40 text-purple-400"
                                                             : "bg-slate-800 border border-slate-700 text-slate-500 hover:text-slate-300"
                                                     )}
                                                 >

@@ -857,7 +857,6 @@ export default function TaskDetailClient({
 
         setTaskProofDraft(null);
         setProofUploadError(null);
-        toast.success("Proof uploaded successfully.");
         refreshInBackground();
     };
 
@@ -937,7 +936,6 @@ export default function TaskDetailClient({
         }));
         setTaskProofDraft(null);
         setProofUploadError(null);
-        toast.success("Proof uploaded successfully.");
         refreshInBackground();
     };
 
@@ -1886,8 +1884,8 @@ export default function TaskDetailClient({
                         </span>
                         {isOwner && ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(taskState.status) && (
                             <Button type="button" variant="ghost" onClick={handleRemoveStoredProof} disabled={isActionPending("removeStoredProof")}
-                                className={TASK_DETAIL_BUTTON_CLASSES.proof.removeStored}>
-                                Remove
+                                className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
+                                Remove Proof
                             </Button>
                         )}
                     </div>
@@ -1913,8 +1911,8 @@ export default function TaskDetailClient({
                                 : `proof attached (${proofDraft.proof.mediaKind})`}
                         </span>
                         <Button type="button" variant="ghost" onClick={() => setTaskProofDraft(null)}
-                            className={TASK_DETAIL_BUTTON_CLASSES.proof.removeDraft}>
-                            Remove
+                            className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.proof.removeDraft)}>
+                            Remove Proof
                         </Button>
                     </div>
                     <div className="rounded-xl overflow-hidden border border-pink-400/20 bg-pink-950/10">
@@ -2024,9 +2022,7 @@ export default function TaskDetailClient({
                             className={cn(activeRowActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.actions.toggleBase,
                                 !isOwner
                                     ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleDisabled
-                                    : subtasksSectionOpen
-                                        ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleOpen
-                                        : TASK_DETAIL_BUTTON_CLASSES.actions.toggleClosed)}>
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.addSubtask)}>
                             <span className="text-[13px] leading-none">Subtasks</span>
                             <span className="text-[13px] leading-none opacity-80">{completedSubtasksCount}/{subtasks.length}</span>
                         </Button>
@@ -2034,9 +2030,7 @@ export default function TaskDetailClient({
                             className={cn(activeRowActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.actions.toggleBase,
                                 !isOwner
                                     ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleDisabled
-                                    : remindersSectionOpen
-                                        ? TASK_DETAIL_BUTTON_CLASSES.actions.toggleOpen
-                                        : TASK_DETAIL_BUTTON_CLASSES.actions.toggleClosed)}>
+                                    : TASK_DETAIL_BUTTON_CLASSES.actions.addReminder)}>
                             <span className="text-[13px] leading-none">Reminders</span>
                             <span className="text-[13px] leading-none opacity-80">{reminders.length}</span>
                         </Button>
@@ -2045,6 +2039,21 @@ export default function TaskDetailClient({
                         <div className="mt-4 border-t border-slate-800/80 pt-4 space-y-4">
                             {subtasksSectionOpen && (
                                 <div className="space-y-2">
+                                    <form onSubmit={handleAddSubtask}>
+                                        <div className="flex items-center gap-2">
+                                            <Input ref={newSubtaskInputRef} value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                                                placeholder="add a subtask..." maxLength={500}
+                                                className={cn("h-8 font-mono text-xs bg-slate-900/50 border-slate-800 text-slate-300 placeholder:text-slate-700",
+                                                    !canManageActionChildren && "border-slate-900 text-slate-600 cursor-not-allowed")}
+                                                disabled={!canManageActionChildren || isAddingSubtask} />
+                                            <Button type="submit" onPointerDown={(e) => e.preventDefault()}
+                                                disabled={!canManageActionChildren || isAddingSubtask}
+                                                className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.actions.addSubtask)}>
+                                                <Plus className="h-4 w-4" />
+                                                Add Subtask
+                                            </Button>
+                                        </div>
+                                    </form>
                                     {subtasks.length > 0 && (
                                         <div className="space-y-0.5">
                                             {subtasks.map((subtask) => {
@@ -2106,26 +2115,25 @@ export default function TaskDetailClient({
                                             })}
                                         </div>
                                     )}
-                                    <form onSubmit={handleAddSubtask}>
-                                        <div className="flex items-center gap-2">
-                                            <Input ref={newSubtaskInputRef} value={newSubtaskTitle} onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                                                placeholder="add a subtask..." maxLength={500}
-                                                className={cn("h-8 font-mono text-xs bg-slate-900/50 border-slate-800 text-slate-300 placeholder:text-slate-700",
-                                                    !canManageActionChildren && "border-slate-900 text-slate-600 cursor-not-allowed")}
-                                                disabled={!canManageActionChildren || isAddingSubtask} />
-                                            <Button type="submit" size="sm" onPointerDown={(e) => e.preventDefault()}
-                                                disabled={!canManageActionChildren || isAddingSubtask}
-                                                className={TASK_DETAIL_BUTTON_CLASSES.actions.addSubtask}>
-                                                <Plus className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </form>
                                     {subtaskError && <p className="text-xs font-mono text-red-400">{subtaskError}</p>}
                                 </div>
                             )}
 
                             {remindersSectionOpen && (
                                 <div className="space-y-2">
+                                    <form onSubmit={handleAddReminder}>
+                                        <div className="flex items-center gap-2">
+                                            <Input type="datetime-local" value={newReminderLocal} onChange={(e) => setNewReminderLocal(e.target.value)}
+                                                disabled={!canManageActionChildren || isActionPending("saveReminders")}
+                                                className={cn("h-8 font-mono text-xs bg-slate-900/50 border-slate-800 text-slate-300 [color-scheme:dark]",
+                                                    (!canManageActionChildren || isActionPending("saveReminders")) && "opacity-40 cursor-not-allowed")} />
+                                            <Button type="submit" variant="outline"
+                                                disabled={!canManageActionChildren || isActionPending("saveReminders") || !newReminderLocal.trim()}
+                                                className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.actions.addReminder)}>
+                                                Add Reminder
+                                            </Button>
+                                        </div>
+                                    </form>
                                     {reminders.length > 0 && (
                                         <div className="space-y-0.5">
                                             {reminders.map((reminder) => {
@@ -2159,19 +2167,6 @@ export default function TaskDetailClient({
                                             })}
                                         </div>
                                     )}
-                                    <form onSubmit={handleAddReminder}>
-                                        <div className="flex items-center gap-2">
-                                            <Input type="datetime-local" value={newReminderLocal} onChange={(e) => setNewReminderLocal(e.target.value)}
-                                                disabled={!canManageActionChildren || isActionPending("saveReminders")}
-                                                className={cn("h-8 font-mono text-xs bg-slate-900/50 border-slate-800 text-slate-300 [color-scheme:dark]",
-                                                    (!canManageActionChildren || isActionPending("saveReminders")) && "opacity-40 cursor-not-allowed")} />
-                                            <Button type="submit" variant="outline"
-                                                disabled={!canManageActionChildren || isActionPending("saveReminders") || !newReminderLocal.trim()}
-                                                className={TASK_DETAIL_BUTTON_CLASSES.actions.addReminder}>
-                                                Add
-                                            </Button>
-                                        </div>
-                                    </form>
                                 </div>
                             )}
                         </div>
@@ -2193,7 +2188,7 @@ export default function TaskDetailClient({
                     <p className="text-center text-xs font-mono text-slate-700">No activity yet</p>
                 ) : (
                     <div className="relative mx-auto w-full max-w-3xl">
-                        <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-gradient-to-b from-cyan-500/35 via-slate-800 to-transparent" />
+                        <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-cyan-500/35" />
                         {activitySteps.map((step, index) => {
                             const isRightSide = index % 2 === 0;
                             const toneConfig =
@@ -2228,8 +2223,8 @@ export default function TaskDetailClient({
                                         className={cn(
                                             "absolute top-[9px] h-px w-10",
                                             isRightSide
-                                                ? "left-1/2 ml-1.5 bg-gradient-to-r from-cyan-500/45 to-transparent"
-                                                : "right-1/2 mr-1.5 bg-gradient-to-l from-cyan-500/45 to-transparent"
+                                                ? "left-1/2 ml-1.5 bg-cyan-500/45"
+                                                : "right-1/2 mr-1.5 bg-cyan-500/45"
                                         )}
                                     />
                                     <div className={cn(

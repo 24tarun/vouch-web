@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
@@ -751,31 +751,20 @@ export const markTaskCompleted = markTaskComplete; // Alias for component compat
 export async function getCachedActiveTasksForUser(userId: string) {
     if (!userId) return [];
 
-    const loadActiveTasks = unstable_cache(
-        async () => {
-            const supabaseAdmin = createAdminClient();
-            // @ts-ignore
-            const { data, error } = await (supabaseAdmin.from("tasks") as any)
-                .select("*")
-                .eq("user_id", userId as any)
-                .in("status", ["ACTIVE", "POSTPONED"])
-                .order("deadline", { ascending: true });
+    const supabaseAdmin = createAdminClient();
+    // @ts-ignore
+    const { data, error } = await (supabaseAdmin.from("tasks") as any)
+        .select("*")
+        .eq("user_id", userId as any)
+        .in("status", ["ACTIVE", "POSTPONED"])
+        .order("deadline", { ascending: true });
 
-            if (error) {
-                console.error("Failed to load cached active tasks:", error.message);
-                return [];
-            }
+    if (error) {
+        console.error("Failed to load active tasks:", error.message);
+        return [];
+    }
 
-            return (data as any[]) || [];
-        },
-        ["active-tasks", userId],
-        {
-            tags: [activeTasksTag(userId)],
-            revalidate: 60,
-        }
-    );
-
-    return loadActiveTasks();
+    return (data as any[]) || [];
 }
 
 export async function createTask(formData: FormData) {

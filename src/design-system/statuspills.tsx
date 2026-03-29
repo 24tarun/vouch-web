@@ -21,7 +21,9 @@ interface CorePillProps {
 function CorePill({ className, children, title, ariaLabel }: CorePillProps) {
     return (
         <Badge variant="outline" className={cn(CORE_PILL_BASE_CLASS, className)} title={title} aria-label={ariaLabel}>
-            {children}
+            <span className="inline-flex items-center leading-none -translate-y-[0.5px]">
+                {children}
+            </span>
         </Badge>
     );
 }
@@ -32,17 +34,17 @@ const TASK_STATUS_BADGE_CLASS_BY_STATUS: Record<TaskStatus, string> = {
     MARKED_COMPLETE: "bg-emerald-400/15 text-emerald-400 border border-emerald-400/35",
     AWAITING_VOUCHER: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     AWAITING_ORCA: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
-    ORCA_DENIED: "bg-red-500/20 text-red-300 border border-red-500/30",
+    ORCA_DENIED: "bg-red-500/10 text-red-500 border border-red-500/30",
     AWAITING_USER: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     ESCALATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
     ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     AUTO_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     ORCA_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-    DENIED: "bg-red-500/20 text-red-300 border border-red-500/30",
-    MISSED: "bg-red-500/20 text-red-300 border border-red-500/30",
+    DENIED: "bg-red-500/10 text-red-500 border border-red-500/30",
+    MISSED: "bg-red-500/10 text-red-500 border border-red-500/30",
     RECTIFIED: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     DELETED: "bg-slate-600/40 text-slate-300 border border-slate-600/50",
-    SETTLED: "bg-[#5B0A1E]/35 text-[#F2C7D0] border border-[#5B0A1E]/80",
+    SETTLED: "bg-fuchsia-700/20 text-fuchsia-300 border border-fuchsia-700/40",
 };
 
 function getTaskStatusBadgeClass(status: TaskStatus): string {
@@ -135,20 +137,20 @@ const ACTIVITY_EVENT_BADGE_CLASS_BY_EVENT_TYPE: Record<string, string> = {
     PROOF_REQUESTED: "bg-pink-400/15 text-pink-400 border border-pink-400/35",
     PROOF_UPLOADED: "bg-pink-400/15 text-pink-400 border border-pink-400/35",
     VOUCHER_ACCEPT: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-    VOUCHER_DENY: "bg-red-500/20 text-red-300 border border-red-500/30",
-    VOUCHER_DELETE: "bg-red-500/20 text-red-300 border border-red-500/30",
+    VOUCHER_DENY: "bg-red-500/10 text-red-500 border border-red-500/30",
+    VOUCHER_DELETE: "bg-slate-600/40 text-slate-300 border border-slate-600/50",
     RECTIFY: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     OVERRIDE: "bg-[#5B0A1E]/35 text-[#F2C7D0] border border-[#5B0A1E]/80",
-    DEADLINE_MISSED: "bg-red-500/20 text-red-300 border border-red-500/30",
+    DEADLINE_MISSED: "bg-red-500/10 text-red-500 border border-red-500/30",
     VOUCHER_TIMEOUT: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     POMO_COMPLETED: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
     DEADLINE_WARNING_1H: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     DEADLINE_WARNING_5M: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     GOOGLE_EVENT_CANCELLED: "bg-red-500/20 text-red-300 border border-red-500/30",
     POSTPONE: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
-    REPETITION_STOPPED: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
+    REPETITION_STOPPED: "bg-purple-400/10 text-purple-400 border border-purple-400/30",
     AI_APPROVE: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-    AI_DENY: "bg-red-500/20 text-red-300 border border-red-500/30",
+    AI_DENY: "bg-red-500/10 text-red-500 border border-red-500/30",
     ORCA_DENIED_AUTO_HOP: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     ESCALATE: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
     AI_ESCALATE_TO_HUMAN: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
@@ -172,9 +174,15 @@ function formatActivityEventLabel(eventType: string, elapsedSeconds?: number): s
     if (eventType === "ACTIVE" || eventType === "CREATED") return "ACTIVE";
     if (eventType === "MARK_COMPLETE") return "MARKED COMPLETE";
     if (eventType === "POMO_COMPLETED") return `POMO COMPLETED (${formatActivityEventDuration(elapsedSeconds ?? 0)})`;
+    if (eventType === "PROOF_UPLOAD_FAILED_REVERT") return "PROOF UPLOAD FAILED";
     if (eventType === "PROOF_REQUESTED") return "PROOF REQUESTED";
     if (eventType === "PROOF_UPLOADED") return "PROOF UPLOADED";
     if (eventType === "PROOF_REMOVED") return "PROOF REMOVED";
+    if (eventType === "VOUCHER_ACCEPT") return "ACCEPTED";
+    if (eventType === "VOUCHER_DENY") return "DENIED";
+    if (eventType === "VOUCHER_DELETE") return "DELETED";
+    if (eventType === "RECTIFY") return "RECTIFIED";
+    if (eventType === "DEADLINE_MISSED") return "MISSED";
     if (eventType === "AI_APPROVE") return "ORCA APPROVED";
     if (eventType === "AI_DENY") return "ORCA DENIED";
     if (eventType === "DEADLINE_WARNING_1H") return "1HR LEFT REMINDER SENT";
