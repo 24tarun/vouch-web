@@ -159,6 +159,17 @@ export function TaskRow({
         hasRunningPomoForTask;
 
     const subtaskExpandStorageKey = `task-subtasks-expanded:${task.id}`;
+    const persistSubtaskExpandedState = (expanded: boolean) => {
+        try {
+            if (expanded) {
+                window.localStorage.setItem(subtaskExpandStorageKey, "1");
+            } else {
+                window.localStorage.removeItem(subtaskExpandStorageKey);
+            }
+        } catch {
+            // Ignore localStorage access failures.
+        }
+    };
 
     const setSubtaskPending = (subtaskId: string, pending: boolean) => {
         setSubtaskPendingIds((prev) => {
@@ -262,15 +273,7 @@ export function TaskRow({
     const handleExpandToggle = () => {
         setIsExpanded((prev) => {
             const next = !prev;
-            try {
-                if (next) {
-                    window.localStorage.setItem(subtaskExpandStorageKey, "1");
-                } else {
-                    window.localStorage.removeItem(subtaskExpandStorageKey);
-                }
-            } catch {
-                // Ignore localStorage access failures.
-            }
+            persistSubtaskExpandedState(next);
             return next;
         });
     };
@@ -403,7 +406,7 @@ export function TaskRow({
         DENIED: "text-red-500 border-red-500",
         MISSED: "text-red-500 border-red-500",
         DELETED: "text-slate-400 border-slate-600 opacity-60",
-        SETTLED: "text-cyan-400 border-cyan-400",
+        SETTLED: "text-[#F2C7D0] border-[#5B0A1E]",
         RECTIFIED: "text-orange-500 border-orange-500",
     };
 
@@ -732,9 +735,12 @@ export function TaskRow({
                                 if ((e.target as HTMLElement).closest("button,a")) return;
                                 setIsMobileTrayOpen((prev) => {
                                     const next = !prev;
-                                    if (!next && isExpanded) {
+                                    if (next) {
+                                        setIsExpanded(true);
+                                        persistSubtaskExpandedState(true);
+                                    } else if (isExpanded) {
                                         setIsExpanded(false);
-                                        try { window.localStorage.removeItem(subtaskExpandStorageKey); } catch { }
+                                        persistSubtaskExpandedState(false);
                                     }
                                     return next;
                                 });
@@ -876,9 +882,7 @@ export function TaskRow({
                         // Only auto-close if the list is empty and user isn't actively adding one with text
                         if (subtasks.length === 0 && !newSubtaskTitle.trim()) {
                             setIsExpanded(false);
-                            try {
-                                window.localStorage.removeItem(subtaskExpandStorageKey);
-                            } catch { }
+                            persistSubtaskExpandedState(false);
                         }
                     }}
                 >

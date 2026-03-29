@@ -1497,7 +1497,7 @@ export default function TaskDetailClient({
         DENIED: "text-red-300",
         MISSED: "text-red-300",
         RECTIFIED: "text-orange-300",
-        SETTLED: "text-slate-300",
+        SETTLED: "text-[#F2C7D0]",
         DELETED: "text-slate-300",
     };
 
@@ -1514,7 +1514,7 @@ export default function TaskDetailClient({
         VOUCHER_DENY: "text-red-300",
         VOUCHER_DELETE: "text-red-300",
         RECTIFY: "text-orange-300",
-        OVERRIDE: "text-slate-300",
+        OVERRIDE: "text-[#F2C7D0]",
         DEADLINE_MISSED: "text-red-300",
         VOUCHER_TIMEOUT: "text-amber-300",
         POMO_COMPLETED: "text-cyan-300",

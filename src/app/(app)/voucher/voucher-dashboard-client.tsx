@@ -809,7 +809,7 @@ function CompactHistoryItem({
         DENIED: "text-[#dc322f]",
         MISSED: "text-[#dc322f]",
         RECTIFIED: "text-[#cb4b16]",
-        SETTLED: "text-[#2aa198]",
+        SETTLED: "text-[#F2C7D0]",
         DELETED: "text-slate-500",
     };
 

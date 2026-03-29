@@ -48,7 +48,11 @@
       "Bash(\"/tmp/task-detail-clean.tsx\")",
       "Read(//tmp/**)",
       "Bash(tail:*)",
-      "Bash(cat \"/c/LocalFiles/coding/vouch/src/app/\\(app\\)/ledger/page.tsx\")"
+      "Bash(cat \"/c/LocalFiles/coding/vouch/src/app/\\(app\\)/ledger/page.tsx\")",
+      "Bash(grep -A 2 -B 2 '<Button' src/app/\\\\\\(app\\\\\\)/tasks/[id]/task-detail-client.tsx)",
+      "Bash(sed 's/.*variant=//')",
+      "Bash(sed 's/.*size=//')",
+      "Bash(sed 's/>.*//')"
     ]
   }
 }

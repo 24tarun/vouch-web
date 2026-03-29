@@ -50,7 +50,7 @@ export function CompactStatsItem({
         DENIED: "text-red-500",
         MISSED: "text-red-500",
         RECTIFIED: "text-orange-500",
-        SETTLED: "text-cyan-400",
+        SETTLED: "text-[#F2C7D0]",
         DELETED: "text-slate-500",
     };
 

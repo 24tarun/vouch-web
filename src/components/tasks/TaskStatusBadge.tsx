@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
+import { Badge } from "@/components/ui/badge";
 
 export function getTaskStatusBadgeClass(status: TaskStatus): string {
     const classes: Record<TaskStatus, string> = {
@@ -18,7 +19,7 @@ export function getTaskStatusBadgeClass(status: TaskStatus): string {
         MISSED: "bg-red-500/20 text-red-300 border border-red-500/30",
         RECTIFIED: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
         DELETED: "bg-slate-600/40 text-slate-300 border border-slate-600/50",
-        SETTLED: "bg-slate-600/40 text-slate-300 border border-slate-600/50",
+        SETTLED: "bg-[#5B0A1E]/35 text-[#F2C7D0] border border-[#5B0A1E]/80",
     };
     return classes[status];
 }
@@ -40,7 +41,7 @@ export function getTaskStatusDotClass(status: TaskStatus): string {
         MISSED: "border-red-500",
         RECTIFIED: "border-orange-500",
         DELETED: "border-slate-600",
-        SETTLED: "border-cyan-400",
+        SETTLED: "border-[#5B0A1E]",
     };
     return classes[status];
 }
@@ -60,17 +61,18 @@ interface TaskStatusBadgeProps {
 
 export function TaskStatusBadge({ status, className }: TaskStatusBadgeProps) {
     const responsiveBadgeSizeClass =
-        "min-h-[clamp(20px,2.2vw,24px)] px-[clamp(10px,1.8vw,14px)] py-[clamp(2px,0.35vw,4px)] text-[clamp(9px,1.05vw,10px)] leading-none";
+        "min-h-[clamp(20px,2.2vw,24px)] px-[clamp(10px,1.8vw,14px)] py-[clamp(2px,0.35vw,4px)] text-[10px] leading-none";
 
     return (
-        <span
+        <Badge
+            variant="outline"
             className={cn(
-                `inline-flex items-center justify-center whitespace-nowrap ${responsiveBadgeSizeClass} tracking-wider uppercase rounded-full border font-bold shrink-0`,
+                `${responsiveBadgeSizeClass}`,
                 getTaskStatusBadgeClass(status),
                 className
             )}
         >
             {formatTaskStatusLabel(status)}
-        </span>
+        </Badge>
     );
 }

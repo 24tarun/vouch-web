@@ -2,9 +2,7 @@ import type { ReactNode } from "react";
 import type { DayStatus } from "@/lib/commitment-status";
 import type { CommitmentStatus } from "@/lib/types";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
-import {
-    TaskStatusBadge,
-} from "@/components/tasks/TaskStatusBadge";
+import { formatTaskStatusLabel } from "@/components/tasks/TaskStatusBadge";
 import {
     VoucherDeadlineBadge,
     VoucherPendingStatusBadge,
@@ -15,6 +13,10 @@ import { RecurringIndicator } from "@/components/tasks/RecurringIndicator";
 import { LedgerEntryRow } from "@/components/ledger/LedgerEntryRow";
 import { CommitmentStatusLabel } from "@/components/commitments/CommitmentStatusLabel";
 import { CommitmentDayStrip } from "@/components/CommitmentDayStrip";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Check, X, Camera, Clock, Trash2, Repeat, ChevronRight, MessageSquare, AlertTriangle, Zap } from "lucide-react";
 
 const PALETTE = [
     { name: "Slate 950", hex: "#020617", role: "Page background" },
@@ -30,66 +32,55 @@ const PALETTE = [
     { name: "White", hex: "#ffffff", role: "Headings, emphasis" },
 ];
 
-type AccentColor = { name: string; hex: string; glow: string; role: string; proposed?: boolean };
+type AccentColor = { name: string; hex: string; glow: string; role: string; proposed?: boolean; usedIn?: string[] };
 
 const ACCENT_GROUPS: { group: string; colors: AccentColor[] }[] = [
     {
         group: "Blues",
         colors: [
-            { name: "Blue 400", hex: "#60a5fa", glow: "rgba(96,165,250,0.6)", role: "Active tasks, primary actions" },
-            { name: "Plasma Blue", hex: "#0066FF", glow: "rgba(0,102,255,0.8)", role: "Deep focus mode, immersive states, POSTPONED badge mapping (4.2 -> 2.2)", proposed: true },
-            { name: "Indigo 700", hex: "#4338ca", glow: "rgba(67,56,202,0.7)", role: "Deep links, navigation highlights", proposed: true },
+            { name: "Plasma Blue", hex: "#0066FF", glow: "rgba(0,102,255,0.8)", role: "", usedIn: ["TaskStatusBadge (ACTIVE, POSTPONED)"] },
+            { name: "Indigo 700", hex: "#4338ca", glow: "rgba(67,56,202,0.7)", role: "", usedIn: ["TaskStatusBadge (MARKED_COMPLETE)"] },
         ],
     },
     {
         group: "Cyans",
         colors: [
-            { name: "Cyan 400", hex: "#22d3ee", glow: "rgba(34,211,238,0.6)", role: "VFD Pomodoro, time focused, commitments, settled status dot" },
+            { name: "Cyan 400", hex: "#22d3ee", glow: "rgba(34,211,238,0.6)", role: "", usedIn: ["PomodoroTimer", "PomoButton", "CommitmentStatusLabel", "CommitmentCreatorClient", "task-detail-client", "voucher-dashboard-client", "stats/page", "MobileOnboarding", "MobileLanding", "DesktopLanding"] },
         ],
     },
     {
         group: "Greens",
         colors: [
-            { name: "Emerald 400", hex: "#34d399", glow: "rgba(52,211,153,0.5)", role: "Accept / complete actions, voucher accept" },
-            { name: "Green 400", hex: "#4ade80", glow: "rgba(74,222,128,0.6)", role: "Cost saved, ledger reversal" },
-            { name: "Acid Green", hex: "#39FF14", glow: "rgba(57,255,20,0.7)", role: "Live pulse, heartbeat, online status", proposed: true },
-            { name: "Venom Green", hex: "#00FF66", glow: "rgba(0,255,102,0.7)", role: "Perfect score, flawless completion", proposed: true },
+            { name: "Emerald 400", hex: "#34d399", glow: "rgba(52,211,153,0.5)", role: "", usedIn: ["TaskRow (accepted statuses)", "CommitmentStatusLabel", "FloatingBoxTaskCreator", "ReputationBar", "task-detail-client", "DashboardHeaderActions", "login/page", "MobileOnboarding", "MobileLanding", "DesktopLanding"] },
+            { name: "Money Green", hex: "#1F8A4C", glow: "rgba(31,138,76,0.72)", role: "", usedIn: ["LedgerEntryRow (currency amounts)", "ledger/page (money numericals)", "CommitmentCard (stake display)", "PreviousMonthsAccordion (totals)"] },
         ],
     },
     {
         group: "Yellows & Ambers",
         colors: [
-            { name: "Amber 400", hex: "#fbbf24", glow: "rgba(251,191,36,0.4)", role: "Postponed, pending, warnings, escalated" },
+            { name: "Amber 400", hex: "#fbbf24", glow: "rgba(251,191,36,0.4)", role: "", usedIn: ["TaskStatusBadge (AWAITING_VOUCHER, AWAITING_USER, AWAITING_ORCA, ESCALATED)"] },
         ],
     },
     {
         group: "Oranges",
         colors: [
-            { name: "Orange 400", hex: "#fb923c", glow: "rgba(251,146,60,0.6)", role: "Rectify passes, timeout penalty" },
-            { name: "Orange 500", hex: "#f97316", glow: "rgba(249,115,22,0.6)", role: "Rectified status" },
-            { name: "Solar Flare", hex: "#FF6600", glow: "rgba(255,102,0,0.8)", role: "Override, urgent escalation, time running out", proposed: true },
+            { name: "Orange 400", hex: "#fb923c", glow: "rgba(251,146,60,0.6)", role: "", usedIn: ["TaskStatusBadge (RECTIFIED)", "VoucherProofRequestBadge (proof request counter)"] },
+            { name: "Orange 500", hex: "#f97316", glow: "rgba(249,115,22,0.6)", role: "", usedIn: ["TaskStatusBadge", "TaskRow", "CompactStatsItem", "task-detail-client", "voucher-dashboard-client", "CommitmentCreatorClient"] },
         ],
     },
     {
         group: "Reds",
         colors: [
-            { name: "Red 500", hex: "#ef4444", glow: "rgba(239,68,68,0.6)", role: "Failures, denials, destructive" },
-            { name: "Blaze Red", hex: "#FF1744", glow: "rgba(255,23,68,0.8)", role: "Account danger, irreversible actions", proposed: true },
-            { name: "Molten Lava", hex: "#FF3300", glow: "rgba(255,51,0,0.7)", role: "Deadline breach, critical overdue", proposed: true },
+            { name: "Red 500", hex: "#ef4444", glow: "rgba(239,68,68,0.6)", role: "", usedIn: ["TaskStatusBadge", "TaskRow", "VoucherBadges", "LedgerEntryRow", "CompactStatsItem", "CommitmentCard", "stats/page", "ledger/page", "task-detail-client", "voucher-dashboard-client", "SignOutMenuForm", "NavLinks", "CommitmentCreatorClient"] },
+            { name: "Wine Red", hex: "#5B0A1E", glow: "rgba(91,10,30,0.8)", role: "", usedIn: ["TaskStatusBadge (SETTLED)", "TaskRow (SETTLED)"] },
         ],
     },
     {
         group: "Pinks & Magentas",
         colors: [
-            { name: "Pink 500", hex: "#ec4899", glow: "rgba(236,72,153,0.6)", role: "Projected donation amount" },
-            { name: "Fuchsia 700", hex: "#a21caf", glow: "rgba(162,28,175,0.7)", role: "AI actions, magic wand, automation", proposed: true },
-        ],
-    },
-    {
-        group: "Purples & Violets",
-        colors: [
-            { name: "Purple 400", hex: "#c084fc", glow: "rgba(192,132,252,0.6)", role: "Recurrence, pending vouch" },
-            { name: "Hot Violet", hex: "#9B00FF", glow: "rgba(155,0,255,0.7)", role: "Power-ups, rare achievements", proposed: true },
+            { name: "Pink 500", hex: "#ec4899", glow: "rgba(236,72,153,0.6)", role: "", usedIn: ["ledger/page (projected donation)"] },
+            { name: "Fuchsia 700", hex: "#a21caf", glow: "rgba(162,28,175,0.7)", role: "", proposed: true },
+            { name: "Purple 400", hex: "#c084fc", glow: "rgba(192,132,252,0.6)", role: "", usedIn: ["task-detail-client", "stats/page", "CompactStatsItem", "VoucherBadges", "RecurringIndicator", "TaskInput", "FloatingBoxTaskCreator", "MobileLanding", "DesktopLanding"] },
         ],
     },
 ];
@@ -179,6 +170,22 @@ function sectionItemLabel(section: number, item: number): string {
     return `${section}.${item}`;
 }
 
+const STATUS_BADGE_BASE_CLASS =
+    "min-h-[clamp(20px,2.2vw,24px)] px-[clamp(10px,1.8vw,14px)] py-[clamp(2px,0.35vw,4px)] text-[10px] leading-none font-medium tracking-normal";
+
+function getDesignStatusBadgeClass(status: TaskStatus): string {
+    if (status === "ACTIVE") return "bg-[#0066FF]/10 text-blue-300 border-[#0066FF]/30";
+    if (status === "POSTPONED") return "bg-[#0066FF]/10 text-blue-300 border-[#0066FF]/30";
+    if (status === "MARKED_COMPLETE") return "bg-[#4338ca]/10 text-[#a5b4fc] border-[#4338ca]/30";
+    if (status.startsWith("AWAITING") || status === "ESCALATED") return "bg-amber-400/10 text-amber-400 border-amber-400/30";
+    if (status === "ACCEPTED" || status === "AUTO_ACCEPTED" || status === "ORCA_ACCEPTED") return "bg-emerald-500/10 text-emerald-300 border-emerald-500/30";
+    if (status === "DENIED" || status === "MISSED") return "bg-red-500/10 text-red-500 border-red-500/30";
+    if (status === "RECTIFIED") return "bg-[#fb923c]/10 text-[#fb923c] border-[#fb923c]/30";
+    if (status === "SETTLED") return "bg-[#5B0A1E]/20 text-[#F2C7D0] border-[#5B0A1E]/50";
+    if (status === "DELETED") return "bg-slate-500/10 text-slate-400 border-slate-500/20";
+    return "bg-slate-500/10 text-slate-400 border-slate-500/20";
+}
+
 export default function DesignPage() {
     const today = new Date();
     const stripStart = toDateOnly(addDays(today, -4));
@@ -255,7 +262,12 @@ export default function DesignPage() {
                                                 )}
                                             </div>
                                             <p className="text-[11px] text-slate-500 font-mono">{a.hex}</p>
-                                            <p className="text-[10px] text-slate-600 mt-0.5">{a.role}</p>
+                                            {a.role && <p className="text-[10px] text-slate-600 mt-0.5">{a.role}</p>}
+                                            {a.usedIn && a.usedIn.length > 0 && (
+                                                <p className="text-[9px] text-slate-500 font-mono mt-1">
+                                                    Used in: {a.usedIn.join(", ")}
+                                                </p>
+                                            )}
                                         </div>
                                     </div>
                                     );
@@ -311,7 +323,12 @@ export default function DesignPage() {
                                         <span className="text-[10px] font-mono text-slate-500 shrink-0">
                                             {sectionItemLabel(4, itemIndex)}
                                         </span>
-                                        <TaskStatusBadge status={status} />
+                                        <Badge
+                                            variant="outline"
+                                            className={cn(STATUS_BADGE_BASE_CLASS, getDesignStatusBadgeClass(status))}
+                                        >
+                                            {formatTaskStatusLabel(status)}
+                                        </Badge>
                                     </div>
                                     );
                                 })}
@@ -434,6 +451,247 @@ export default function DesignPage() {
                             </p>
                         </div>
                     ))}
+                </div>
+            </section>
+
+            <section className="space-y-6">
+                <SectionTitle>9. Button Library</SectionTitle>
+                <SectionDescription>
+                    All button styles used across the app. Grouped by context: primary actions, semantic actions, icon buttons, and special variants.
+                </SectionDescription>
+
+                <div className="space-y-10">
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-base font-semibold text-slate-200">Primary Actions</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Full-width task detail action buttons for main workflows.</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 1)} Mark Complete</p>
+                                <Button className="w-full h-12 px-5 text-[13px] justify-center border border-emerald-500/35 bg-emerald-500/8 text-emerald-300 hover:bg-emerald-500/15 hover:text-emerald-200">
+                                    Mark Complete
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 2)} Postpone</p>
+                                <Button variant="outline" className="w-full h-12 px-5 text-[13px] justify-center border border-amber-500/35 bg-amber-500/8 text-amber-300 hover:bg-amber-500/15 hover:border-amber-500/45 hover:text-amber-200">
+                                    Postpone once?
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 3)} Stop Repeating</p>
+                                <Button variant="ghost" className="w-full h-12 px-5 text-[13px] justify-center border border-red-900/40 bg-red-950/15 text-red-400/80 hover:bg-red-900/25 hover:text-red-300">
+                                    <Repeat className="mr-1.5 h-3.5 w-3.5" />
+                                    Stop Repeating
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 4)} Use Override</p>
+                                <Button variant="ghost" className="w-full h-12 px-5 text-[13px] justify-center border border-slate-700 bg-slate-800/30 text-slate-300 hover:text-white hover:bg-slate-700/50">
+                                    Use Override
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 5)} Delete Task</p>
+                                <Button variant="ghost" className="w-full h-12 p-0 border border-red-900/40 bg-red-950/15 text-red-400/80 hover:bg-red-900/25 hover:text-red-300 justify-center">
+                                    <Trash2 className="h-5 w-5" />
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 6)} Toggle Section (open)</p>
+                                <Button variant="ghost" className="w-full h-12 px-3 text-[13px] justify-between border border-[#4338ca]/50 bg-[#4338ca]/10 text-[#a5b4fc]">
+                                    <span className="text-[13px] leading-none">Subtasks</span>
+                                    <span className="text-[13px] leading-none opacity-80">2/4</span>
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 7)} Toggle Section (closed)</p>
+                                <Button variant="ghost" className="w-full h-12 px-3 text-[13px] justify-between border border-[#4338ca]/50 bg-[#4338ca]/10 text-[#a5b4fc]">
+                                    <span className="text-[13px] leading-none">Reminders</span>
+                                    <span className="text-[13px] leading-none opacity-80">1</span>
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 8)} Disabled State</p>
+                                <Button disabled className="w-full h-12 px-5 text-[13px] justify-center border border-slate-800 bg-transparent text-slate-500 cursor-not-allowed">
+                                    Mark Complete
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-base font-semibold text-slate-200">Semantic Action Buttons</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Inline buttons for pending review states, proof management, and escalation.</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 9)} Add Proof (indigo 700)</p>
+                                <Button variant="outline" className="h-9 px-4 text-[12px] bg-transparent border-[#4338ca]/30 text-[#a5b4fc] hover:bg-[#4338ca]/10 hover:border-[#4338ca]/50 hover:text-[#c7d2fe]">
+                                    <Camera className="mr-1.5 h-3.5 w-3.5" />
+                                    Add Proof
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 10)} Undo Complete (indigo 700)</p>
+                                <Button variant="outline" className="h-9 px-4 text-[12px] bg-transparent border-[#4338ca]/30 text-[#a5b4fc] hover:bg-[#4338ca]/10 hover:border-[#4338ca]/50 hover:text-[#c7d2fe]">
+                                    Undo Complete
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 11)} Resubmit Proof (orange 400)</p>
+                                <Button variant="ghost" className="h-9 px-4 text-[12px] border border-[#fb923c]/30 bg-[#fb923c]/10 text-[#fb923c] hover:bg-[#fb923c]/20 hover:text-[#fb923c]">
+                                    <Camera className="mr-1.5 h-3.5 w-3.5" />
+                                    Resubmit Proof
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 12)} Escalate to Friend (orange 400)</p>
+                                <Button variant="ghost" className="h-9 px-4 text-[12px] border border-[#fb923c]/30 bg-[#fb923c]/10 text-[#fb923c] hover:bg-[#fb923c]/20 hover:text-[#fb923c]">
+                                    <AlertTriangle className="mr-1.5 h-3.5 w-3.5" />
+                                    Escalate to Friend
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 13)} Remove Proof (red small)</p>
+                                <Button variant="ghost" className="h-7 px-2 text-[11px] text-red-400/70 hover:text-red-300 bg-transparent hover:bg-red-950/30 border border-red-900/30">
+                                    Remove
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 14)} Add Reminder (indigo 700)</p>
+                                <Button variant="outline" className="h-8 text-[11px] bg-transparent border-[#4338ca]/20 text-[#a5b4fc]/60 hover:text-[#a5b4fc] hover:border-[#4338ca]/40">
+                                    Add
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-base font-semibold text-slate-200">Voucher Action Buttons</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Icon buttons used by vouchers to accept, deny, request proof, or rectify.</p>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 15)} Accept</p>
+                                <Button size="sm" className="h-9 w-9 p-0 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30">
+                                    <Check className="h-4 w-4" />
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 16)} Deny</p>
+                                <Button size="sm" variant="ghost" className="h-9 w-9 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/30">
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 17)} Request Proof</p>
+                                <Button size="sm" variant="ghost" className="h-9 w-9 p-0 text-amber-300 hover:text-amber-200 hover:bg-amber-500/10 border border-amber-500/30">
+                                    <Camera className="h-4 w-4" />
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 18)} Rectify</p>
+                                <Button size="sm" variant="ghost" className="h-8 text-xs bg-orange-500/5 text-orange-400 hover:bg-orange-500/10 hover:text-orange-300 border border-orange-500/10">
+                                    Rectify
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-base font-semibold text-slate-200">Navigation &amp; Link Buttons</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Buttons used for navigation, commitment actions, and page-level CTAs.</p>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 19)} Primary CTA (blue)</p>
+                                <Button className="bg-blue-600/30 border border-blue-500/40 text-blue-200 hover:bg-blue-600/40">
+                                    Create Commitment
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 20)} Activate (blue solid)</p>
+                                <Button className="border border-blue-500/50 bg-blue-600/30 text-blue-100 hover:bg-blue-600/40">
+                                    Activate
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 21)} Cancel / Abandon (red)</p>
+                                <Button className="border border-red-500/40 bg-red-900/20 text-red-200 hover:bg-red-900/30">
+                                    Cancel
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 22)} Load More (outline slate)</p>
+                                <Button variant="outline" className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white">
+                                    Load more
+                                </Button>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 23)} Collapsible Toggle</p>
+                                <Button variant="ghost" className="flex items-center gap-2 text-slate-400 hover:text-white px-0 hover:bg-transparent">
+                                    <ChevronRight className="h-4 w-4 transition-transform" />
+                                    <span className="text-xs uppercase tracking-wider font-bold">Completed (3)</span>
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-base font-semibold text-slate-200">Icon Buttons</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">Ghost icon buttons used in headers and toolbars.</p>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 pt-2">
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 24)}</p>
+                                <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-200">
+                                    <MessageSquare className="h-5 w-5" />
+                                </Button>
+                                <p className="text-[9px] text-slate-600">Default</p>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 25)}</p>
+                                <Button variant="ghost" size="icon" className="text-yellow-400 hover:text-yellow-300">
+                                    <Zap className="h-5 w-5" />
+                                </Button>
+                                <p className="text-[9px] text-slate-600">Active</p>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 26)}</p>
+                                <Button variant="ghost" size="icon" className="text-emerald-400 hover:text-emerald-300">
+                                    <Check className="h-5 w-5" />
+                                </Button>
+                                <p className="text-[9px] text-slate-600">Success</p>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 27)}</p>
+                                <Button variant="ghost" size="icon" className="text-red-400 hover:text-red-300 hover:bg-red-500/10">
+                                    <Trash2 className="h-5 w-5" />
+                                </Button>
+                                <p className="text-[9px] text-slate-600">Destructive</p>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 28)}</p>
+                                <Button variant="ghost" size="icon-sm" className="text-slate-500 hover:text-slate-200">
+                                    <Clock className="h-4 w-4" />
+                                </Button>
+                                <p className="text-[9px] text-slate-600">Small</p>
+                            </div>
+                            <div className="space-y-1.5 py-3 px-4 flex flex-col items-center">
+                                <p className="text-[10px] font-mono text-slate-500">{sectionItemLabel(9, 29)}</p>
+                                <Button variant="ghost" size="icon-xs" className="text-slate-500 hover:text-slate-200">
+                                    <X className="h-3 w-3" />
+                                </Button>
+                                <p className="text-[9px] text-slate-600">XS</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
