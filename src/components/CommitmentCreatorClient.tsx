@@ -169,8 +169,6 @@ export function CommitmentCreatorClient({
         return issues;
     }, [name, description, startDate, today, linkedCount, durationDays]);
 
-    const canActivate = activateIssues.length === 0 && !isSaving;
-
     const triggerShake = () => {
         setShaking(true);
         setTimeout(() => setShaking(false), 500);
@@ -375,8 +373,12 @@ export function CommitmentCreatorClient({
                     <Button
                         type="button"
                         onClick={() => handleAction(true)}
-                        disabled={isSaving || !canActivate}
-                        className="bg-blue-600/30 border border-blue-500/40 text-blue-100 hover:bg-blue-600/40"
+                        disabled={isSaving}
+                        className={`border border-blue-500/40 ${
+                            activateIssues.length === 0
+                                ? "bg-blue-600/30 text-blue-100 hover:bg-blue-600/40"
+                                : "bg-blue-950/20 text-blue-200/70 hover:bg-blue-950/30"
+                        }`}
                     >
                         {isSaving ? "Saving..." : "Activate"}
                     </Button>
@@ -393,8 +395,9 @@ export function CommitmentCreatorClient({
                 currency={currency}
                 onSelectTask={handleLinkTask}
                 onSelectRecurrenceRule={handleLinkRule}
+                onUnlinkTask={handleUnlinkTask}
+                onUnlinkRecurrenceRule={handleUnlinkRule}
             />
         </div>
     );
 }
-

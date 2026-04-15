@@ -2,7 +2,9 @@
 
 import { fireCompletionConfetti } from "@/lib/confetti";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ExternalLink, Search, X } from "lucide-react";
 import {
     createTask,
     finalizeTaskProofUpload,
@@ -22,6 +24,7 @@ import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList"
 import { CollapsibleFutureList } from "@/components/CollapsibleFutureList";
 import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
+import { cn } from "@/lib/utils";
 import type { Profile, Task } from "@/lib/types";
 import type { SupportedCurrency } from "@/lib/currency";
 import { toast } from "sonner";
@@ -43,6 +46,7 @@ import {
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
 import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { TaskStatusBadge } from "@/design-system";
 
 const MAX_COMPLETED_TASKS = 10;
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
@@ -175,6 +179,7 @@ export default function DashboardClient({
     reputationScore,
 }: DashboardClientProps) {
     const router = useRouter();
+    const supabase = useMemo(() => createBrowserSupabaseClient(), []);
     const [, startRefreshTransition] = useTransition();
     const split = useMemo(() => splitTasks(initialTasks), [initialTasks]);
 
@@ -190,6 +195,11 @@ export default function DashboardClient({
     const [isTogglingTips, setIsTogglingTips] = useState(false);
     const [sortMode, setSortMode] = useState<DashboardSortMode>("deadline_asc");
     const [floatingBoxCreatorOpen, setFloatingBoxCreatorOpen] = useState(false);
+    const [isTaskSearchOpen, setIsTaskSearchOpen] = useState(false);
+    const [taskSearchQuery, setTaskSearchQuery] = useState("");
+    const [taskSearchResults, setTaskSearchResults] = useState<Task[]>([]);
+    const [isTaskSearchLoading, setIsTaskSearchLoading] = useState(false);
+    const [taskSearchError, setTaskSearchError] = useState<string | null>(null);
     const floatingBoxCreatorRef = useRef<FloatingBoxTaskCreatorHandle>(null);
     const [liveReputationScore, setLiveReputationScore] = useState<ReputationScoreData | null>(reputationScore);
     const proofInputRef = useRef<HTMLInputElement>(null);
@@ -221,6 +231,12 @@ export default function DashboardClient({
     );
     const activeDueSoonTasks = sortedActiveTaskBuckets.activeDueSoonTasks;
     const futureTasks = sortedActiveTaskBuckets.futureTasks;
+    const trimmedTaskSearchQuery = taskSearchQuery.trim();
+    const isTaskSearchActive = trimmedTaskSearchQuery.length > 0;
+    const prefetchTasks = useMemo(
+        () => (isTaskSearchActive ? taskSearchResults : [...activeDueSoonTasks, ...futureTasks, ...completedTasks]),
+        [activeDueSoonTasks, completedTasks, futureTasks, isTaskSearchActive, taskSearchResults]
+    );
 
     useEffect(() => {
         const nextActiveTasks = split.active;
@@ -273,6 +289,48 @@ export default function DashboardClient({
             }
         };
     }, []);
+
+    useEffect(() => {
+        if (!isTaskSearchActive) {
+            setTaskSearchResults([]);
+            setTaskSearchError(null);
+            setIsTaskSearchLoading(false);
+            return;
+        }
+
+        let cancelled = false;
+        const timeoutId = window.setTimeout(async () => {
+            setIsTaskSearchLoading(true);
+            setTaskSearchError(null);
+
+            const { data, error } = await supabase
+                .from("tasks")
+                .select("*")
+                .eq("user_id", userId)
+                .neq("status", "DELETED")
+                .ilike("title", `%${trimmedTaskSearchQuery}%`)
+                .order("updated_at", { ascending: false })
+                .limit(100);
+
+            if (cancelled) return;
+
+            if (error) {
+                setTaskSearchResults([]);
+                setTaskSearchError(error.message || "Search failed.");
+                setIsTaskSearchLoading(false);
+                return;
+            }
+
+            setTaskSearchResults((data as Task[]) || []);
+            setTaskSearchError(null);
+            setIsTaskSearchLoading(false);
+        }, 250);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timeoutId);
+        };
+    }, [isTaskSearchActive, supabase, trimmedTaskSearchQuery, userId]);
 
     const refreshInBackground = () => {
         startRefreshTransition(() => {
@@ -923,6 +981,20 @@ export default function DashboardClient({
             layoutVariant="active"
         />
     );
+    const renderSearchResultRow = (task: Task) => (
+        <Link
+            key={`search-${task.id}`}
+            href={`/tasks/${task.id}`}
+            prefetch
+            className="group flex items-center justify-between gap-3 py-2 md:py-3 rounded-md hover:bg-slate-900/20 -mx-4 px-4 transition-colors"
+        >
+            <div className="min-w-0 flex items-center gap-2 overflow-hidden">
+                <p className="min-w-0 truncate text-sm font-medium text-white">{task.title}</p>
+                <TaskStatusBadge status={task.status} className="font-medium tracking-normal shrink-0" />
+            </div>
+            <ExternalLink className="h-4 w-4 shrink-0 text-slate-400 group-hover:text-white" />
+        </Link>
+    );
 
     const handleToggleTips = async () => {
         if (isTogglingTips) return;
@@ -952,7 +1024,7 @@ export default function DashboardClient({
 
     return (
         <div className="max-w-3xl mx-auto space-y-4 md:space-y-6 px-4 md:px-0 pb-14">
-            <TaskDetailPrefetcher tasks={[...activeDueSoonTasks, ...futureTasks, ...completedTasks]} />
+            <TaskDetailPrefetcher tasks={prefetchTasks} />
             <div className="mb-4 md:mb-8 space-y-3">
                 <div className="flex items-center justify-between">
                     <h1 className="text-2xl font-bold text-white">{`Hi ${username}`}</h1>
@@ -973,6 +1045,67 @@ export default function DashboardClient({
                 {liveReputationScore !== null && (
                     <ReputationBar data={liveReputationScore} />
                 )}
+                <div className="flex justify-end">
+                    <div
+                        className={cn(
+                            "overflow-hidden transition-all duration-200 ease-out",
+                            isTaskSearchOpen ? "w-80 md:w-96" : "w-8"
+                        )}
+                    >
+                        <div
+                            className={cn(
+                                "flex items-center",
+                                isTaskSearchOpen
+                                    ? "rounded-md border border-slate-800 bg-slate-950/70 px-1.5"
+                                    : "justify-end"
+                            )}
+                        >
+                        <button
+                            type="button"
+                            onClick={() =>
+                                setIsTaskSearchOpen((previous) => {
+                                    if (previous) {
+                                        setTaskSearchQuery("");
+                                    }
+                                    return !previous;
+                                })
+                            }
+                            className={cn(
+                                "rounded p-1.5 text-slate-400 transition-colors hover:text-white",
+                                isTaskSearchOpen && "hover:bg-slate-800/60"
+                            )}
+                            aria-label={isTaskSearchOpen ? "Close task search" : "Open task search"}
+                            title={isTaskSearchOpen ? "Close search" : "Open search"}
+                        >
+                            <Search className="h-4 w-4" />
+                        </button>
+                        <input
+                            type="search"
+                            value={taskSearchQuery}
+                            onChange={(event) => setTaskSearchQuery(event.target.value)}
+                            className={cn(
+                                "min-w-0 w-full bg-transparent py-2 pl-1 pr-2 text-sm text-slate-100 focus:outline-none",
+                                isTaskSearchOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                            )}
+                            aria-label="Search tasks"
+                        />
+                        {isTaskSearchOpen && taskSearchQuery.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setTaskSearchQuery("");
+                                    setIsTaskSearchOpen(false);
+                                }}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                                aria-label="Clear task search"
+                                title="Clear search"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        )}
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div className="hidden md:block">
@@ -1021,20 +1154,52 @@ export default function DashboardClient({
                 </div>
             )}
 
-            <div className="flex flex-col">
-                {activeDueSoonTasks.length === 0 ? (
-                    <div className="text-center py-12">
-                        <p className="text-slate-500 text-sm">no tasks for today or tmrw, maybe check future?</p>
+            {isTaskSearchActive ? (
+                <div className="space-y-2">
+                    <div className="px-1 text-[10px] text-slate-400 font-mono uppercase tracking-wider">
+                        {isTaskSearchLoading
+                            ? "Searching tasks..."
+                            : `${taskSearchResults.length} result${taskSearchResults.length === 1 ? "" : "s"}`}
                     </div>
-                ) : (
-                    activeDueSoonTasks.map((task) => renderActiveTaskRow(task))
-                )}
-            </div>
+                    {taskSearchError ? (
+                        <div className="text-center py-10">
+                            <p className="text-red-400 text-sm">{taskSearchError}</p>
+                        </div>
+                    ) : isTaskSearchLoading ? (
+                        <div className="text-center py-10">
+                            <p className="text-slate-500 text-sm">Searching…</p>
+                        </div>
+                    ) : taskSearchResults.length === 0 ? (
+                        <div className="text-center py-10">
+                            <p className="text-slate-500 text-sm">No matching tasks found.</p>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col">
+                            {taskSearchResults.map((task) => renderSearchResultRow(task))}
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <>
+                    <div className="flex flex-col">
+                        {activeDueSoonTasks.length === 0 ? (
+                            <div className="text-center py-12">
+                                <p className="text-slate-500 text-sm">no tasks for today or tmrw, maybe check future?</p>
+                            </div>
+                        ) : (
+                            activeDueSoonTasks.map((task) => renderActiveTaskRow(task))
+                        )}
+                    </div>
 
-            <CollapsibleFutureList
-                tasks={futureTasks}
-                renderTask={renderActiveTaskRow}
-            />
+                    <CollapsibleFutureList
+                        tasks={futureTasks}
+                        renderTask={renderActiveTaskRow}
+                    />
+                    {completedTasks.length > 0 && (
+                        <CollapsibleCompletedList tasks={completedTasks} />
+                    )}
+                </>
+            )}
 
             <input
                 ref={proofInputRef}
@@ -1056,9 +1221,6 @@ export default function DashboardClient({
                 onConfirm={handlePostponeConfirm}
             />
 
-            {completedTasks.length > 0 && (
-                <CollapsibleCompletedList tasks={completedTasks} />
-            )}
         </div>
     );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { GlassToggle } from "@/components/GlassToggle";
 import { deleteAccount, getActiveVoucherTasks, updateUserDefaults, updateUsername } from "@/actions/auth";
+import { exportUserData } from "@/actions/export";
 import { addFriend, getFriends, removeFriend, setOrcaAsFriendEnabled } from "@/actions/friends";
 import {
     disconnectGoogleCalendar,
@@ -131,6 +132,8 @@ export default function SettingsClient({
     const [isDeletingAccount, setIsDeletingAccount] = useState(false);
     const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
     const [deleteAccountSuccess, setDeleteAccountSuccess] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const [exportError, setExportError] = useState<string | null>(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [voucherConflicts, setVoucherConflicts] = useState<VoucherConflictTask[]>([]);
     const [isCheckingVoucherConflicts, setIsCheckingVoucherConflicts] = useState(false);
@@ -753,6 +756,31 @@ export default function SettingsClient({
             setGoogleLastError("Could not update Google import filter.");
         } finally {
             setIsGoogleActionLoading(false);
+        }
+    }
+
+    async function handleExportData() {
+        if (isExporting) return;
+        setIsExporting(true);
+        setExportError(null);
+        try {
+            const result = await exportUserData();
+            if ("error" in result) {
+                setExportError(result.error);
+                return;
+            }
+            const json = JSON.stringify(result.data, null, 2);
+            const blob = new Blob([json], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `vouch-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch {
+            setExportError("Export failed. Please try again.");
+        } finally {
+            setIsExporting(false);
         }
     }
 
@@ -1401,6 +1429,23 @@ export default function SettingsClient({
                     <p className="text-sm text-red-200/80">
                         Permanently delete your account and associated data.
                     </p>
+                </div>
+                <div className="space-y-2">
+                    <p className="text-sm text-slate-400">
+                        Download a copy of all your data — tasks, ledger, sessions, friends, and more — as a JSON file.
+                    </p>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleExportData}
+                        disabled={isExporting}
+                        className="border-slate-700 text-slate-200 hover:bg-slate-800"
+                    >
+                        {isExporting ? "Exporting..." : "Export my data"}
+                    </Button>
+                    {exportError && (
+                        <p className="text-sm text-red-400">{exportError}</p>
+                    )}
                 </div>
                 <p className="text-sm text-red-100/90">
                     This action is irreversible. Your profile, tasks, reminders, friendships, and related records will be deleted.

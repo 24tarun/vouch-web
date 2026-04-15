@@ -87,7 +87,7 @@ We do not sell your personal data.
 ## 4. Data Retention
 
 - Account, task, reminder, commitment, and ledger data are retained while your account is active.
-- Proof media is designed to be short-lived and is deleted when no longer needed (for example after voucher decision, timeout/auto-accept, expired response windows, or cleanup of stale uploads).
+- Proof media is permanently deleted and cannot be recovered once removed. Deletion occurs when: (a) the user manually removes the proof, or (b) the task the proof is attached to reaches a final state (Accepted, Denied, or Missed). Deletion removes the file from storage immediately and permanently — there is no way to retrieve it after this point.
 - Google Calendar connection data is removed when you use "Disconnect & Forget" (including local sync link/outbox data).
 - Push subscriptions remain until you disable notifications, unsubscribe on device, or delete your account.
 - AI voucher decision records remain as part of task history unless account/task data is deleted.
@@ -114,7 +114,9 @@ We use reasonable safeguards, including access controls, row-level database poli
 
 ## 8. International Processing
 
-Service providers may process data in multiple countries. By using Vouch, you understand data may be transferred and processed outside your country.
+Our primary database and authentication infrastructure runs on Supabase, hosted in the EU (Ireland, AWS eu-west-1). User account data, task data, and proof media are stored in this EU region.
+
+Other service providers (such as Trigger.dev, Resend, and Google APIs) may process data in additional countries. By using Vouch, you understand that some data may be transferred and processed outside your country by these providers.
 
 ## 9. Your Choices and Rights
 

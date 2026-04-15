@@ -43,11 +43,47 @@ interface ReminderUser {
 const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
 const ONE_HOUR_REMINDER_EVENT = "DEADLINE_WARNING_1H";
 const TEN_MIN_REMINDER_EVENT = "DEADLINE_WARNING_10M";
+const NOTIFICATION_TTL_MS = 30 * 60 * 1000;
 
 function getReminderEventType(source: string): string | null {
     if (source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE) return ONE_HOUR_REMINDER_EVENT;
     if (source === DEFAULT_DEADLINE_10M_REMINDER_SOURCE) return TEN_MIN_REMINDER_EVENT;
     return null;
+}
+
+function expoNeedsRetry(expoResult: {
+    total: number;
+    delivered: number;
+    failed: number;
+    skipped?: boolean;
+} | null | undefined): boolean {
+    if (!expoResult) return true;
+    if (expoResult.skipped) return false;
+    if (expoResult.total <= 0) return false;
+    return expoResult.delivered < expoResult.total || expoResult.failed > 0;
+}
+
+async function sendWithExpoRetry(params: Parameters<typeof sendNotification>[0]) {
+    let result = await sendNotification(params);
+
+    if (!expoNeedsRetry(result.push.expo)) {
+        return result;
+    }
+
+    // Best-effort immediate retries for Expo channel only.
+    for (let attempt = 0; attempt < 2; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        result = await sendNotification({
+            ...params,
+            pushChannels: ["expo"],
+        });
+
+        if (!expoNeedsRetry(result.push.expo)) {
+            return result;
+        }
+    }
+
+    return result;
 }
 
 async function logDefaultReminderEvent(
@@ -154,16 +190,24 @@ async function processDueTaskReminders(
         usersById.set(user.id, user);
     }
 
+    const remindersToRetry = new Set<string>();
+    const nowMs = Date.now();
+
     for (const reminder of claimedReminders) {
         const task = tasksById.get(reminder.parent_task_id);
         const owner = usersById.get(reminder.user_id);
+        const reminderAtMs = new Date(reminder.reminder_at).getTime();
+        const isExpired = !Number.isFinite(reminderAtMs) || (nowMs - reminderAtMs) > NOTIFICATION_TTL_MS;
+        if (isExpired) {
+            continue;
+        }
 
         try {
             if (task && ACTIVE_STATUSES.includes(task.status)) {
                 const reminderEventType = getReminderEventType(reminder.source);
 
                 if (reminder.source === MANUAL_REMINDER_SOURCE) {
-                    await sendNotification({
+                    const sendResult = await sendWithExpoRetry({
                         userId: reminder.user_id,
                         title: "Task reminder",
                         text: `Reminder for "${task.title}".`,
@@ -178,6 +222,10 @@ async function processDueTaskReminders(
                             reminderAt: reminder.reminder_at,
                         },
                     });
+
+                    if (expoNeedsRetry(sendResult.push.expo)) {
+                        remindersToRetry.add(reminder.id);
+                    }
                 } else {
                     const isOneHour = reminder.source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE;
                     const title = isOneHour ? "Deadline in 1 hour" : "Deadline in 10 minutes";
@@ -185,7 +233,7 @@ async function processDueTaskReminders(
                         ? `1 hour left for ${task.title}`
                         : `10 minutes left for ${task.title}`;
 
-                    await sendNotification({
+                    const sendResult = await sendWithExpoRetry({
                         userId: reminder.user_id,
                         subject: title,
                         title,
@@ -203,6 +251,10 @@ async function processDueTaskReminders(
                         },
                     });
 
+                    if (expoNeedsRetry(sendResult.push.expo)) {
+                        remindersToRetry.add(reminder.id);
+                    }
+
                     if (reminderEventType) {
                         await logDefaultReminderEvent(supabase, task, reminder, reminderEventType);
                     }
@@ -210,6 +262,21 @@ async function processDueTaskReminders(
             }
         } catch (error) {
             console.error(`Failed to send task reminder ${reminder.id}:`, error);
+            remindersToRetry.add(reminder.id);
+        }
+    }
+
+    if (remindersToRetry.size > 0) {
+        const retryIds = Array.from(remindersToRetry);
+        const revertResponse = await (supabase.from("task_reminders") as any)
+            .update({ notified_at: null } as any)
+            .in("id", retryIds as any)
+            .eq("notified_at", claimIso as any);
+
+        if (revertResponse.error) {
+            console.error("Failed to requeue reminders for Expo retry:", revertResponse.error);
+        } else {
+            console.warn(`Requeued ${retryIds.length} reminder(s) for Expo retry.`);
         }
     }
 }

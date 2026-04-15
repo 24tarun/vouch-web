@@ -14,7 +14,7 @@ import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
-import { RecurringIndicator } from "@/design-system/badges";
+import { RecurringIndicator, TaskStatusBadge } from "@/design-system";
 import {
     buildBeforeStartSubmissionMessage,
     getTaskSubmissionWindowState,
@@ -611,11 +611,7 @@ export function TaskRow({
                     </div>
 
                     <div className="shrink-0 flex items-center gap-2 text-xs">
-                        <div className={cn("flex items-center gap-1.5", isOverdue ? "text-red-500 font-bold" : "text-slate-400")}>
-                            <span suppressHydrationWarning className="whitespace-nowrap">
-                                {deadlineLabel}
-                            </span>
-                        </div>
+                        <TaskStatusBadge status={task.status} className="font-medium tracking-normal" />
 
                         {(!isActuallyCompleted || hasSubtasks) && (
                             <Button
@@ -1004,5 +1000,4 @@ export function TaskRow({
         </div>
     );
 }
-
 

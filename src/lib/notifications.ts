@@ -1,5 +1,19 @@
 import { resend } from "@/lib/resend";
 import { sendPushToUser, type PushPayload } from "@/lib/web-push";
+import { sendExpoPushToUser, type ExpoPushSendResult } from "@/lib/expo-push";
+import type { PushSendResult } from "@/lib/web-push";
+
+export type PushChannel = "web" | "expo";
+
+export interface NotificationSendResult {
+    email: unknown;
+    push: {
+        web: PushSendResult | null;
+        expo: ExpoPushSendResult | null;
+        webError?: string;
+        expoError?: string;
+    };
+}
 
 export interface NotificationParams {
     to?: string;
@@ -13,8 +27,12 @@ export interface NotificationParams {
     tag?: string;
     email?: boolean;
     push?: boolean;
+    pushChannels?: PushChannel[];
+    ttlSeconds?: number;
     pushPayload?: PushPayload;
 }
+
+const DEFAULT_NOTIFICATION_TTL_SECONDS = 30 * 60;
 
 function stripHtml(input: string): string {
     return input.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -46,12 +64,18 @@ export async function sendNotification(params: NotificationParams) {
     const shouldSendEmail = params.email !== false;
     const shouldSendPush = params.push !== false;
 
-    const results: {
-        email: unknown;
-        push: unknown;
-    } = {
+    const channels = new Set<PushChannel>(
+        params.pushChannels && params.pushChannels.length > 0
+            ? params.pushChannels
+            : ["web", "expo"]
+    );
+
+    const results: NotificationSendResult = {
         email: null,
-        push: null,
+        push: {
+            web: null,
+            expo: null,
+        },
     };
 
     if (shouldSendEmail) {
@@ -75,7 +99,53 @@ export async function sendNotification(params: NotificationParams) {
     if (shouldSendPush && params.userId) {
         try {
             const pushPayload = resolvePushPayload(params);
-            results.push = await sendPushToUser(params.userId, pushPayload);
+            const ttlSeconds = Number.isFinite(params.ttlSeconds) && (params.ttlSeconds as number) > 0
+                ? Math.floor(params.ttlSeconds as number)
+                : DEFAULT_NOTIFICATION_TTL_SECONDS;
+            const [webPushResult, expoPushResult] = await Promise.allSettled([
+                channels.has("web")
+                    ? sendPushToUser(params.userId, {
+                        ...pushPayload,
+                        ttlSeconds,
+                    })
+                    : Promise.resolve({
+                        success: true,
+                        total: 0,
+                        delivered: 0,
+                        failed: 0,
+                        skipped: true,
+                        reason: "channel_disabled",
+                    } as PushSendResult),
+                channels.has("expo")
+                    ? sendExpoPushToUser(params.userId, {
+                        title: pushPayload.title,
+                        body: pushPayload.body ?? "",
+                        data: pushPayload.data,
+                        ttlSeconds,
+                    })
+                    : Promise.resolve({
+                        success: true,
+                        total: 0,
+                        delivered: 0,
+                        failed: 0,
+                        skipped: true,
+                        reason: "channel_disabled",
+                    } as ExpoPushSendResult),
+            ]);
+
+            if (webPushResult.status === "fulfilled") {
+                results.push.web = webPushResult.value;
+            } else {
+                results.push.webError = String(webPushResult.reason ?? "unknown_web_push_error");
+                console.error("[notifications] web push failed:", webPushResult.reason);
+            }
+
+            if (expoPushResult.status === "fulfilled") {
+                results.push.expo = expoPushResult.value;
+            } else {
+                results.push.expoError = String(expoPushResult.reason ?? "unknown_expo_push_error");
+                console.error("[notifications] expo push failed:", expoPushResult.reason);
+            }
         } catch (error) {
             console.error("Failed to send push:", error);
         }

@@ -1,31 +1,14 @@
 export const SCORE_BASE = 400;
-export const BAYESIAN_BASE_WEIGHT = 8;
-export const BAYESIAN_TASK_THRESHOLD = 50; // Prior fades to zero by this many finalized tasks
+export const BAYESIAN_BASE_WEIGHT = 10;
+export const BAYESIAN_TASK_THRESHOLD = 40; // Prior fades as finalized history accumulates
 
-export const WEIGHT_DELIVERY = 0.35;
-export const WEIGHT_ACCOUNTABILITY = 0.20;
-export const WEIGHT_COMMUNITY = 0.10;
+export const WEIGHT_DELIVERY = 0.4;
+export const WEIGHT_ACCOUNTABILITY = 0.25;
+export const WEIGHT_DISCIPLINE = 0.15;
+export const WEIGHT_PROOF_QUALITY = 0.1;
+export const WEIGHT_COMMUNITY = 0.1;
 
-
-export const STREAK_MULTIPLIERS: { minDays: number; mult: number }[] = [
-    { minDays: 30, mult: 2.0 },
-    { minDays: 14, mult: 1.6 },
-    { minDays: 7, mult: 1.3 },
-    { minDays: 1, mult: 1.0 },
-];
-
-export const CONSECUTIVE_FAILURE_MULTIPLIERS = [0.3, 0.65, 1.0, 1.35, 1.7];
-
-export const ACCOUNTABILITY_FAILURE_PENALTY = 80;
-export const ACCOUNTABILITY_DECAY_HALF_LIFE_DAYS = 15;
-export const ACCOUNTABILITY_CONSECUTIVE_WINDOW_DAYS = 30;
-
-export const DISCIPLINE_HEAVY_BREAK_THRESHOLD_DAYS = 15;
-
-export const COMMUNITY_AUTO_ACCEPT_PENALTY = 30;
-export const COMMUNITY_VOUCH_REWARD = 15;
-
-export const BONUS_PER_QUALIFYING_TASK = 0.001; // +0.1% per qualifying task (proof, recurring, pomo >1hr)
+export const ACCOUNTABILITY_RECENCY_HALF_LIFE_DAYS = 21;
 
 export const VELOCITY_LOOKBACK_DAYS = 7;
 
@@ -40,4 +23,3 @@ export const SCORE_TIERS: { minScore: number; label: string }[] = [
     { minScore: 200, label: "Struggling" },
     { minScore: 0, label: "Unreliable" },
 ];
-

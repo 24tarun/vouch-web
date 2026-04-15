@@ -29,6 +29,8 @@ interface TaskPickerModalProps {
     currency: SupportedCurrency;
     onSelectTask: (taskId: string) => void;
     onSelectRecurrenceRule: (recurrenceRuleId: string) => void;
+    onUnlinkTask: (taskId: string) => void;
+    onUnlinkRecurrenceRule: (recurrenceRuleId: string) => void;
 }
 
 function toSearchTarget(value: string): string {
@@ -45,6 +47,8 @@ export function TaskPickerModal({
     currency,
     onSelectTask,
     onSelectRecurrenceRule,
+    onUnlinkTask,
+    onUnlinkRecurrenceRule,
 }: TaskPickerModalProps) {
     const [query, setQuery] = useState("");
     const normalizedQuery = toSearchTarget(query);
@@ -90,12 +94,9 @@ export function TaskPickerModal({
                                     {filteredRules.map((rule) => {
                                         const linked = linkedRuleIdSet.has(rule.id);
                                         return (
-                                            <button
+                                            <div
                                                 key={rule.id}
-                                                type="button"
-                                                onClick={() => { if (!linked) onSelectRecurrenceRule(rule.id); }}
-                                                disabled={linked}
-                                                className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-0 text-left transition-colors hover:bg-slate-900/30 disabled:opacity-40"
+                                                className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-0 transition-colors hover:bg-slate-900/30"
                                             >
                                                 <div className="min-w-0">
                                                     <p className="text-sm text-slate-100 truncate">{rule.title}</p>
@@ -103,10 +104,24 @@ export function TaskPickerModal({
                                                         {formatCurrencyFromCents(rule.failure_cost_cents, currency)}
                                                     </p>
                                                 </div>
-                                                <span className="shrink-0 text-[10px] uppercase tracking-wider font-bold text-slate-600">
-                                                    {linked ? "Linked" : "Add"}
-                                                </span>
-                                            </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (linked) {
+                                                            onUnlinkRecurrenceRule(rule.id);
+                                                            return;
+                                                        }
+                                                        onSelectRecurrenceRule(rule.id);
+                                                    }}
+                                                    className={`shrink-0 text-[10px] uppercase tracking-wider font-bold transition-colors ${
+                                                        linked
+                                                            ? "text-red-400/80 hover:text-red-300"
+                                                            : "text-slate-500 hover:text-slate-300"
+                                                    }`}
+                                                >
+                                                    {linked ? "Unlink" : "Add"}
+                                                </button>
+                                            </div>
                                         );
                                     })}
                                 </div>
@@ -125,12 +140,9 @@ export function TaskPickerModal({
                                     {filteredTasks.map((task) => {
                                         const linked = linkedTaskIdSet.has(task.id);
                                         return (
-                                            <button
+                                            <div
                                                 key={task.id}
-                                                type="button"
-                                                onClick={() => { if (!linked) onSelectTask(task.id); }}
-                                                disabled={linked}
-                                                className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-0 text-left transition-colors hover:bg-slate-900/30 disabled:opacity-40"
+                                                className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-0 transition-colors hover:bg-slate-900/30"
                                             >
                                                 <div className="min-w-0">
                                                     <p className="text-sm text-slate-100 truncate">{task.title}</p>
@@ -138,10 +150,24 @@ export function TaskPickerModal({
                                                         {formatDateTimeDDMMYYYY(task.deadline)} · {formatCurrencyFromCents(task.failure_cost_cents, currency)}
                                                     </p>
                                                 </div>
-                                                <span className="shrink-0 text-[10px] uppercase tracking-wider font-bold text-slate-600">
-                                                    {linked ? "Linked" : "Add"}
-                                                </span>
-                                            </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (linked) {
+                                                            onUnlinkTask(task.id);
+                                                            return;
+                                                        }
+                                                        onSelectTask(task.id);
+                                                    }}
+                                                    className={`shrink-0 text-[10px] uppercase tracking-wider font-bold transition-colors ${
+                                                        linked
+                                                            ? "text-red-400/80 hover:text-red-300"
+                                                            : "text-slate-500 hover:text-slate-300"
+                                                    }`}
+                                                >
+                                                    {linked ? "Unlink" : "Add"}
+                                                </button>
+                                            </div>
                                         );
                                     })}
                                 </div>

@@ -8,6 +8,7 @@ export interface PushPayload {
     tag?: string;
     data?: Record<string, unknown>;
     sound?: string;
+    ttlSeconds?: number;
 }
 
 export interface PushSendResult {
@@ -50,6 +51,10 @@ function extractStatusCode(error: unknown): number | null {
 }
 
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<PushSendResult> {
+    const ttlSeconds = Number.isFinite(payload.ttlSeconds) && (payload.ttlSeconds as number) > 0
+        ? Math.floor(payload.ttlSeconds as number)
+        : 30 * 60;
+
     const vapid = configureVapid();
     if (!vapid.ok) {
         console.warn("[web-push] Skipping push:", vapid.reason);
@@ -135,7 +140,9 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     const settled = await Promise.allSettled(
         subscriptions.map(async (entry) => {
             try {
-                await webPush.sendNotification(entry.subscription, message);
+                await webPush.sendNotification(entry.subscription, message, {
+                    TTL: ttlSeconds,
+                } as any);
                 delivered += 1;
             } catch (pushError) {
                 failed += 1;

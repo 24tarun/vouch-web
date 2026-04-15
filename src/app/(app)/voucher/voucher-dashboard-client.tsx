@@ -13,7 +13,6 @@ import { toast } from "sonner";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
 import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 import { getWarmProofSrc, purgeLocalProofMedia } from "@/lib/proof-media-warmup";
-import { formatCurrencyFromCents, normalizeCurrency } from "@/lib/currency";
 import { subscribeRealtimeTaskChanges, type RealtimeTaskRow } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
 import { reconcilePendingTasksFromServer } from "@/lib/voucher-pending-reconcile";
@@ -627,8 +626,6 @@ export function CompactPendingItem({
     const proofSrc = proof && proofVersion
         ? (getWarmProofSrc(task.id, proofVersion) || `/api/task-proofs/${task.id}?v=${encodeURIComponent(proofVersion)}`)
         : null;
-    const ownerCurrency = normalizeCurrency(task.user?.currency);
-    const formattedFailureCost = formatCurrencyFromCents(task.failure_cost_cents, ownerCurrency);
 
     useEffect(() => {
         if (!isProofFullscreen) return;
@@ -654,6 +651,7 @@ export function CompactPendingItem({
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-purple-300">{task.user?.username || "Unknown"}</span>
                     <TaskStatusBadge
                         status={task.pending_display_type === "ACTIVE" ? "ACTIVE" : "AWAITING_VOUCHER"}
                         className="font-medium tracking-normal"
@@ -670,11 +668,6 @@ export function CompactPendingItem({
                         proofRequestCount={task.proof_request_open ? (task.proof_request_count || 0) : 0}
                     />
                 </div>
-
-                <p className="text-sm text-slate-500 mt-2">
-                    <span className="text-slate-300">{task.user?.username || "Unknown"}</span> .{" "}
-                    <span className="text-slate-400 font-mono">{formattedFailureCost}</span>
-                </p>
 
                 {proof && proofSrc && (
                     <div
@@ -810,9 +803,6 @@ function CompactHistoryItem({
     const isRectifiable = task.status === "DENIED" || task.status === "MISSED";
     const withinRectifyWindow = isWithinRectifyWindow(task.updated_at, renderNow);
     const passLimitReached = (task.rectify_passes_used ?? 0) >= 5;
-    const ownerCurrency = normalizeCurrency(task.user?.currency);
-    const formattedFailureCost = formatCurrencyFromCents(task.failure_cost_cents, ownerCurrency);
-
     return (
         <div className="group flex items-center gap-3 py-4 border-b border-slate-900/50 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
             <div className="flex-1 min-w-0">
@@ -826,9 +816,8 @@ function CompactHistoryItem({
                     <HistoryTaskStatusBadge status={task.status} />
                 </div>
                 <p className="text-xs text-slate-600 mt-1">
-                    <span className="text-slate-400">{task.user?.username || "Unknown"}</span> .{" "}
-                    <span>{new Date(task.updated_at).toLocaleDateString()}</span> .{" "}
-                    <span className="font-mono">{formattedFailureCost}</span>
+                    <span className="text-purple-300">{task.user?.username || "Unknown"}</span> .{" "}
+                    <span>{new Date(task.updated_at).toLocaleDateString()}</span>
                 </p>
             </div>
 
@@ -853,4 +842,3 @@ function CompactHistoryItem({
         </div>
     );
 }
-
