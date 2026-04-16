@@ -4,7 +4,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { GlassToggle } from "@/components/GlassToggle";
 import { deleteAccount, getActiveVoucherTasks, updateUserDefaults, updateUsername } from "@/actions/auth";
 import { exportUserData } from "@/actions/export";
-import { addFriend, getFriends, removeFriend, setOrcaAsFriendEnabled } from "@/actions/friends";
+import {
+    acceptIncomingFriendRequest,
+    blockRelationshipUser,
+    getBlockedUsers,
+    getFriends,
+    getRelationshipData,
+    rejectIncomingFriendRequest,
+    removeFriendById,
+    searchUsersForFriendship,
+    sendFriendRequestToUser,
+    setOrcaAsFriendEnabled,
+    unblockRelationshipUser,
+    withdrawOutgoingFriendRequest,
+    type BlockedUserOption,
+    type IncomingFriendRequest,
+    type OutgoingFriendRequest,
+    type SearchCandidate,
+} from "@/actions/friends";
 import {
     disconnectGoogleCalendar,
     listGoogleCalendarsForSettings,
@@ -75,10 +92,21 @@ export default function SettingsClient({
     );
 
     const [friends, setFriends] = useState<FriendProfile[]>(initialFriends);
-    const [friendEmail, setFriendEmail] = useState("");
-    const [isFriendsLoading, setIsFriendsLoading] = useState(false);
-    const [friendsError, setFriendsError] = useState<string | null>(null);
-    const [friendsSuccess, setFriendsSuccess] = useState<string | null>(null);
+    const [relationshipFriends, setRelationshipFriends] = useState<Array<IncomingFriendRequest["sender"]>>([]);
+    const [incomingRequests, setIncomingRequests] = useState<IncomingFriendRequest[]>([]);
+    const [outgoingRequests, setOutgoingRequests] = useState<OutgoingFriendRequest[]>([]);
+    const [relationshipsLoading, setRelationshipsLoading] = useState(false);
+    const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
+    const [relationshipSuccess, setRelationshipSuccess] = useState<string | null>(null);
+    const [relationshipInFlight, setRelationshipInFlight] = useState<Record<string, string | null>>({});
+    const [friendSearchQuery, setFriendSearchQuery] = useState("");
+    const [friendSearchResults, setFriendSearchResults] = useState<SearchCandidate[]>([]);
+    const [friendSearchLoading, setFriendSearchLoading] = useState(false);
+    const [friendSearchError, setFriendSearchError] = useState<string | null>(null);
+    const [blockedUsers, setBlockedUsers] = useState<BlockedUserOption[]>([]);
+    const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
+    const [blockedUsersError, setBlockedUsersError] = useState<string | null>(null);
+    const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
     const [orcaFriendEnabled, setOrcaFriendEnabled] = useState(profile.orca_friend_opt_in ?? false);
     const [isOrcaFriendLoading, setIsOrcaFriendLoading] = useState(false);
     const [orcaFriendError, setOrcaFriendError] = useState<string | null>(null);
@@ -290,56 +318,184 @@ export default function SettingsClient({
         setFriends((updatedFriends as FriendProfile[]) || []);
     }
 
-    async function handleAddFriend(e: React.FormEvent) {
-        e.preventDefault();
-        setIsFriendsLoading(true);
-        setFriendsError(null);
-        setFriendsSuccess(null);
+    function updateRelationshipInFlight(key: string, action: string | null) {
+        setRelationshipInFlight((prev) => ({ ...prev, [key]: action }));
+    }
 
-        try {
-            const formData = new FormData();
-            formData.append("email", friendEmail);
-            const result = await addFriend(formData);
+    async function refreshRelationshipsAndSearch() {
+        setRelationshipsLoading(true);
+        setRelationshipsError(null);
 
-            if (result.error) {
-                setFriendsError(result.error);
-                return;
+        const [relationshipsResult, blockedUsersResult] = await Promise.all([
+            getRelationshipData(),
+            getBlockedUsers(),
+        ]);
+
+        if (relationshipsResult.error) {
+            setRelationshipsError(relationshipsResult.error);
+        } else {
+            setRelationshipFriends(relationshipsResult.friends);
+            setIncomingRequests(relationshipsResult.incomingRequests);
+            setOutgoingRequests(relationshipsResult.outgoingRequests);
+        }
+
+        if (blockedUsersResult.error) {
+            setBlockedUsersError(blockedUsersResult.error);
+        } else {
+            setBlockedUsers(blockedUsersResult.users);
+            setBlockedUsersError(null);
+        }
+
+        setRelationshipsLoading(false);
+        setBlockedUsersLoading(false);
+        await refreshFriendsList();
+
+        const searchQuery = friendSearchQuery.trim();
+        if (searchQuery) {
+            const searchResult = await searchUsersForFriendship(searchQuery);
+            if (searchResult.error) {
+                setFriendSearchResults([]);
+                setFriendSearchError(searchResult.error);
+            } else {
+                setFriendSearchResults(searchResult.candidates);
+                setFriendSearchError(null);
             }
-
-            setFriendsSuccess("Friend added successfully.");
-            setFriendEmail("");
-            await refreshFriendsList();
-        } catch (error) {
-            console.error(error);
-            setFriendsError("Failed to add friend.");
-        } finally {
-            setIsFriendsLoading(false);
         }
     }
 
-    async function handleRemoveFriend(friendId: string) {
-        setIsFriendsLoading(true);
-        setFriendsError(null);
-        setFriendsSuccess(null);
-
+    async function handleSendFriendRequest(candidate: SearchCandidate) {
+        const key = `send:${candidate.id}`;
+        updateRelationshipInFlight(key, "send");
+        setRelationshipSuccess(null);
         try {
-            const result = await removeFriend(friendId);
-
+            const result = await sendFriendRequestToUser(candidate.id);
             if (result.error) {
-                setFriendsError(result.error);
+                setRelationshipsError(result.error);
                 return;
             }
 
-            if (defaultVoucherId === friendId) {
+            setRelationshipSuccess("Friend request sent.");
+            await refreshRelationshipsAndSearch();
+        } finally {
+            updateRelationshipInFlight(key, null);
+        }
+    }
+
+    async function handleAcceptFriendRequest(request: IncomingFriendRequest) {
+        const key = `request:${request.id}:accept`;
+        updateRelationshipInFlight(key, "accept");
+        setRelationshipSuccess(null);
+        try {
+            const result = await acceptIncomingFriendRequest(request.id);
+            if (result.error) {
+                setRelationshipsError(result.error);
+                return;
+            }
+
+            setRelationshipSuccess(`Accepted @${request.sender.username}.`);
+            await refreshRelationshipsAndSearch();
+        } finally {
+            updateRelationshipInFlight(key, null);
+        }
+    }
+
+    async function handleRejectFriendRequest(request: IncomingFriendRequest) {
+        const key = `request:${request.id}:reject`;
+        updateRelationshipInFlight(key, "reject");
+        setRelationshipSuccess(null);
+        try {
+            const result = await rejectIncomingFriendRequest(request.id);
+            if (result.error) {
+                setRelationshipsError(result.error);
+                return;
+            }
+
+            setRelationshipSuccess(`Rejected @${request.sender.username}.`);
+            await refreshRelationshipsAndSearch();
+        } finally {
+            updateRelationshipInFlight(key, null);
+        }
+    }
+
+    async function handleWithdrawFriendRequest(request: OutgoingFriendRequest) {
+        const key = `outgoing:${request.id}:withdraw`;
+        updateRelationshipInFlight(key, "withdraw");
+        setRelationshipSuccess(null);
+        try {
+            const result = await withdrawOutgoingFriendRequest(request.id);
+            if (result.error) {
+                setRelationshipsError(result.error);
+                return;
+            }
+
+            setRelationshipSuccess(`Request to @${request.receiver.username} withdrawn.`);
+            await refreshRelationshipsAndSearch();
+        } finally {
+            updateRelationshipInFlight(key, null);
+        }
+    }
+
+    async function handleRemoveFriend(friend: IncomingFriendRequest["sender"]) {
+        const key = `friend:${friend.id}:remove`;
+        updateRelationshipInFlight(key, "remove");
+        setRelationshipSuccess(null);
+        try {
+            const result = await removeFriendById(friend.id);
+            if (result.error) {
+                setRelationshipsError(result.error);
+                return;
+            }
+
+            if (defaultVoucherId === friend.id) {
                 setDefaultVoucherId(profile.id);
             }
 
-            await refreshFriendsList();
-        } catch (error) {
-            console.error(error);
-            setFriendsError("Failed to remove friend.");
+            setRelationshipSuccess(`Removed @${friend.username}.`);
+            await refreshRelationshipsAndSearch();
         } finally {
-            setIsFriendsLoading(false);
+            updateRelationshipInFlight(key, null);
+        }
+    }
+
+    async function handleBlockRelationshipUser(
+        target: SearchCandidate | IncomingFriendRequest["sender"] | OutgoingFriendRequest["receiver"] | FriendProfile,
+        sourceKey: string
+    ) {
+        updateRelationshipInFlight(sourceKey, "block");
+        setRelationshipSuccess(null);
+        try {
+            const result = await blockRelationshipUser(target.id);
+            if (result.error) {
+                setRelationshipsError(result.error);
+                return;
+            }
+
+            if (defaultVoucherId === target.id) {
+                setDefaultVoucherId(profile.id);
+            }
+
+            setRelationshipSuccess(`Blocked @${target.username}.`);
+            await refreshRelationshipsAndSearch();
+        } finally {
+            updateRelationshipInFlight(sourceKey, null);
+        }
+    }
+
+    async function handleUnblockUser(userId: string, username: string) {
+        setUnblockingUserId(userId);
+        setBlockedUsersError(null);
+        setRelationshipSuccess(null);
+        try {
+            const result = await unblockRelationshipUser(userId);
+            if (result.error) {
+                setBlockedUsersError(result.error);
+                return;
+            }
+
+            setRelationshipSuccess(`Unblocked @${username}.`);
+            await refreshRelationshipsAndSearch();
+        } finally {
+            setUnblockingUserId(null);
         }
     }
 
@@ -371,7 +527,7 @@ export default function SettingsClient({
                     ? `${AI_VOUCHER_DISPLAY_NAME} added as a friend.`
                     : `${AI_VOUCHER_DISPLAY_NAME} removed from your friends.`
             );
-            await refreshFriendsList();
+            await refreshRelationshipsAndSearch();
         } catch (error) {
             console.error(error);
             setOrcaFriendEnabled(previousEnabled);
@@ -544,6 +700,40 @@ export default function SettingsClient({
     }, [
         defaultsSnapshot,
     ]);
+
+    useEffect(() => {
+        setBlockedUsersLoading(true);
+        void refreshRelationshipsAndSearch();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        const search = friendSearchQuery.trim();
+        if (!search) {
+            setFriendSearchLoading(false);
+            setFriendSearchError(null);
+            setFriendSearchResults([]);
+            return;
+        }
+
+        setFriendSearchLoading(true);
+        setFriendSearchError(null);
+        const timer = window.setTimeout(async () => {
+            const result = await searchUsersForFriendship(search);
+            if (result.error) {
+                setFriendSearchResults([]);
+                setFriendSearchError(result.error);
+            } else {
+                setFriendSearchResults(result.candidates);
+                setFriendSearchError(null);
+            }
+            setFriendSearchLoading(false);
+        }, 250);
+
+        return () => {
+            window.clearTimeout(timer);
+        };
+    }, [friendSearchQuery]);
 
     useEffect(() => {
         if (!googleConnected) return;
@@ -858,98 +1048,310 @@ export default function SettingsClient({
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-white">Friends</h2>
                     <p className="text-sm text-slate-400">
-                        Add or remove friends used for vouchers and activity visibility
+                        Search people, manage friend requests, and block users.
                     </p>
                 </div>
+                <div className="space-y-3">
+                    <Label htmlFor="friendSearch" className="text-slate-200">
+                        Search by email or username
+                    </Label>
+                    <Input
+                        id="friendSearch"
+                        type="text"
+                        placeholder="Find people..."
+                        value={friendSearchQuery}
+                        onChange={(e) => setFriendSearchQuery(e.target.value)}
+                        className="bg-slate-800/40 border-slate-700 text-white"
+                    />
+                </div>
 
-                <form onSubmit={handleAddFriend} className="flex flex-col sm:flex-row gap-3">
-                    <div className="flex-1 min-w-0">
-                        <Label htmlFor="friendEmail" className="sr-only">
-                            Friend Email
-                        </Label>
-                        <Input
-                            id="friendEmail"
-                            type="email"
-                            placeholder="name@domain.com"
-                            value={friendEmail}
-                            onChange={(e) => setFriendEmail(e.target.value)}
-                            required
-                            className="bg-slate-800/40 border-slate-700 text-white"
-                        />
+                {relationshipsError && <p className="text-sm text-red-400">{relationshipsError}</p>}
+                {blockedUsersError && <p className="text-sm text-red-400">{blockedUsersError}</p>}
+                {relationshipSuccess && <p className="text-sm text-green-400">{relationshipSuccess}</p>}
+                {relationshipsLoading && <p className="text-sm text-slate-400">Loading relationships...</p>}
+
+                {friendSearchQuery.trim().length > 0 ? (
+                    <div className="space-y-2">
+                        {friendSearchLoading ? (
+                            <p className="text-sm text-slate-400">Searching...</p>
+                        ) : friendSearchError ? (
+                            <p className="text-sm text-red-400">{friendSearchError}</p>
+                        ) : friendSearchResults.length === 0 ? (
+                            <p className="text-sm text-slate-500">No matching users found.</p>
+                        ) : (
+                            friendSearchResults.map((candidate) => {
+                                const sendKey = `send:${candidate.id}`;
+                                const blockKey = `search:${candidate.id}:block`;
+                                const isSending = relationshipInFlight[sendKey] === "send";
+                                const isBlocking = relationshipInFlight[blockKey] === "block";
+
+                                return (
+                                    <div
+                                        key={candidate.id}
+                                        className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                    >
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <Avatar className="h-10 w-10 border border-slate-700 bg-slate-900">
+                                                <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                                    {candidate.username?.slice(0, 2).toUpperCase() || "??"}
+                                                </AvatarFallback>
+                                            </Avatar>
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-white truncate">{candidate.username}</p>
+                                                <p className="text-xs text-slate-400 truncate">{candidate.email}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {candidate.incoming_request_pending ? (
+                                                <span className="text-xs text-amber-300">Requested you</span>
+                                            ) : candidate.outgoing_request_pending ? (
+                                                <span className="text-xs text-slate-400">Requested</span>
+                                            ) : (
+                                                <Button
+                                                    type="button"
+                                                    size="sm"
+                                                    onClick={() => void handleSendFriendRequest(candidate)}
+                                                    disabled={isSending || isBlocking}
+                                                    className="bg-slate-100 text-slate-950 hover:bg-white font-semibold"
+                                                >
+                                                    {isSending ? "Sending..." : "Add Friend"}
+                                                </Button>
+                                            )}
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => void handleBlockRelationshipUser(candidate, blockKey)}
+                                                disabled={isSending || isBlocking}
+                                                className="text-red-300 hover:text-red-200 hover:bg-red-500/10"
+                                            >
+                                                {isBlocking ? "Blocking..." : "Block"}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        )}
                     </div>
-                    <Button
-                        type="submit"
-                        disabled={isFriendsLoading}
-                        className="bg-slate-100 text-slate-950 hover:bg-white font-semibold"
-                    >
-                        {isFriendsLoading ? "Adding..." : "Add Friend"}
-                    </Button>
-                </form>
-
-                {friendsError && (
-                    <p className="border-b border-red-900/60 pb-2 text-sm text-red-400">
-                        {friendsError}
-                    </p>
-                )}
-                {friendsSuccess && (
-                    <p className="border-b border-green-900/60 pb-2 text-sm text-green-400">
-                        {friendsSuccess}
-                    </p>
-                )}
-
-                {friends.length === 0 ? (
-                    <p className="text-sm text-slate-500">No friends yet.</p>
                 ) : (
-                    <div>
-                        {friends.map((friend) => (
-                            <div
-                                key={friend.id}
-                                className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
-                            >
-                                <div className="flex items-center gap-3 min-w-0">
-                                    <Avatar className="relative h-12 w-12 border border-slate-700 bg-slate-900 overflow-visible">
-                                        <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
-                                            {friend.username?.slice(0, 2).toUpperCase() || "??"}
-                                        </AvatarFallback>
-                                        <span
-                                            className="absolute -top-1 -right-1 rounded-full min-w-[36px] h-5 px-1.5 flex items-center justify-center text-[9px] font-mono font-semibold text-white leading-none border border-orange-300/50"
-                                            style={{
-                                                background: "linear-gradient(90deg, rgb(234,88,12) 0%, rgb(251,146,60) 100%)",
-                                                boxShadow: "0 0 8px 1px rgba(251,146,60,0.5)",
-                                                textShadow: "0 0 4px rgba(0,0,0,0.45)",
-                                            }}
-                                            aria-label={`${friend.username ?? "Friend"} RP score ${friend.rp_score ?? 400}`}
+                    <div className="space-y-3">
+                        {incomingRequests.length === 0 && outgoingRequests.length === 0 && relationshipFriends.length === 0 ? (
+                            <p className="text-sm text-slate-500">No friends yet.</p>
+                        ) : null}
+
+                        {incomingRequests.map((request) => {
+                            const acceptKey = `request:${request.id}:accept`;
+                            const rejectKey = `request:${request.id}:reject`;
+                            const blockKey = `request:${request.id}:block`;
+                            const busy = Boolean(
+                                relationshipInFlight[acceptKey] ||
+                                relationshipInFlight[rejectKey] ||
+                                relationshipInFlight[blockKey]
+                            );
+                            return (
+                                <div
+                                    key={request.id}
+                                    className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <Avatar className="h-10 w-10 border border-slate-700 bg-slate-900">
+                                            <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                                {request.sender.initial}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-white truncate">{request.sender.username}</p>
+                                            <p className="text-xs text-slate-400 truncate">{request.sender.email}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            onClick={() => void handleAcceptFriendRequest(request)}
+                                            disabled={busy}
+                                            className="bg-emerald-700 text-white hover:bg-emerald-600"
                                         >
-                                            {friend.rp_score ?? 400}
-                                        </span>
-                                    </Avatar>
-                                    <div className="min-w-0">
-                                        <p className="text-sm font-semibold text-white truncate">{friend.username ?? "Unnamed friend"}</p>
-                                        <p className="text-xs text-slate-400 truncate">{friend.email}</p>
+                                            {relationshipInFlight[acceptKey] === "accept" ? "Accepting..." : "Accept"}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => void handleRejectFriendRequest(request)}
+                                            disabled={busy}
+                                            className="text-amber-300 hover:text-amber-200 hover:bg-amber-500/10"
+                                        >
+                                            {relationshipInFlight[rejectKey] === "reject" ? "Rejecting..." : "Reject"}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => void handleBlockRelationshipUser(request.sender, blockKey)}
+                                            disabled={busy}
+                                            className="text-red-300 hover:text-red-200 hover:bg-red-500/10"
+                                        >
+                                            {relationshipInFlight[blockKey] === "block" ? "Blocking..." : "Block"}
+                                        </Button>
                                     </div>
                                 </div>
-                                {friend.id === ORCA_PROFILE_ID ? (
-                                    <span className="text-xs text-slate-500">Managed in AI Features</span>
-                                ) : (
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleRemoveFriend(friend.id)}
-                                        disabled={isFriendsLoading}
-                                        className="text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                                    >
-                                        Remove
-                                    </Button>
-                                )}
-                            </div>
-                        ))}
+                            );
+                        })}
+
+                        {outgoingRequests.map((request) => {
+                            const withdrawKey = `outgoing:${request.id}:withdraw`;
+                            const blockKey = `sent-request:${request.id}:block`;
+                            const isWithdrawing = relationshipInFlight[withdrawKey] === "withdraw";
+                            const isBlocking = relationshipInFlight[blockKey] === "block";
+                            return (
+                                <div
+                                    key={request.id}
+                                    className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <Avatar className="h-10 w-10 border border-slate-700 bg-slate-900">
+                                            <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                                {request.receiver.initial}
+                                            </AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-white truncate">{request.receiver.username}</p>
+                                            <p className="text-xs text-slate-400 truncate">{request.receiver.email}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => void handleWithdrawFriendRequest(request)}
+                                            disabled={isWithdrawing || isBlocking}
+                                            className="text-amber-300 hover:text-amber-200 hover:bg-amber-500/10"
+                                        >
+                                            {isWithdrawing ? "Withdrawing..." : "Withdraw"}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => void handleBlockRelationshipUser(request.receiver, blockKey)}
+                                            disabled={isWithdrawing || isBlocking}
+                                            className="text-red-300 hover:text-red-200 hover:bg-red-500/10"
+                                        >
+                                            {isBlocking ? "Blocking..." : "Block"}
+                                        </Button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {relationshipFriends.map((friend) => {
+                            const removeKey = `friend:${friend.id}:remove`;
+                            const blockKey = `friend:${friend.id}:block`;
+                            const isRemoving = relationshipInFlight[removeKey] === "remove";
+                            const isBlocking = relationshipInFlight[blockKey] === "block";
+
+                            return (
+                                <div
+                                    key={friend.id}
+                                    className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <Avatar className="relative h-10 w-10 border border-slate-700 bg-slate-900 overflow-visible">
+                                            <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                                {friend.username?.slice(0, 2).toUpperCase() || "??"}
+                                            </AvatarFallback>
+                                            <span
+                                                className="absolute -top-1 -right-1 rounded-full min-w-[34px] h-5 px-1.5 flex items-center justify-center text-[9px] font-mono font-semibold text-white leading-none border border-orange-300/50"
+                                                style={{
+                                                    background: "linear-gradient(90deg, rgb(234,88,12) 0%, rgb(251,146,60) 100%)",
+                                                    boxShadow: "0 0 8px 1px rgba(251,146,60,0.5)",
+                                                    textShadow: "0 0 4px rgba(0,0,0,0.45)",
+                                                }}
+                                                aria-label={`${friend.username ?? "Friend"} RP score ${friend.rp_score ?? 400}`}
+                                            >
+                                                {friend.rp_score ?? 400}
+                                            </span>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-white truncate">{friend.username}</p>
+                                            <p className="text-xs text-slate-400 truncate">{friend.email}</p>
+                                        </div>
+                                    </div>
+                                    {friend.id === ORCA_PROFILE_ID ? (
+                                        <span className="text-xs text-slate-500">Managed in AI Features</span>
+                                    ) : (
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => void handleRemoveFriend(friend)}
+                                                disabled={isRemoving || isBlocking}
+                                                className="text-amber-300 hover:text-amber-200 hover:bg-amber-500/10"
+                                            >
+                                                {isRemoving ? "Removing..." : "Remove"}
+                                            </Button>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => void handleBlockRelationshipUser(friend, blockKey)}
+                                                disabled={isRemoving || isBlocking}
+                                                className="text-red-300 hover:text-red-200 hover:bg-red-500/10"
+                                            >
+                                                {isBlocking ? "Blocking..." : "Block"}
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
 
                 <p className="text-xs text-slate-500">
-                    Friends can only be removed if they are not an active voucher for your pending tasks.
+                    Remove or block is disabled by backend rules while one of you is still voucher for the other on pending tasks.
                 </p>
+            </section>
+
+            <section className="space-y-4 border-b border-slate-900 pb-8">
+                <div className="space-y-1">
+                    <h2 className="text-xl font-semibold text-white">Blocked Users</h2>
+                    <p className="text-sm text-slate-400">
+                        Unblock people you previously blocked so they can send friend requests again.
+                    </p>
+                </div>
+                {blockedUsersLoading ? (
+                    <p className="text-sm text-slate-400">Loading blocked users...</p>
+                ) : blockedUsers.length === 0 ? (
+                    <p className="text-sm text-slate-500">No blocked users.</p>
+                ) : (
+                    <div>
+                        {blockedUsers.map((blockedUser) => (
+                            <div
+                                key={blockedUser.id}
+                                className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                            >
+                                <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-white truncate">{blockedUser.username}</p>
+                                    <p className="text-xs text-slate-400 truncate">{blockedUser.email}</p>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => void handleUnblockUser(blockedUser.id, blockedUser.username)}
+                                    disabled={unblockingUserId === blockedUser.id}
+                                    className="text-cyan-300 hover:text-cyan-200 hover:bg-cyan-500/10"
+                                >
+                                    {unblockingUserId === blockedUser.id ? "Unblocking..." : "Unblock"}
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </section>
 
             <section className="space-y-4 border-b border-slate-900 pb-8">

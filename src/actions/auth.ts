@@ -23,6 +23,7 @@ import {
     DEFAULT_POMO_DURATION_MINUTES,
     MAX_POMO_DURATION_MINUTES,
 } from "@/lib/constants";
+import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 
 type PomoAutoEndSource = "sign_out_auto_end";
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
@@ -121,6 +122,7 @@ async function autoEndLingeringPomoSession(
         task_id: session.task_id,
         event_type: "POMO_COMPLETED",
         actor_id: userId,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(userId),
         from_status: task.status,
         to_status: task.status,
         metadata: {

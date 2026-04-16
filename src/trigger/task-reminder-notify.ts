@@ -18,6 +18,7 @@ import {
     DEFAULT_DEADLINE_10M_REMINDER_SOURCE,
     MANUAL_REMINDER_SOURCE,
 } from "@/lib/task-reminder-defaults";
+import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 
 interface DueReminder {
     id: string;
@@ -96,7 +97,7 @@ async function logDefaultReminderEvent(
         insert: (values: {
             task_id: string;
             event_type: string;
-            actor_id: string | null;
+            actor_id: string;
             from_status: TaskStatus;
             to_status: TaskStatus;
             metadata: Record<string, unknown>;
@@ -106,7 +107,7 @@ async function logDefaultReminderEvent(
     await taskEvents.insert({
         task_id: task.id,
         event_type: eventType,
-        actor_id: null,
+        actor_id: SYSTEM_ACTOR_PROFILE_ID,
         from_status: task.status,
         to_status: task.status,
         metadata: {

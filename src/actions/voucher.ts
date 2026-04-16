@@ -13,6 +13,7 @@ import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
 import { buildProofRequestCountByTaskId, type ProofRequestEventRow } from "@/lib/voucher-proof-request";
 import { sortPendingTasks } from "@/lib/voucher-pending-sort";
+import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 import {
     notifyCommitmentFailureIfNeeded,
     notifyCommitmentRevivedIfNeeded,
@@ -120,6 +121,7 @@ export async function voucherAccept(taskId: string) {
         task_id: taskId as any,
         event_type: "VOUCHER_ACCEPT",
         actor_id: (user as any).id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: "ACCEPTED",
     });
@@ -201,6 +203,7 @@ export async function voucherDeny(taskId: string) {
         task_id: taskId as any,
         event_type: "VOUCHER_DENY",
         actor_id: (user as any).id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: "DENIED",
     });
@@ -286,6 +289,7 @@ export async function voucherRequestProof(taskId: string) {
         task_id: taskId as any,
         event_type: "PROOF_REQUESTED",
         actor_id: user.id as any,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: "AWAITING_VOUCHER",
         to_status: "AWAITING_VOUCHER",
     });
@@ -398,6 +402,7 @@ export async function authorizeRectify(taskId: string) {
         task_id: (taskId as any),
         event_type: "RECTIFY",
         actor_id: (user as any).id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: "RECTIFIED",
     });
@@ -783,6 +788,7 @@ export async function escalateToHumanVoucher(
             task_id: (taskId as any),
             event_type: "ESCALATE",
             actor_id: (user as any).id,
+            actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
             from_status: (task as any).status,
             to_status: "ESCALATED",
             metadata: { new_voucher_id: (newVoucherId as any) },
@@ -791,6 +797,7 @@ export async function escalateToHumanVoucher(
             task_id: (taskId as any),
             event_type: "AI_ESCALATE_TO_HUMAN",
             actor_id: (user as any).id,
+            actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
             from_status: "ESCALATED",
             to_status: "AWAITING_VOUCHER",
             metadata: { new_voucher_id: (newVoucherId as any) },
@@ -879,6 +886,7 @@ export async function acceptDenial(
         task_id: taskId as any,
         event_type: "ACCEPT_DENIAL",
         actor_id: user.id as any,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: "AWAITING_USER",
         to_status: "DENIED",
     });
@@ -899,4 +907,3 @@ function getVoucherResponseDeadline(): string {
     deadline.setHours(23, 59, 59, 999);
     return deadline.toISOString();
 }
-

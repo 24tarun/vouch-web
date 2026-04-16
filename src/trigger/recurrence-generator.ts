@@ -16,6 +16,7 @@ import {
 } from "@/lib/task-reminder-defaults";
 import { isGoogleEventColorId } from "@/lib/task-title-event-color";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
+import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 
 export const recurrenceGenerator = schedules.task({
     id: "recurrence-generator",
@@ -522,7 +523,7 @@ async function processRule(
             const { error: createdEventError } = await (supabase.from("task_events") as any).insert({
                 task_id: createdTask.id,
                 event_type: "ACTIVE",
-                actor_id: null,
+                actor_id: SYSTEM_ACTOR_PROFILE_ID,
                 from_status: "ACTIVE",
                 to_status: "ACTIVE",
                 metadata: {

@@ -44,6 +44,65 @@ type PomoElapsedRow = {
     elapsed_seconds: number;
 };
 
+type RelationshipUserSummary = {
+    id: string;
+    username: string;
+    email: string;
+    initial: string;
+    rp_score: number;
+};
+
+export type IncomingFriendRequest = {
+    id: string;
+    sender_id: string;
+    created_at: string;
+    sender: RelationshipUserSummary;
+};
+
+export type OutgoingFriendRequest = {
+    id: string;
+    receiver_id: string;
+    created_at: string;
+    receiver: RelationshipUserSummary;
+};
+
+export type SearchCandidate = {
+    id: string;
+    email: string;
+    username: string;
+    already_friends: boolean;
+    incoming_request_pending: boolean;
+    outgoing_request_pending: boolean;
+};
+
+export type BlockedUserOption = {
+    id: string;
+    username: string;
+    email: string;
+};
+
+type RelationshipDataResult = {
+    friends: RelationshipUserSummary[];
+    incomingRequests: IncomingFriendRequest[];
+    outgoingRequests: OutgoingFriendRequest[];
+    error?: string;
+};
+
+function buildRelationshipUserSummary(
+    profile: { id?: string; username?: string | null; email?: string | null } | null,
+    scores: Map<string, number>
+): RelationshipUserSummary | null {
+    if (!profile?.id) return null;
+    const username = profile.username?.trim() || "Friend";
+    return {
+        id: profile.id,
+        username,
+        email: profile.email?.trim().toLowerCase() || "",
+        initial: username[0]?.toUpperCase() || "?",
+        rp_score: profile.id === ORCA_PROFILE_ID ? 1000 : scores.get(profile.id) ?? 400,
+    };
+}
+
 function revalidateFriendPaths() {
     try {
         revalidatePath("/friends");
@@ -309,20 +368,38 @@ export async function getFriends(): Promise<FriendProfile[]> {
 
     if (!user) return [];
 
-    // @ts-ignore
-    const { data: friendships } = await supabase
-        .from("friendships")
-        .select(
-            `
-      *,
-      friend:profiles!friendships_friend_id_fkey(*)
-    `
-        )
-        .eq("user_id", user.id);
+    const [friendshipsRes, blocksRes] = await Promise.all([
+        // @ts-ignore
+        supabase
+            .from("friendships")
+            .select(
+                `
+          *,
+          friend:profiles!friendships_friend_id_fkey(*)
+        `
+            )
+            .eq("user_id", user.id),
+        // @ts-ignore
+        supabase
+            .from("user_blocks")
+            .select("blocked_id")
+            .eq("blocker_id", user.id),
+    ]);
 
-    const friends = (((friendships as any)?.map((f: any) => f.friend) || []) as FriendProfile[]).filter(
-        (friend): friend is FriendProfile => Boolean(friend?.id)
+    if (friendshipsRes.error || blocksRes.error) {
+        console.error("Failed to load friends:", friendshipsRes.error || blocksRes.error);
+        return [];
+    }
+
+    const blockedIds = new Set(
+        ((blocksRes.data ?? []) as Array<{ blocked_id?: string | null }>)
+            .map((row) => row.blocked_id)
+            .filter((id): id is string => Boolean(id))
     );
+
+    const friends = (((friendshipsRes.data as any)?.map((f: any) => f.friend) || []) as FriendProfile[])
+        .filter((friend): friend is FriendProfile => Boolean(friend?.id))
+        .filter((friend) => !blockedIds.has(friend.id));
     if (friends.length === 0) return [];
 
     const friendIds = friends.map((friend) => friend.id);
@@ -333,6 +410,348 @@ export async function getFriends(): Promise<FriendProfile[]> {
         ...friend,
         rp_score: friend.id === ORCA_PROFILE_ID ? 1000 : friendScores.get(friend.id) ?? 400,
     }));
+}
+
+export async function getRelationshipData(): Promise<RelationshipDataResult> {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return {
+            friends: [],
+            incomingRequests: [],
+            outgoingRequests: [],
+            error: "Not authenticated",
+        };
+    }
+
+    const [friendshipsRes, incomingRes, outgoingRes, blockedRes] = await Promise.all([
+        // @ts-ignore
+        supabase
+            .from("friendships")
+            .select(
+                `
+          friend:profiles!friendships_friend_id_fkey(
+            id,
+            username,
+            email
+          )
+        `
+            )
+            .eq("user_id", user.id),
+        // @ts-ignore
+        supabase
+            .from("friend_requests")
+            .select(
+                `
+          id,
+          sender_id,
+          created_at,
+          sender:profiles!friend_requests_sender_id_fkey(
+            id,
+            username,
+            email
+          )
+        `
+            )
+            .eq("receiver_id", user.id)
+            .eq("status", "PENDING")
+            .order("created_at", { ascending: false }),
+        // @ts-ignore
+        supabase
+            .from("friend_requests")
+            .select(
+                `
+          id,
+          receiver_id,
+          created_at,
+          receiver:profiles!friend_requests_receiver_id_fkey(
+            id,
+            username,
+            email
+          )
+        `
+            )
+            .eq("sender_id", user.id)
+            .eq("status", "PENDING")
+            .order("created_at", { ascending: false }),
+        // @ts-ignore
+        supabase
+            .from("user_blocks")
+            .select("blocked_id")
+            .eq("blocker_id", user.id),
+    ]);
+
+    if (friendshipsRes.error || incomingRes.error || outgoingRes.error || blockedRes.error) {
+        return {
+            friends: [],
+            incomingRequests: [],
+            outgoingRequests: [],
+            error:
+                friendshipsRes.error?.message ||
+                incomingRes.error?.message ||
+                outgoingRes.error?.message ||
+                blockedRes.error?.message ||
+                "Failed to load friend relationships",
+        };
+    }
+
+    const blockedIds = new Set(
+        ((blockedRes.data ?? []) as Array<{ blocked_id?: string | null }>)
+            .map((row) => row.blocked_id)
+            .filter((id): id is string => Boolean(id))
+    );
+
+    const friendProfiles = ((friendshipsRes.data ?? []) as any[])
+        .map((row) => row?.friend as { id?: string; username?: string | null; email?: string | null } | null)
+        .filter((profile): profile is { id: string; username?: string | null; email?: string | null } => Boolean(profile?.id))
+        .filter((profile) => !blockedIds.has(profile.id));
+
+    const friendScores = await getFriendReputationScores(friendProfiles.map((entry) => entry.id));
+
+    const friends = friendProfiles
+        .map((profile) => buildRelationshipUserSummary(profile, friendScores))
+        .filter((entry): entry is RelationshipUserSummary => Boolean(entry))
+        .sort((a, b) => a.username.localeCompare(b.username));
+
+    const incomingRequests = ((incomingRes.data ?? []) as any[])
+        .map((row) => {
+            const sender = buildRelationshipUserSummary(
+                row?.sender as { id?: string; username?: string | null; email?: string | null } | null,
+                friendScores
+            );
+            if (!sender || !row?.id || !row?.sender_id) return null;
+            return {
+                id: row.id as string,
+                sender_id: row.sender_id as string,
+                created_at: row.created_at as string,
+                sender,
+            } satisfies IncomingFriendRequest;
+        })
+        .filter((entry): entry is IncomingFriendRequest => Boolean(entry));
+
+    const outgoingRequests = ((outgoingRes.data ?? []) as any[])
+        .map((row) => {
+            const receiver = buildRelationshipUserSummary(
+                row?.receiver as { id?: string; username?: string | null; email?: string | null } | null,
+                friendScores
+            );
+            if (!receiver || !row?.id || !row?.receiver_id) return null;
+            return {
+                id: row.id as string,
+                receiver_id: row.receiver_id as string,
+                created_at: row.created_at as string,
+                receiver,
+            } satisfies OutgoingFriendRequest;
+        })
+        .filter((entry): entry is OutgoingFriendRequest => Boolean(entry));
+
+    return { friends, incomingRequests, outgoingRequests };
+}
+
+export async function searchUsersForFriendship(query: string): Promise<{ candidates: SearchCandidate[]; error?: string }> {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { candidates: [], error: "Not authenticated" };
+
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) return { candidates: [] };
+
+    const { data, error } = await (supabase.rpc("search_users_for_friendship" as any, {
+        p_query: normalizedQuery,
+        p_limit: 20,
+    } as any) as any);
+
+    if (error) {
+        return { candidates: [], error: error.message ?? "Failed to search users" };
+    }
+
+    const candidates = ((data ?? []) as SearchCandidate[])
+        .filter((entry) => !entry.already_friends)
+        .sort((a, b) => a.username.localeCompare(b.username));
+
+    return { candidates };
+}
+
+export async function sendFriendRequestToUser(targetUserId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await (supabase.rpc("send_friend_request" as any, {
+        p_target_user_id: targetUserId,
+    } as any) as any);
+
+    if (error) return { error: error.message ?? "Could not send request" };
+
+    revalidateFriendPaths();
+    return { success: true };
+}
+
+export async function acceptIncomingFriendRequest(requestId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await (supabase.rpc("accept_friend_request" as any, {
+        p_request_id: requestId,
+    } as any) as any);
+
+    if (error) return { error: error.message ?? "Could not accept friend request" };
+
+    revalidateFriendPaths();
+    return { success: true };
+}
+
+export async function rejectIncomingFriendRequest(requestId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await (supabase.rpc("reject_friend_request" as any, {
+        p_request_id: requestId,
+    } as any) as any);
+
+    if (error) return { error: error.message ?? "Could not reject friend request" };
+
+    revalidateFriendPaths();
+    return { success: true };
+}
+
+export async function withdrawOutgoingFriendRequest(requestId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const supabaseAdmin = createAdminClient();
+
+    const { data: requestRow, error: requestError } = await (supabaseAdmin.from("friend_requests" as any) as any)
+        .select("id, sender_id, status")
+        .eq("id", requestId as any)
+        .maybeSingle();
+
+    if (requestError) {
+        return { error: requestError.message ?? "Could not load friend request" };
+    }
+
+    if (!requestRow || requestRow.sender_id !== user.id) {
+        return { error: "You can only withdraw your own outgoing request." };
+    }
+
+    if (requestRow.status !== "PENDING") {
+        return { error: "This friend request is no longer pending." };
+    }
+
+    const { error } = await (supabaseAdmin.from("friend_requests" as any) as any)
+        .delete()
+        .eq("id", requestId as any)
+        .eq("sender_id", user.id as any)
+        .eq("status", "PENDING" as any);
+
+    if (error) return { error: error.message ?? "Could not withdraw friend request" };
+
+    revalidateFriendPaths();
+    return { success: true };
+}
+
+export async function removeFriendById(targetUserId: string) {
+    const result = await removeFriend(targetUserId);
+    if (result.error) return { error: result.error };
+    return { success: true };
+}
+
+export async function blockRelationshipUser(targetUserId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await (supabase.rpc("block_user" as any, {
+        p_target_user_id: targetUserId,
+    } as any) as any);
+
+    if (error) return { error: error.message ?? "Could not block user" };
+
+    revalidateFriendPaths();
+    return { success: true };
+}
+
+export async function getBlockedUsers(): Promise<{ users: BlockedUserOption[]; error?: string }> {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { users: [], error: "Not authenticated" };
+
+    const { data, error } = await (supabase
+        .from("user_blocks" as any)
+        .select(
+            `
+      blocked_id,
+      blocked:profiles!user_blocks_blocked_id_fkey(
+        id,
+        username,
+        email
+      )
+    `
+        )
+        .eq("blocker_id", user.id as any)
+        .order("created_at", { ascending: false }) as any);
+
+    if (error) return { users: [], error: error.message ?? "Failed to load blocked users" };
+
+    const users = ((data ?? []) as any[])
+        .map((row) => {
+            const blocked = row?.blocked as { id?: string; username?: string | null; email?: string | null } | null;
+            if (!blocked?.id) return null;
+            return {
+                id: blocked.id,
+                username: blocked.username?.trim() || "Blocked user",
+                email: blocked.email?.trim().toLowerCase() || "",
+            } satisfies BlockedUserOption;
+        })
+        .filter((entry): entry is BlockedUserOption => Boolean(entry))
+        .sort((a, b) => a.username.localeCompare(b.username));
+
+    return { users };
+}
+
+export async function unblockRelationshipUser(targetUserId: string) {
+    const supabase: SupabaseClient<Database> = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const { error } = await (supabase.rpc("unblock_user" as any, {
+        p_target_user_id: targetUserId,
+    } as any) as any);
+
+    if (error) return { error: error.message ?? "Could not unblock user" };
+
+    revalidateFriendPaths();
+    return { success: true };
 }
 
 export async function setOrcaAsFriendEnabled(enabled: boolean) {

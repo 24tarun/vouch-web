@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database, GoogleCalendarConnection, GoogleCalendarTaskLink, Task } from "@/lib/types";
 import { isGoogleEventColorId } from "@/lib/task-title-event-color";
+import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 
 const GOOGLE_API_BASE = "https://www.googleapis.com/calendar/v3";
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -1374,7 +1375,7 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
                         await (supabase.from("task_events") as any).insert({
                             task_id: existingLink.task_id,
                             event_type: "GOOGLE_EVENT_CANCELLED",
-                            actor_id: null,
+                            actor_id: SYSTEM_ACTOR_PROFILE_ID,
                             from_status: (task as any).status,
                             to_status: (task as any).status,
                             metadata: {
@@ -1511,7 +1512,7 @@ export async function processGoogleCalendarDeltaForUser(userId: string): Promise
             await (supabase.from("task_events") as any).insert({
                 task_id: insertedTask.id,
                 event_type: "ACTIVE",
-                actor_id: null,
+                actor_id: SYSTEM_ACTOR_PROFILE_ID,
                 from_status: "ACTIVE",
                 to_status: "ACTIVE",
                 metadata: {

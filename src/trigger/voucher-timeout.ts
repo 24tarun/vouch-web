@@ -13,6 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteTaskProof } from "@/lib/task-proof";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 
 const VOUCHER_TIMEOUT_PENALTY_CENTS = 30;
 
@@ -80,7 +81,7 @@ export const voucherTimeout = schedules.task({
         const eventRows = claimedTasks.map((task) => ({
             task_id: task.id,
             event_type: "VOUCHER_TIMEOUT",
-            actor_id: null,
+            actor_id: SYSTEM_ACTOR_PROFILE_ID,
             from_status: "AWAITING_VOUCHER",
             to_status: "AUTO_ACCEPTED",
             metadata: {
@@ -117,5 +118,4 @@ export const voucherTimeout = schedules.task({
         console.log(`Auto-accepted ${claimedTasks.length} tasks due to voucher timeout`);
     },
 });
-
 

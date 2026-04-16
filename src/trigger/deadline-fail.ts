@@ -11,6 +11,7 @@ import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { notifyCommitmentFailureIfNeeded } from "@/actions/commitments";
+import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 
 export const deadlineFail = schedules.task({
     id: "deadline-fail",
@@ -97,7 +98,7 @@ export const deadlineFail = schedules.task({
         const eventRows = claimedTasks.map((task) => ({
             task_id: task.id,
             event_type: "DEADLINE_MISSED",
-            actor_id: null,
+            actor_id: SYSTEM_ACTOR_PROFILE_ID,
             from_status: task.status,
             to_status: "MISSED",
             metadata: { reason: "Deadline passed without completion" },

@@ -58,6 +58,8 @@ import {
     getTaskSubmissionWindowState,
     TASK_SUBMISSION_BEFORE_START_ERROR,
 } from "@/lib/task-submission-window";
+import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
+import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 
 const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
@@ -573,6 +575,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) return { error: "Not authenticated" };
+    const actorUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
 
     const requiresProof = parseProofRequiredFromTitle(title);
     const normalizedTitle = normalizeTaskTitleAndSyncKind(title);
@@ -675,6 +678,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             google_event_start_at: eventStartAtIso,
             google_event_end_at: eventEndAtIso,
             google_event_color_id: googleEventColorId,
+            created_by_user_client_instance_id: actorUserClientInstanceId,
         })
         .select()
         .single();
@@ -718,6 +722,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
         task_id: (task as any).id,
         event_type: "ACTIVE",
         actor_id: user.id,
+        actor_user_client_instance_id: actorUserClientInstanceId,
         from_status: "ACTIVE",
         to_status: "ACTIVE",
         metadata: {
@@ -731,6 +736,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             task_id: (task as any).id,
             event_type: "MARK_COMPLETE",
             actor_id: user.id,
+            actor_user_client_instance_id: actorUserClientInstanceId,
             from_status: "ACTIVE",
             to_status: "ACCEPTED",
             metadata: {
@@ -779,6 +785,7 @@ export async function createTask(formData: FormData) {
     if (!user) {
         return { error: "Not authenticated" };
     }
+    const actorUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
 
     const submittedTitle = formData.get("title") as string;
     const rawTitleForm = formData.get("rawTitle");
@@ -1027,7 +1034,8 @@ export async function createTask(formData: FormData) {
             google_event_start_at: eventStartAtIso,
             google_event_end_at: eventEndAtIso,
             google_event_color_id: googleEventColorId,
-            recurrence_rule_id: recurrenceRuleId
+            recurrence_rule_id: recurrenceRuleId,
+            created_by_user_client_instance_id: actorUserClientInstanceId,
         })
         .select()
         .single();
@@ -1083,6 +1091,7 @@ export async function createTask(formData: FormData) {
         task_id: (task as any).id,
         event_type: "ACTIVE",
         actor_id: (user as any).id,
+        actor_user_client_instance_id: actorUserClientInstanceId,
         from_status: "ACTIVE",
         to_status: "ACTIVE",
         metadata: {
@@ -1100,6 +1109,7 @@ export async function createTask(formData: FormData) {
             task_id: (task as any).id,
             event_type: "MARK_COMPLETE",
             actor_id: (user as any).id,
+            actor_user_client_instance_id: actorUserClientInstanceId,
             from_status: "ACTIVE",
             to_status: "ACCEPTED",
             metadata: {
@@ -1172,6 +1182,7 @@ export async function cancelRepetition(taskId: string) {
         task_id: taskId,
         event_type: "REPETITION_STOPPED",
         actor_id: user.id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: (task as any).status,
     });
@@ -1318,6 +1329,7 @@ export async function markTaskCompleteWithProofIntent(
             task_id: taskId as any,
             event_type: "MARK_COMPLETE",
             actor_id: (user as any).id,
+            actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
             from_status: (task as any).status,
             to_status: "ACCEPTED",
             metadata: {
@@ -1473,6 +1485,7 @@ export async function markTaskCompleteWithProofIntent(
         task_id: (taskId as any),
         event_type: "MARK_COMPLETE",
         actor_id: (user as any).id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: completionStatus,
         metadata: proofIntent
@@ -1695,6 +1708,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         task_id: taskId as any,
         event_type: "PROOF_UPLOADED",
         actor_id: user.id as any,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: (task as any).status,
         metadata: {
@@ -1778,6 +1792,7 @@ export async function removeAwaitingVoucherProof(taskId: string) {
         task_id: taskId as any,
         event_type: "PROOF_REMOVED",
         actor_id: user.id as any,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: (task as any).status,
     });
@@ -1854,6 +1869,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
         task_id: taskId as any,
         event_type: "PROOF_UPLOAD_FAILED_REVERT",
         actor_id: user.id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: restoredStatus,
     });
@@ -1935,6 +1951,7 @@ export async function undoTaskComplete(taskId: string) {
         task_id: taskId as any,
         event_type: "UNDO_COMPLETE",
         actor_id: user.id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: restoredStatus,
     });
@@ -2507,6 +2524,7 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         task_id: taskId as any,
         event_type: "POSTPONE",
         actor_id: (user as any).id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: "POSTPONED",
         metadata: { new_deadline: newDeadlineDate.toISOString() },
@@ -2696,6 +2714,7 @@ export async function overrideTask(taskId: string) {
         task_id: taskId as any,
         event_type: "OVERRIDE",
         actor_id: user.id,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: "SETTLED",
     });
@@ -2776,7 +2795,7 @@ export async function getTask(taskId: string) {
                     const { error: deadlineEventError } = await (admin.from("task_events") as any).insert({
                         task_id: (task as any).id,
                         event_type: "DEADLINE_MISSED",
-                        actor_id: null,
+                        actor_id: SYSTEM_ACTOR_PROFILE_ID,
                         from_status: (task as any).status,
                         to_status: "MISSED",
                         metadata: { reason: "Deadline passed without completion" },
@@ -3157,6 +3176,7 @@ export async function endPomoSession(
                 task_id: session.task_id,
                 event_type: "POMO_COMPLETED",
                 actor_id: user.id,
+                actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
                 from_status: task.status,
                 to_status: task.status,
                 metadata: {
