@@ -6,13 +6,13 @@ export type TaskStatus =
     | "POSTPONED"
     | "MARKED_COMPLETE"
     | "AWAITING_VOUCHER"
-    | "AWAITING_ORCA"
-    | "ORCA_DENIED"
+    | "AWAITING_AI"
+    | "AI_DENIED"
     | "AWAITING_USER"
     | "ESCALATED"
     | "ACCEPTED"
     | "AUTO_ACCEPTED"
-    | "ORCA_ACCEPTED"
+    | "AI_ACCEPTED"
     | "DENIED"
     | "MISSED"
     | "RECTIFIED"
@@ -26,8 +26,8 @@ export type TaskEvent =
     | { type: "DEADLINE_PASSED" }
     | { type: "VOUCHER_ACCEPT" }
     | { type: "VOUCHER_DENY" }
-    | { type: "ORCA_APPROVE" }
-    | { type: "ORCA_DENY" }
+    | { type: "AI_APPROVE" }
+    | { type: "AI_DENY" }
     | { type: "APPEAL" }
     | { type: "ACCEPT_DENIAL" }
     | { type: "ESCALATE" }
@@ -159,12 +159,12 @@ export const taskMachine = setup({
                     target: "AUTO_ACCEPTED",
                     actions: ["updateTimestamp"],
                 },
-                ORCA_APPROVE: {
-                    target: "ORCA_ACCEPTED",
+                AI_APPROVE: {
+                    target: "AI_ACCEPTED",
                     actions: ["updateTimestamp"],
                 },
-                ORCA_DENY: {
-                    target: "ORCA_DENIED",
+                AI_DENY: {
+                    target: "AI_DENIED",
                     actions: ["updateTimestamp"],
                 },
             },
@@ -185,19 +185,19 @@ export const taskMachine = setup({
                 },
             },
         },
-        AWAITING_ORCA: {
+        AWAITING_AI: {
             on: {
-                ORCA_APPROVE: {
-                    target: "ORCA_ACCEPTED",
+                AI_APPROVE: {
+                    target: "AI_ACCEPTED",
                     actions: ["updateTimestamp"],
                 },
-                ORCA_DENY: {
-                    target: "ORCA_DENIED",
+                AI_DENY: {
+                    target: "AI_DENIED",
                     actions: ["updateTimestamp"],
                 },
             },
         },
-        ORCA_DENIED: {
+        AI_DENIED: {
             // Auto-transitions to AWAITING_USER (transitional, logged)
             always: {
                 target: "AWAITING_USER",
@@ -206,8 +206,8 @@ export const taskMachine = setup({
         AWAITING_USER: {
             on: {
                 APPEAL: {
-                    // Resubmit to Orca (if denial count < 3)
-                    target: "AWAITING_ORCA",
+                    // Resubmit to AI (if denial count < 3)
+                    target: "AWAITING_AI",
                     actions: ["updateTimestamp"],
                 },
                 ESCALATE: {
@@ -243,7 +243,7 @@ export const taskMachine = setup({
                 },
             },
         },
-        ORCA_ACCEPTED: {
+        AI_ACCEPTED: {
             on: {
                 MONTH_CLOSE: {
                     target: "SETTLED",
@@ -297,15 +297,15 @@ export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     const transitions: Record<TaskStatus, TaskEvent["type"][]> = {
         ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "OVERRIDE"],
         POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "OVERRIDE"],
-        MARKED_COMPLETE: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER", "ORCA_APPROVE", "ORCA_DENY"],
+        MARKED_COMPLETE: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER", "AI_APPROVE", "AI_DENY"],
         AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER"],
-        AWAITING_ORCA: ["ORCA_APPROVE", "ORCA_DENY"],
-        ORCA_DENIED: [], // Auto-transitions to AWAITING_USER
+        AWAITING_AI: ["AI_APPROVE", "AI_DENY"],
+        AI_DENIED: [], // Auto-transitions to AWAITING_USER
         AWAITING_USER: ["APPEAL", "ESCALATE", "ACCEPT_DENIAL"],
         ESCALATED: [], // Auto-transitions to AWAITING_VOUCHER
         ACCEPTED: ["MONTH_CLOSE"],
         AUTO_ACCEPTED: ["MONTH_CLOSE"],
-        ORCA_ACCEPTED: ["MONTH_CLOSE"],
+        AI_ACCEPTED: ["MONTH_CLOSE"],
         DENIED: ["RECTIFY", "MONTH_CLOSE"],
         MISSED: ["RECTIFY", "MONTH_CLOSE"],
         RECTIFIED: ["MONTH_CLOSE"],
@@ -324,7 +324,7 @@ export function canTransition(
 }
 
 // Success statuses (task completed one way or another)
-export const SUCCESS_STATUSES: TaskStatus[] = ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED"];
+export const SUCCESS_STATUSES: TaskStatus[] = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"];
 
 // Failure statuses (task not completed)
 export const FAILURE_STATUSES: TaskStatus[] = ["DENIED", "MISSED"];

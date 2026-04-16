@@ -629,7 +629,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             defaultEventDurationMinutesRaw <= 720
             ? defaultEventDurationMinutesRaw
             : DEFAULT_EVENT_DURATION_MINUTES;
-    const { ORCA_PROFILE_ID: ORCA_ID_SIMPLE } = await import("@/lib/ai-voucher/constants");
+    const { AI_PROFILE_ID: AI_ID_SIMPLE } = await import("@/lib/ai-voucher/constants");
 
     // Default params: Deadline = End of today
     let deadline = getDefaultTaskDeadline();
@@ -659,7 +659,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
     }
 
     // Force requires_proof = true for AI voucher (AI can't vouch without evidence)
-    const finalRequiresProofSimple = defaultVoucherId === ORCA_ID_SIMPLE ? true : requiresProof;
+    const finalRequiresProofSimple = defaultVoucherId === AI_ID_SIMPLE ? true : requiresProof;
 
     // @ts-ignore
     const { data: task, error } = await (supabase.from("tasks") as any)
@@ -925,9 +925,9 @@ export async function createTask(formData: FormData) {
         };
     }
 
-    // Verify voucher is self or a friend (Orca qualifies only when friendship exists).
-    const { ORCA_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
-    const isAiVoucher = voucherId === ORCA_PROFILE_ID;
+    // Verify voucher is self or a friend (AI qualifies only when friendship exists).
+    const { AI_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
+    const isAiVoucher = voucherId === AI_PROFILE_ID;
 
     if (voucherId !== (user as any).id) {
         // @ts-ignore
@@ -1358,10 +1358,10 @@ export async function markTaskCompleteWithProofIntent(
         return { error: REQUIRED_PROOF_FOR_COMPLETION_ERROR };
     }
 
-    // Route based on voucher type: Orca -> AWAITING_ORCA, human -> AWAITING_VOUCHER
+    // Route based on voucher type: AI -> AWAITING_AI, human -> AWAITING_VOUCHER
     const completionStatus = getAwaitingProofReviewStatus((task as any).voucher_id);
-    const isOrcaVoucher = completionStatus === "AWAITING_ORCA";
-    const voucherResponseDeadline = isOrcaVoucher ? null : getVoucherResponseDeadlineUtc(new Date(), userTimeZone);
+    const isAiVoucher = completionStatus === "AWAITING_AI";
+    const voucherResponseDeadline = isAiVoucher ? null : getVoucherResponseDeadlineUtc(new Date(), userTimeZone);
 
     // @ts-ignore
     const { data: updatedRows, error } = await (supabase.from("tasks") as any)
@@ -1723,8 +1723,8 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     }
 
     // AI Voucher: trigger evaluation for image proofs inline, video proofs async
-    const { ORCA_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
-    if ((task as any).voucher_id === ORCA_PROFILE_ID) {
+    const { AI_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
+    if ((task as any).voucher_id === AI_PROFILE_ID) {
         const { limited } = await checkRateLimit(aiEvaluationLimiter, `ai-eval:${user.id}`);
         if (limited) {
             return { error: "Too many AI proof evaluations right now. Please wait a bit and try again." };
@@ -1737,7 +1737,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
                 await processAiVoucherDecision(taskId);
             } catch (error) {
                 console.error(`AI voucher evaluation failed: ${error}`);
-                // Leave task in AWAITING_ORCA; user can retry or escalate
+                // Leave task in AWAITING_AI; user can retry or escalate
             }
         } else {
             // Video evaluation is async; trigger Trigger.dev job
@@ -1746,7 +1746,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
                 await triggerTasks.trigger("ai-voucher-evaluate", { taskId });
             } catch (error) {
                 console.error(`Failed to queue AI voucher video evaluation: ${error}`);
-                // Leave task in AWAITING_ORCA for manual handling
+                // Leave task in AWAITING_AI for manual handling
             }
         }
     }
@@ -2491,7 +2491,7 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         }
     }
 
-    if (["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
+    if (["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
 

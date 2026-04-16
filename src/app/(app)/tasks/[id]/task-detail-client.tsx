@@ -53,7 +53,7 @@ import { cn } from "@/lib/utils";
 import { formatCurrencyFromCents, normalizeCurrency, type SupportedCurrency } from "@/lib/currency";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { formatRecurrenceSummary } from "@/lib/recurrence-display";
-import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import {
     getProofIntentFromPreparedProof,
     prepareTaskProof,
@@ -80,6 +80,7 @@ import {
     TaskStatusBadge,
 } from "@/design-system/badges";
 import { TASK_DETAIL_BUTTON_CLASSES } from "@/design-system/task_detail_buttons";
+import { WebcamCaptureModal, isMobileDevice } from "@/components/WebcamCaptureModal";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -127,13 +128,13 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
     "POSTPONED",
     "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
-    "AWAITING_ORCA",
-    "ORCA_DENIED",
+    "AWAITING_AI",
+    "AI_DENIED",
     "AWAITING_USER",
     "ESCALATED",
     "ACCEPTED",
     "AUTO_ACCEPTED",
-    "ORCA_ACCEPTED",
+    "AI_ACCEPTED",
     "DENIED",
     "MISSED",
     "RECTIFIED",
@@ -201,6 +202,7 @@ export default function TaskDetailClient({
     const proofInputRef = useRef<HTMLInputElement>(null);
     const proofPreviewUrlRef = useRef<string | null>(null);
     const proofPickerModeRef = useRef<ProofPickerMode>("draft");
+    const [showWebcamModal, setShowWebcamModal] = useState(false);
     const shouldRestoreSubtaskInputFocusRef = useRef(false);
 
     const submissionWindow = useMemo(
@@ -215,7 +217,7 @@ export default function TaskDetailClient({
     const deadline = new Date(taskState.deadline);
     const isOverdue =
         submissionWindow.pastDeadline &&
-        !["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "AWAITING_USER"].includes(taskState.status);
+        !["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "AWAITING_USER"].includes(taskState.status);
 
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
@@ -260,7 +262,7 @@ export default function TaskDetailClient({
     };
 
     // AI Voucher resubmit state
-    const isAiVouched = taskState.voucher_id === ORCA_PROFILE_ID;
+    const isAiVouched = taskState.voucher_id === AI_PROFILE_ID;
     const resubmitCount = taskState.resubmit_count ?? 0;
     const MAX_RESUBMITS = 3;
     const canResubmit = taskState.status === "AWAITING_USER" && resubmitCount < MAX_RESUBMITS;
@@ -315,10 +317,10 @@ export default function TaskDetailClient({
         ? `${formatOrdinal(iterationNumber)} iteration`
         : "one-off task";
     const canViewStoredProof =
-        taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_ORCA" || taskState.status === "MARKED_COMPLETE" || taskState.status === "AWAITING_USER";
+        taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE" || taskState.status === "AWAITING_USER";
     const hasOpenProofRequest =
         Boolean(taskState.proof_request_open) &&
-        (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_ORCA" || taskState.status === "MARKED_COMPLETE");
+        (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE");
     const proofRequestedByLabel = taskState.voucher?.username || "Your voucher";
     const storedProof = useMemo(() => {
         if (!canViewStoredProof) return null;
@@ -698,7 +700,7 @@ export default function TaskDetailClient({
             isOwner &&
             (
                 taskState.status === "AWAITING_VOUCHER" ||
-                taskState.status === "AWAITING_ORCA" ||
+                taskState.status === "AWAITING_AI" ||
                 taskState.status === "AWAITING_USER" ||
                 taskState.status === "MARKED_COMPLETE"
             ) &&
@@ -718,7 +720,11 @@ export default function TaskDetailClient({
         }
 
         proofPickerModeRef.current = mode;
-        proofInputRef.current?.click();
+        if (isMobileDevice()) {
+            proofInputRef.current?.click();
+        } else {
+            setShowWebcamModal(true);
+        }
     };
 
     const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -997,7 +1003,7 @@ export default function TaskDetailClient({
                     ...prev,
                     status: isSelfVouched
                         ? "ACCEPTED"
-                        : (isAiVouched ? "AWAITING_ORCA" : "AWAITING_VOUCHER"),
+                        : (isAiVouched ? "AWAITING_AI" : "AWAITING_VOUCHER"),
                     marked_completed_at: now.toISOString(),
                     voucher_response_deadline:
                         (isSelfVouched || isAiVouched) ? null : voucherResponseDeadline.toISOString(),
@@ -1048,7 +1054,7 @@ export default function TaskDetailClient({
 
     async function handleUndoComplete() {
         if (isActionPending("undoComplete")) return;
-        if (!isOwner || (taskState.status !== "AWAITING_VOUCHER" && taskState.status !== "AWAITING_ORCA" && taskState.status !== "MARKED_COMPLETE")) return;
+        if (!isOwner || (taskState.status !== "AWAITING_VOUCHER" && taskState.status !== "AWAITING_AI" && taskState.status !== "MARKED_COMPLETE")) return;
         if (new Date() >= new Date(taskState.deadline)) {
             toast.error("Cannot undo completion after the deadline.");
             return;
@@ -1090,7 +1096,7 @@ export default function TaskDetailClient({
     async function handleRemoveStoredProof() {
         if (isActionPending("removeStoredProof")) return;
         if (!isOwner || !storedProof) return;
-        if (!["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(taskState.status)) {
+        if (!["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status)) {
             toast.error("Proof can only be removed while awaiting voucher response.");
             return;
         }
@@ -1521,7 +1527,7 @@ export default function TaskDetailClient({
 
     const getActivityStepTone = (event: TaskEvent): ActivityStep["tone"] => {
         const toStatus = event.to_status;
-        if (["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "RECTIFIED", "SETTLED"].includes(toStatus)) {
+        if (["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "RECTIFIED", "SETTLED"].includes(toStatus)) {
             return "success";
         }
         if (["DENIED", "MISSED"].includes(toStatus)) {
@@ -1647,6 +1653,17 @@ export default function TaskDetailClient({
 
             {/* Hidden proof file input */}
             <input ref={proofInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleProofInputChange} />
+            <WebcamCaptureModal
+                open={showWebcamModal}
+                onClose={() => setShowWebcamModal(false)}
+                onCapture={async (file) => {
+                    setShowWebcamModal(false);
+                    await processPickedProofFile(file);
+                }}
+                onFallbackToFilePicker={() => {
+                    proofInputRef.current?.click();
+                }}
+            />
 
             {/* ① HERO HEADER */}
             <div className="td-rise td-d1 relative pt-2">
@@ -1696,7 +1713,7 @@ export default function TaskDetailClient({
                     <div className="flex items-center justify-between gap-3 min-h-[32px]">
                         <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Voucher</p>
                         <p className="text-xs font-mono text-slate-200 text-right truncate">
-                            {isAiVouched ? "Orca" : (taskState.voucher?.username || "Unassigned")}
+                            {isAiVouched ? "AI" : (taskState.voucher?.username || "Unassigned")}
                         </p>
                     </div>
                     <div className="flex items-center justify-between gap-3 min-h-[32px]">
@@ -1726,7 +1743,7 @@ export default function TaskDetailClient({
                             <span className="text-[10px] uppercase tracking-wider font-bold text-purple-400">awaiting voucher</span>
                         </div>
                         <p className="text-base font-medium text-purple-200">
-                            Waiting for {isAiVouched ? 'Orca' : (taskState.voucher?.username || 'your voucher')} to respond
+                            Waiting for {isAiVouched ? 'AI' : (taskState.voucher?.username || 'your voucher')} to respond
                         </p>
                         {voucherDeadlineForDisplay && (
                             <p className="text-xs font-mono text-purple-400/60">
@@ -1758,16 +1775,16 @@ export default function TaskDetailClient({
                 </div>
             )}
 
-            {taskState.status === "AWAITING_ORCA" && (
+            {taskState.status === "AWAITING_AI" && (
                 <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
                             <div style={{ width: 24, height: 1, background: '#c084fc', boxShadow: '0 0 6px rgba(192,132,252,0.4)', flexShrink: 0 }} />
-                            <span className="text-[10px] uppercase tracking-wider font-bold text-purple-400">awaiting orca</span>
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-purple-400">awaiting ai</span>
                         </div>
                         <p className="text-base font-medium text-purple-200">
-                            Waiting for Orca to review your completion
+                            Waiting for AI to review your completion
                         </p>
                         <div className="flex flex-wrap gap-2 pt-1">
                             {isOwner && (
@@ -1795,7 +1812,7 @@ export default function TaskDetailClient({
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
                             <div style={{ width: 24, height: 1, background: '#fb923c', boxShadow: '0 0 6px rgba(251,146,60,0.4)', flexShrink: 0 }} />
-                            <span className="text-[10px] uppercase tracking-wider font-bold text-orange-400">orca denied</span>
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-orange-400">ai denied</span>
                         </div>
                         {latestDenial && (
                             <>
@@ -1883,7 +1900,7 @@ export default function TaskDetailClient({
                         <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
                             completion proof ({storedProof.media_kind})
                         </span>
-                        {isOwner && ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(taskState.status) && (
+                        {isOwner && ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status) && (
                             <Button type="button" variant="ghost" onClick={handleRemoveStoredProof} disabled={isActionPending("removeStoredProof")}
                                 className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
                                 Remove Proof
@@ -1907,7 +1924,7 @@ export default function TaskDetailClient({
                     <div className="flex items-center gap-3">
                         <div style={{ width: 24, height: 1, background: '#f472b6', boxShadow: '0 0 6px rgba(244,114,182,0.35)', flexShrink: 0 }} />
                         <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
-                            {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_ORCA" || taskState.status === "AWAITING_USER" || taskState.status === "MARKED_COMPLETE")
+                            {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "AWAITING_USER" || taskState.status === "MARKED_COMPLETE")
                                 ? `ready to upload (${proofDraft.proof.mediaKind})`
                                 : `proof attached (${proofDraft.proof.mediaKind})`}
                         </span>
@@ -2291,7 +2308,7 @@ export default function TaskDetailClient({
                                 Escalate to a Friend
                             </DialogTitle>
                             <DialogDescription className="text-xs font-mono text-slate-600">
-                                Choose a friend to review Orca's decision
+                                Choose a friend to review AI's decision
                             </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">

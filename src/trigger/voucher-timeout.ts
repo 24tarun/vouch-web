@@ -6,13 +6,13 @@
  * 2) Atomically flips each matched task to AUTO_ACCEPTED.
  * 3) Adds only a voucher timeout penalty ledger entry for the voucher.
  * 4) Deletes volatile proof media and logs a VOUCHER_TIMEOUT system event.
- * 5) Skips AI-vouched tasks (Orca processes deterministically, no timeout).
+ * 5) Skips AI-vouched tasks (AI processes deterministically, no timeout).
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteTaskProof } from "@/lib/task-proof";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
-import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 
 const VOUCHER_TIMEOUT_PENALTY_CENTS = 30;
@@ -35,7 +35,7 @@ export const voucherTimeout = schedules.task({
             .from("tasks")
             .select("id, voucher_id, user_id")
             .eq("status", "AWAITING_VOUCHER")
-            .neq("voucher_id", ORCA_PROFILE_ID)
+            .neq("voucher_id", AI_PROFILE_ID)
             .lt("voucher_response_deadline", now) as any);
 
         if (error) {

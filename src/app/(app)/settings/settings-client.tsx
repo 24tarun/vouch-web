@@ -14,7 +14,7 @@ import {
     removeFriendById,
     searchUsersForFriendship,
     sendFriendRequestToUser,
-    setOrcaAsFriendEnabled,
+    setAiAsFriendEnabled,
     unblockRelationshipUser,
     withdrawOutgoingFriendRequest,
     type BlockedUserOption,
@@ -61,7 +61,7 @@ import {
     DEFAULT_POMO_DURATION_MINUTES,
     MAX_POMO_DURATION_MINUTES,
 } from "@/lib/constants";
-import { AI_VOUCHER_DISPLAY_NAME, ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { AI_VOUCHER_DISPLAY_NAME, AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
@@ -107,10 +107,10 @@ export default function SettingsClient({
     const [blockedUsersLoading, setBlockedUsersLoading] = useState(false);
     const [blockedUsersError, setBlockedUsersError] = useState<string | null>(null);
     const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
-    const [orcaFriendEnabled, setOrcaFriendEnabled] = useState(profile.orca_friend_opt_in ?? false);
-    const [isOrcaFriendLoading, setIsOrcaFriendLoading] = useState(false);
-    const [orcaFriendError, setOrcaFriendError] = useState<string | null>(null);
-    const [orcaFriendSuccess, setOrcaFriendSuccess] = useState<string | null>(null);
+    const [aiFriendEnabled, setAiFriendEnabled] = useState(profile.ai_friend_opt_in ?? false);
+    const [isAiFriendLoading, setIsAiFriendLoading] = useState(false);
+    const [aiFriendError, setAiFriendError] = useState<string | null>(null);
+    const [aiFriendSuccess, setAiFriendSuccess] = useState<string | null>(null);
 
     const [username, setUsername] = useState(profile.username);
     const [isUsernameLoading, setIsUsernameLoading] = useState(false);
@@ -499,30 +499,30 @@ export default function SettingsClient({
         }
     }
 
-    async function handleOrcaFriendToggle(nextEnabled: boolean) {
-        if (isOrcaFriendLoading) return;
+    async function handleAiFriendToggle(nextEnabled: boolean) {
+        if (isAiFriendLoading) return;
 
-        const previousEnabled = orcaFriendEnabled;
-        setOrcaFriendEnabled(nextEnabled);
-        setIsOrcaFriendLoading(true);
-        setOrcaFriendError(null);
-        setOrcaFriendSuccess(null);
+        const previousEnabled = aiFriendEnabled;
+        setAiFriendEnabled(nextEnabled);
+        setIsAiFriendLoading(true);
+        setAiFriendError(null);
+        setAiFriendSuccess(null);
 
         try {
-            const result = await setOrcaAsFriendEnabled(nextEnabled);
+            const result = await setAiAsFriendEnabled(nextEnabled);
 
             if (result.error) {
-                setOrcaFriendEnabled(previousEnabled);
-                setOrcaFriendError(result.error);
+                setAiFriendEnabled(previousEnabled);
+                setAiFriendError(result.error);
                 return;
             }
 
             const resolvedEnabled = result.enabled ?? nextEnabled;
-            setOrcaFriendEnabled(resolvedEnabled);
-            if (!resolvedEnabled && defaultVoucherId === ORCA_PROFILE_ID) {
+            setAiFriendEnabled(resolvedEnabled);
+            if (!resolvedEnabled && defaultVoucherId === AI_PROFILE_ID) {
                 setDefaultVoucherId(profile.id);
             }
-            setOrcaFriendSuccess(
+            setAiFriendSuccess(
                 resolvedEnabled
                     ? `${AI_VOUCHER_DISPLAY_NAME} added as a friend.`
                     : `${AI_VOUCHER_DISPLAY_NAME} removed from your friends.`
@@ -530,10 +530,10 @@ export default function SettingsClient({
             await refreshRelationshipsAndSearch();
         } catch (error) {
             console.error(error);
-            setOrcaFriendEnabled(previousEnabled);
-            setOrcaFriendError("Failed to update Orca friend setting.");
+            setAiFriendEnabled(previousEnabled);
+            setAiFriendError("Failed to update AI friend setting.");
         } finally {
-            setIsOrcaFriendLoading(false);
+            setIsAiFriendLoading(false);
         }
     }
 
@@ -1279,7 +1279,7 @@ export default function SettingsClient({
                                             <p className="text-xs text-slate-400 truncate">{friend.email}</p>
                                         </div>
                                     </div>
-                                    {friend.id === ORCA_PROFILE_ID ? (
+                                    {friend.id === AI_PROFILE_ID ? (
                                         <span className="text-xs text-slate-500">Managed in AI Features</span>
                                     ) : (
                                         <div className="flex items-center gap-2">
@@ -1629,23 +1629,23 @@ export default function SettingsClient({
                 <div className="border-b border-slate-900 py-3">
                     <div className="flex items-start gap-4">
                         <div className="flex-1 min-w-0 space-y-1">
-                            <Label htmlFor="orcaFriendEnabled" className="text-slate-200">
-                                Add Orca as a friend
+                            <Label htmlFor="aiFriendEnabled" className="text-slate-200">
+                                Add AI as a friend
                             </Label>
                             <p className="text-xs text-slate-400">
                                 When enabled, {AI_VOUCHER_DISPLAY_NAME} is added to your friends list and appears in voucher pickers.
                             </p>
                         </div>
                         <GlassToggle
-                            id="orcaFriendEnabled"
-                            checked={orcaFriendEnabled}
-                            disabled={isOrcaFriendLoading}
-                            onChange={handleOrcaFriendToggle}
+                            id="aiFriendEnabled"
+                            checked={aiFriendEnabled}
+                            disabled={isAiFriendLoading}
+                            onChange={handleAiFriendToggle}
                         />
                     </div>
                 </div>
-                {orcaFriendError && <p className="text-sm text-red-400">{orcaFriendError}</p>}
-                {orcaFriendSuccess && <p className="text-sm text-green-400">{orcaFriendSuccess}</p>}
+                {aiFriendError && <p className="text-sm text-red-400">{aiFriendError}</p>}
+                {aiFriendSuccess && <p className="text-sm text-green-400">{aiFriendSuccess}</p>}
             </section>
 
             <section className="space-y-4 border-b border-slate-900 pb-8">

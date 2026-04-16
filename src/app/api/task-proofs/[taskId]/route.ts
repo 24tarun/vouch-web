@@ -88,7 +88,7 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
     }
 
     const status = task.status;
-    if (status !== "AWAITING_VOUCHER" && status !== "AWAITING_ORCA" && status !== "MARKED_COMPLETE") {
+    if (status !== "AWAITING_VOUCHER" && status !== "AWAITING_AI" && status !== "MARKED_COMPLETE") {
         return jsonNoStore({ error: "Proof is no longer available" }, 410);
     }
 

@@ -50,7 +50,7 @@ const ACCENT_GROUPS: { group: string; colors: AccentColor[] }[] = [
     {
         group: "Greens",
         colors: [
-            { name: "Emerald 400", hex: "#34d399", glow: "rgba(52,211,153,0.5)", role: "", usedIn: ["TaskStatusBadge (MARKED_COMPLETE, ACCEPTED, AUTO_ACCEPTED, ORCA_ACCEPTED)", "TaskRow (MARKED_COMPLETE, accepted statuses)", "CommitmentStatusLabel", "FloatingBoxTaskCreator", "ReputationBar", "task-detail-client", "DashboardHeaderActions", "login/page", "MobileOnboarding", "MobileLanding", "DesktopLanding"] },
+            { name: "Emerald 400", hex: "#34d399", glow: "rgba(52,211,153,0.5)", role: "", usedIn: ["TaskStatusBadge (MARKED_COMPLETE, ACCEPTED, AUTO_ACCEPTED, AI_ACCEPTED)", "TaskRow (MARKED_COMPLETE, accepted statuses)", "CommitmentStatusLabel", "ReputationBar", "task-detail-client", "DashboardHeaderActions", "login/page", "MobileOnboarding", "MobileLanding", "DesktopLanding"] },
             { name: "Lime Green", hex: "#bef264", glow: "rgba(190,242,100,0.6)", role: "", usedIn: ["CompactStatsItem (accepted statuses)", "stats/page (Accepted metric)", "voucher-dashboard-client (accepted history statuses)"] },
             { name: "Money Green", hex: "#1F8A4C", glow: "rgba(31,138,76,0.72)", role: "", usedIn: ["LedgerEntryRow (currency amounts)", "ledger/page (money numericals)", "CommitmentCard (stake display)", "PreviousMonthsAccordion (totals)"] },
         ],
@@ -58,7 +58,7 @@ const ACCENT_GROUPS: { group: string; colors: AccentColor[] }[] = [
     {
         group: "Yellows & Ambers",
         colors: [
-            { name: "Amber 400", hex: "#fbbf24", glow: "rgba(251,191,36,0.4)", role: "", usedIn: ["TaskStatusBadge (AWAITING_VOUCHER, AWAITING_USER, AWAITING_ORCA, ESCALATED)"] },
+            { name: "Amber 400", hex: "#fbbf24", glow: "rgba(251,191,36,0.4)", role: "", usedIn: ["TaskStatusBadge (AWAITING_VOUCHER, AWAITING_USER, AWAITING_AI, ESCALATED)"] },
         ],
     },
     {
@@ -80,7 +80,7 @@ const ACCENT_GROUPS: { group: string; colors: AccentColor[] }[] = [
         colors: [
             { name: "Pink 400", hex: "#f472b6", glow: "rgba(244,114,182,0.6)", role: "", usedIn: ["Proof badges and proof-action buttons", "VoucherProofRequestBadge", "Task detail proof sections", "TaskRow proof actions"] },
             { name: "Fuchsia 700", hex: "#a21caf", glow: "rgba(162,28,175,0.7)", role: "", proposed: true },
-            { name: "Purple 400", hex: "#c084fc", glow: "rgba(192,132,252,0.6)", role: "", usedIn: ["task-detail-client", "stats/page", "CompactStatsItem", "VoucherBadges", "RecurringIndicator", "TaskInput", "FloatingBoxTaskCreator", "MobileLanding", "DesktopLanding"] },
+            { name: "Purple 400", hex: "#c084fc", glow: "rgba(192,132,252,0.6)", role: "", usedIn: ["task-detail-client", "stats/page", "CompactStatsItem", "VoucherBadges", "RecurringIndicator", "TaskInput", "MobileLanding", "DesktopLanding"] },
         ],
     },
 ];
@@ -98,12 +98,12 @@ const TASK_STATUS_GROUPS: {
     {
         group: "Pending Review",
         description: "Owner marked complete, waiting for voucher or AI to respond.",
-        statuses: ["MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_ORCA", "AWAITING_USER", "ESCALATED"],
+        statuses: ["MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER", "ESCALATED"],
     },
     {
         group: "Terminal",
         description: "Final states. Task lifecycle is over - accepted, denied, missed, rectified, settled, or deleted.",
-        statuses: ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"],
+        statuses: ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"],
     },
 ];
 
@@ -142,13 +142,13 @@ const ACTIVITY_STEPPER_STATUSES: TaskStatus[] = [
     "POSTPONED",
     "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
-    "AWAITING_ORCA",
-    "ORCA_DENIED",
+    "AWAITING_AI",
+    "AI_DENIED",
     "AWAITING_USER",
     "ESCALATED",
     "ACCEPTED",
     "AUTO_ACCEPTED",
-    "ORCA_ACCEPTED",
+    "AI_ACCEPTED",
     "DENIED",
     "MISSED",
     "RECTIFIED",
@@ -170,7 +170,7 @@ const ACTIVITY_STEPPER_EVENTS: { eventType: string; elapsedSeconds?: number }[] 
     { eventType: "POSTPONE" },
     { eventType: "REPETITION_STOPPED" },
     { eventType: "AI_APPROVE" },
-    { eventType: "ORCA_DENIED_AUTO_HOP" },
+    { eventType: "AI_DENIED_AUTO_HOP" },
     { eventType: "ESCALATE" },
     { eventType: "AI_ESCALATE_TO_HUMAN" },
     { eventType: "ACCEPT_DENIAL" },
@@ -569,4 +569,3 @@ export function DesignSystemShowcase() {
         </div>
     );
 }
-

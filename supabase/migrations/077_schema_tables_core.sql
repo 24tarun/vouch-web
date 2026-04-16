@@ -25,7 +25,7 @@ CREATE TABLE public.profiles (
   display_rp_bar_on_dashboard BOOLEAN NOT NULL DEFAULT true,
   mobile_notifications_enabled BOOLEAN NOT NULL DEFAULT false,
   abandoned_commitments_count INT NOT NULL DEFAULT 0,
-  orca_friend_opt_in BOOLEAN NOT NULL DEFAULT false,
+  ai_friend_opt_in BOOLEAN NOT NULL DEFAULT false,
 
   CONSTRAINT profiles_currency_check
     CHECK (currency = ANY (ARRAY['EUR'::text, 'USD'::text, 'INR'::text])),
@@ -128,8 +128,8 @@ CREATE TABLE public.tasks (
   CONSTRAINT tasks_status_check
     CHECK (status = ANY (ARRAY[
       'ACTIVE','POSTPONED','MARKED_COMPLETE','AWAITING_VOUCHER',
-      'AWAITING_ORCA','ORCA_DENIED','AWAITING_USER','ESCALATED',
-      'ACCEPTED','AUTO_ACCEPTED','ORCA_ACCEPTED',
+      'AWAITING_AI','AI_DENIED','AWAITING_USER','ESCALATED',
+      'ACCEPTED','AUTO_ACCEPTED','AI_ACCEPTED',
       'DENIED','MISSED','RECTIFIED','SETTLED','DELETED'
     ])),
   CONSTRAINT tasks_required_pomo_minutes_check

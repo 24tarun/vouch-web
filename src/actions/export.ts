@@ -23,7 +23,7 @@ export async function exportUserData(): Promise<{ data: Record<string, unknown> 
         friendshipsRes,
     ] = await Promise.all([
         (supabase.from("profiles" as any) as any)
-            .select("id, email, username, currency, default_pomo_duration_minutes, default_event_duration_minutes, default_failure_cost_cents, strict_pomo_enabled, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, voucher_can_view_active_tasks, mobile_notifications_enabled, orca_friend_opt_in, lifetime_xp, created_at")
+            .select("id, email, username, currency, default_pomo_duration_minutes, default_event_duration_minutes, default_failure_cost_cents, strict_pomo_enabled, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, voucher_can_view_active_tasks, mobile_notifications_enabled, ai_friend_opt_in, lifetime_xp, created_at")
             .eq("id", uid)
             .single(),
 

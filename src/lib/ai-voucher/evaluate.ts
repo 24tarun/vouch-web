@@ -10,7 +10,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { sendNotification } from "@/lib/notifications";
 import { deleteTaskProof } from "@/lib/task-proof";
 import { evaluateProofWithGemini, type ProofEvaluationResult } from "./gemini";
-import { ORCA_PROFILE_ID } from "./constants";
+import { AI_PROFILE_ID } from "./constants";
 import { activeTasksTag } from "@/lib/cache-tags";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 
@@ -50,7 +50,7 @@ export async function processAiVoucherDecision(
     const task = taskData as any;
 
     // 2. Verify preconditions
-    if (task.voucher_id !== ORCA_PROFILE_ID) {
+    if (task.voucher_id !== AI_PROFILE_ID) {
       console.error(
         `Task ${taskId} is not AI-vouched (voucher: ${task.voucher_id})`
       );
@@ -59,19 +59,19 @@ export async function processAiVoucherDecision(
 
     if (task.status === "MARKED_COMPLETE") {
       const { error: routeError } = await (adminClient.from("tasks") as any)
-        .update({ status: "AWAITING_ORCA" } as any)
+        .update({ status: "AWAITING_AI" } as any)
         .eq("id", taskId)
         .eq("status", "MARKED_COMPLETE");
       if (routeError) {
-        console.error(`Failed to route MARKED_COMPLETE task ${taskId} to AWAITING_ORCA: ${routeError.message}`);
+        console.error(`Failed to route MARKED_COMPLETE task ${taskId} to AWAITING_AI: ${routeError.message}`);
         return;
       }
-      task.status = "AWAITING_ORCA";
+      task.status = "AWAITING_AI";
     }
 
-    if (task.status !== "AWAITING_ORCA") {
+    if (task.status !== "AWAITING_AI") {
       console.error(
-        `Task ${taskId} is in ${task.status} status, expected AWAITING_ORCA`
+        `Task ${taskId} is in ${task.status} status, expected AWAITING_AI`
       );
       return;
     }
@@ -121,7 +121,7 @@ export async function processAiVoucherDecision(
       if (throwOnEvaluationError) {
         throw error;
       }
-      // Leave task in AWAITING_ORCA so user can escalate or retry.
+      // Leave task in AWAITING_AI so user can escalate or retry.
       if (notifyOnEvaluationError) {
         await sendEvaluationErrorNotification(task, error);
       }
@@ -167,7 +167,7 @@ export async function notifyAiVoucherEvaluationErrorByTaskId(
   }
 
   const task = taskData as any;
-  if (task.voucher_id !== ORCA_PROFILE_ID) {
+  if (task.voucher_id !== AI_PROFILE_ID) {
     return;
   }
 
@@ -175,7 +175,7 @@ export async function notifyAiVoucherEvaluationErrorByTaskId(
 }
 
 /**
- * Mark task as ORCA_ACCEPTED, delete proof, write AI_APPROVE event
+ * Mark task as AI_ACCEPTED, delete proof, write AI_APPROVE event
  */
 async function approveTask(taskId: string, task: any, reason?: string): Promise<void> {
   const adminClient = createAdminClient();
@@ -189,10 +189,10 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
     // Continue anyway; task is about to be marked complete
   }
 
-  // Update task to ORCA_ACCEPTED
+  // Update task to AI_ACCEPTED
   const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
-      status: "ORCA_ACCEPTED",
+      status: "AI_ACCEPTED",
       has_proof: cleanup.deleted,
       proof_request_open: false,
       proof_requested_at: null,
@@ -218,9 +218,9 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
   await (adminClient.from("task_events") as any).insert({
     task_id: taskId,
     event_type: "AI_APPROVE",
-    actor_id: ORCA_PROFILE_ID,
-    from_status: "AWAITING_ORCA",
-    to_status: "ORCA_ACCEPTED",
+    actor_id: AI_PROFILE_ID,
+    from_status: "AWAITING_AI",
+    to_status: "AI_ACCEPTED",
   });
 
   // Enqueue Google Calendar upsert
@@ -230,7 +230,7 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
   await sendNotification({
     userId: task.user.id,
     title: "Task approved",
-    text: `Orca approved your proof for "${task.title}".`,
+    text: `AI approved your proof for "${task.title}".`,
     url: `/tasks/${taskId}`,
     tag: `task-approved-${taskId}`,
     data: { taskId, kind: "TASK_AI_APPROVED" },
@@ -244,7 +244,7 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
 }
 
 /**
- * Mark task as ORCA_DENIED -> AWAITING_USER (appeal/escalation path), create denial record
+ * Mark task as AI_DENIED -> AWAITING_USER (appeal/escalation path), create denial record
  */
 async function denyTask(
   taskId: string,
@@ -271,8 +271,8 @@ async function denyTask(
     reason,
   });
 
-  // Orca denial -> ORCA_DENIED (transitional) -> AWAITING_USER
-  // No penalty at Orca denial stage; penalty only on owner's acceptDenial action
+  // AI denial -> AI_DENIED (transitional) -> AWAITING_USER
+  // No penalty at AI denial stage; penalty only on owner's acceptDenial action
   const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
       status: "AWAITING_USER",
@@ -289,21 +289,21 @@ async function denyTask(
     return;
   }
 
-  // Write ORCA_DENIED transitional event, then auto-hop to AWAITING_USER
+  // Write AI_DENIED transitional event, then auto-hop to AWAITING_USER
   await (adminClient.from("task_events") as any).insert([
     {
       task_id: taskId,
       event_type: "AI_DENY",
-      actor_id: ORCA_PROFILE_ID,
-      from_status: "AWAITING_ORCA",
-      to_status: "ORCA_DENIED",
+      actor_id: AI_PROFILE_ID,
+      from_status: "AWAITING_AI",
+      to_status: "AI_DENIED",
       metadata: { reason },
     },
     {
       task_id: taskId,
-      event_type: "ORCA_DENIED_AUTO_HOP",
-      actor_id: ORCA_PROFILE_ID,
-      from_status: "ORCA_DENIED",
+      event_type: "AI_DENIED_AUTO_HOP",
+      actor_id: AI_PROFILE_ID,
+      from_status: "AI_DENIED",
       to_status: "AWAITING_USER",
       metadata: { reason },
     },
@@ -315,10 +315,10 @@ async function denyTask(
   // Push notification only (no email)
   await sendNotification({
     userId: task.user.id,
-    title: "Proof denied by Orca",
+    title: "Proof denied by AI",
     text: attemptsRemaining > 0
-      ? `Orca denied your proof for "${task.title}". You can appeal (${attemptsRemaining} left), escalate, or accept the denial.`
-      : `Orca denied your proof for "${task.title}". You can escalate to a friend or accept the denial.`,
+      ? `AI denied your proof for "${task.title}". You can appeal (${attemptsRemaining} left), escalate, or accept the denial.`
+      : `AI denied your proof for "${task.title}". You can escalate to a friend or accept the denial.`,
     url: `/tasks/${taskId}`,
     tag: `task-denied-resubmit-${taskId}`,
     data: { taskId, kind: "TASK_AI_DENIED_RESUBMIT" },
@@ -332,7 +332,7 @@ async function denyTask(
 }
 
 /**
- * Mark task as ORCA_DENIED -> AWAITING_USER due to missing proof
+ * Mark task as AI_DENIED -> AWAITING_USER due to missing proof
  */
 async function failTask(
   taskId: string,
@@ -344,7 +344,7 @@ async function failTask(
   // Delete proof if any
   await deleteTaskProof(taskId, "ai_voucher_fail");
 
-  // No proof -> ORCA_DENIED -> AWAITING_USER (no penalty at this stage)
+  // No proof -> AI_DENIED -> AWAITING_USER (no penalty at this stage)
   const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
       status: "AWAITING_USER",
@@ -359,21 +359,21 @@ async function failTask(
     return;
   }
 
-  // Write ORCA_DENIED transitional event, then auto-hop to AWAITING_USER
+  // Write AI_DENIED transitional event, then auto-hop to AWAITING_USER
   await (adminClient.from("task_events") as any).insert([
     {
       task_id: taskId,
       event_type: "AI_DENY",
-      actor_id: ORCA_PROFILE_ID,
-      from_status: "AWAITING_ORCA",
-      to_status: "ORCA_DENIED",
+      actor_id: AI_PROFILE_ID,
+      from_status: "AWAITING_AI",
+      to_status: "AI_DENIED",
       metadata: { reason },
     },
     {
       task_id: taskId,
-      event_type: "ORCA_DENIED_AUTO_HOP",
-      actor_id: ORCA_PROFILE_ID,
-      from_status: "ORCA_DENIED",
+      event_type: "AI_DENIED_AUTO_HOP",
+      actor_id: AI_PROFILE_ID,
+      from_status: "AI_DENIED",
       to_status: "AWAITING_USER",
       metadata: { reason },
     },
@@ -383,7 +383,7 @@ async function failTask(
   if (task.user?.id) {
     await sendNotification({
       userId: task.user.id,
-      title: "Proof issue — Orca needs evidence",
+      title: "Proof issue — AI needs evidence",
       text: `${reason}. You can resubmit, escalate to a friend, or accept the denial.`,
       email: false,
       push: true,
@@ -402,7 +402,7 @@ async function failTask(
 
 /**
  * Send notification when evaluation fails (Gemini error, etc.)
- * Task stays in AWAITING_ORCA so user can escalate
+ * Task stays in AWAITING_AI so user can escalate
  */
 async function sendEvaluationErrorNotification(
   task: any,
@@ -415,7 +415,7 @@ async function sendEvaluationErrorNotification(
   await sendNotification({
     userId: task.user.id,
     title: "Evaluation error",
-    text: `Orca could not evaluate your proof. Please try again or escalate to a friend.`,
+    text: `AI could not evaluate your proof. Please try again or escalate to a friend.`,
     email: false,
     push: true,
     url: `/tasks/${task.id}`,

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpDown, Check, Lightbulb, Plus } from "lucide-react";
+import { ArrowUpDown, Check, Lightbulb, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
 import {
@@ -34,7 +34,8 @@ interface DashboardHeaderActionsProps {
     isTogglingTips: boolean;
     sortMode: DashboardSortMode;
     onSortModeChange: (mode: DashboardSortMode) => void;
-    onOpenCreator: () => void;
+    isTaskSearchOpen: boolean;
+    onToggleTaskSearch: () => void;
 }
 
 export function DashboardHeaderActions({
@@ -43,7 +44,8 @@ export function DashboardHeaderActions({
     isTogglingTips,
     sortMode,
     onSortModeChange,
-    onOpenCreator,
+    isTaskSearchOpen,
+    onToggleTaskSearch,
 }: DashboardHeaderActionsProps) {
     return (
         <div className="flex items-center gap-2">
@@ -90,16 +92,13 @@ export function DashboardHeaderActions({
             <Button
                 variant="ghost"
                 size="icon"
-                className="text-emerald-400 hover:text-emerald-300"
-                onClick={onOpenCreator}
-                aria-label="Create task"
-                title="Create task"
+                className={isTaskSearchOpen ? "text-white" : "text-slate-400 hover:text-white"}
+                onClick={onToggleTaskSearch}
+                aria-label={isTaskSearchOpen ? "Close task search" : "Open task search"}
+                title={isTaskSearchOpen ? "Close search" : "Open search"}
                 haptic="light"
             >
-                <Plus
-                    className="h-5 w-5"
-                    style={{ filter: "drop-shadow(0 0 8px rgba(52, 211, 153, 0.9)) drop-shadow(0 0 14px rgba(52, 211, 153, 0.5))" }}
-                />
+                <Search className="h-4 w-4" />
             </Button>
 
             <HardRefreshButton ariaLabel="Refresh dashboard" title="Refresh dashboard" />

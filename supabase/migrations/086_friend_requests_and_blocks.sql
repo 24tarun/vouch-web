@@ -98,7 +98,7 @@ AS $$
         'POSTPONED',
         'MARKED_COMPLETE',
         'AWAITING_VOUCHER',
-        'AWAITING_ORCA',
+        'AWAITING_AI',
         'AWAITING_USER',
         'ESCALATED'
       ]::text[]

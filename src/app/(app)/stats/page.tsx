@@ -10,7 +10,7 @@ const ACTIVE_SECTION_STATUSES = new Set([
     "POSTPONED",
     "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
-    "AWAITING_ORCA",
+    "AWAITING_AI",
     "AWAITING_USER",
     "ESCALATED",
 ]);
@@ -75,9 +75,9 @@ export default async function OverviewPage() {
 
     const activeTasksCount = activeTasks.length;
     const pendingVouchCount = tasks.filter((t) =>
-        ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"].includes(t.status)
+        ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(t.status)
     ).length;
-    const acceptedCount = tasks.filter((t) => ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED"].includes(t.status)).length;
+    const acceptedCount = tasks.filter((t) => ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"].includes(t.status)).length;
     const failedCount = tasks.filter((t) => t.status === "MISSED").length;
     const deniedCount = tasks.filter((t) => t.status === "DENIED").length;
 

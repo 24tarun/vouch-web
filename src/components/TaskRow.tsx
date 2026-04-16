@@ -35,7 +35,7 @@ interface TaskRowProps {
     layoutVariant?: "active" | "completed";
 }
 
-const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_ORCA", "AWAITING_USER"]);
+const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER"]);
 
 export function TaskRow({
     task,
@@ -69,11 +69,11 @@ export function TaskRow({
             [
                 "MARKED_COMPLETE",
                 "AWAITING_VOUCHER",
-                "AWAITING_ORCA",
+                "AWAITING_AI",
                 "AWAITING_USER",
                 "ACCEPTED",
                 "AUTO_ACCEPTED",
-                "ORCA_ACCEPTED",
+                "AI_ACCEPTED",
                 "DENIED",
                 "MISSED",
                 "RECTIFIED",
@@ -399,11 +399,11 @@ export function TaskRow({
         POSTPONED: "text-amber-400 border-amber-400",
         MARKED_COMPLETE: "text-emerald-400 border-emerald-400",
         AWAITING_VOUCHER: "text-amber-400 border-amber-400",
-        AWAITING_ORCA: "text-amber-400 border-amber-400",
+        AWAITING_AI: "text-amber-400 border-amber-400",
         AWAITING_USER: "text-orange-300 border-orange-300",
         ACCEPTED: "text-emerald-400 border-emerald-400",
         AUTO_ACCEPTED: "text-emerald-400 border-emerald-400",
-        ORCA_ACCEPTED: "text-emerald-400 border-emerald-400",
+        AI_ACCEPTED: "text-emerald-400 border-emerald-400",
         DENIED: "text-red-500 border-red-500",
         MISSED: "text-red-500 border-red-500",
         DELETED: "text-slate-400 border-slate-600 opacity-60",

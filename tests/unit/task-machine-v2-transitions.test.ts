@@ -19,16 +19,16 @@ function buildMachineContext() {
     };
 }
 
-test("AWAITING_USER appeal transitions back to AWAITING_ORCA", () => {
+test("AWAITING_USER appeal transitions back to AWAITING_AI", () => {
     /*
      * What and why this test checks:
-     * This verifies the appeal loop explicitly returns the task to Orca review.
+     * This verifies the appeal loop explicitly returns the task to AI review.
      *
      * Passing scenario:
-     * Starting in AWAITING_USER and sending APPEAL moves the actor snapshot to AWAITING_ORCA.
+     * Starting in AWAITING_USER and sending APPEAL moves the actor snapshot to AWAITING_AI.
      *
      * Failing scenario:
-     * If APPEAL no longer reaches AWAITING_ORCA, users lose the defined appeal path.
+     * If APPEAL no longer reaches AWAITING_AI, users lose the defined appeal path.
      */
     const actor = createActor(taskMachine as any, {
         snapshot: (taskMachine as any).resolveState({
@@ -39,56 +39,56 @@ test("AWAITING_USER appeal transitions back to AWAITING_ORCA", () => {
     actor.start();
     actor.send({ type: "APPEAL" } as any);
 
-    assert.equal(actor.getSnapshot().value, "AWAITING_ORCA");
+    assert.equal(actor.getSnapshot().value, "AWAITING_AI");
 });
 
-test("Orca deny path lands in AWAITING_USER after transitional ORCA_DENIED", () => {
+test("AI deny path lands in AWAITING_USER after transitional AI_DENIED", () => {
     /*
      * What and why this test checks:
-     * This confirms ORCA_DENIED remains transitional and automatically lands in AWAITING_USER.
+     * This confirms AI_DENIED remains transitional and automatically lands in AWAITING_USER.
      *
      * Passing scenario:
-     * Starting in AWAITING_ORCA and sending ORCA_DENY results in final snapshot AWAITING_USER.
+     * Starting in AWAITING_AI and sending AI_DENY results in final snapshot AWAITING_USER.
      *
      * Failing scenario:
-     * If the machine stays in ORCA_DENIED, users cannot take appeal/escalate actions.
+     * If the machine stays in AI_DENIED, users cannot take appeal/escalate actions.
      */
     const actor = createActor(taskMachine as any, {
         snapshot: (taskMachine as any).resolveState({
-            value: "AWAITING_ORCA",
+            value: "AWAITING_AI",
             context: buildMachineContext(),
         }),
     });
     actor.start();
-    actor.send({ type: "ORCA_DENY" } as any);
+    actor.send({ type: "AI_DENY" } as any);
 
     assert.equal(actor.getSnapshot().value, "AWAITING_USER");
 });
 
-test("AWAITING_ORCA transition list excludes Orca timeout path", () => {
+test("AWAITING_AI transition list excludes AI timeout path", () => {
     /*
      * What and why this test checks:
-     * This locks the timeout-removal contract so Orca review has only approve/deny outcomes.
+     * This locks the timeout-removal contract so AI review has only approve/deny outcomes.
      *
      * Passing scenario:
-     * Valid transitions are exactly ORCA_APPROVE and ORCA_DENY, and no TIMEOUT_ORCA entry exists.
+     * Valid transitions are exactly AI_APPROVE and AI_DENY, and no TIMEOUT_AI entry exists.
      *
      * Failing scenario:
-     * If timeout is reintroduced, AWAITING_USER could be reached without an Orca denial event.
+     * If timeout is reintroduced, AWAITING_USER could be reached without an AI denial event.
      */
-    const transitions = getValidTransitions("AWAITING_ORCA");
+    const transitions = getValidTransitions("AWAITING_AI");
 
-    assert.deepEqual(transitions, ["ORCA_APPROVE", "ORCA_DENY"]);
-    assert.equal((transitions as string[]).includes("TIMEOUT_ORCA"), false);
+    assert.deepEqual(transitions, ["AI_APPROVE", "AI_DENY"]);
+    assert.equal((transitions as string[]).includes("TIMEOUT_AI"), false);
 });
 
-test("MARKED_COMPLETE keeps explicit voucher/orca decision transitions", () => {
+test("MARKED_COMPLETE keeps explicit voucher/ai decision transitions", () => {
     /*
      * What and why this test checks:
-     * This verifies persisted MARKED_COMPLETE can still flow through voucher or Orca decision outcomes.
+     * This verifies persisted MARKED_COMPLETE can still flow through voucher or AI decision outcomes.
      *
      * Passing scenario:
-     * MARKED_COMPLETE allows voucher accept/deny, voucher timeout, and Orca approve/deny events.
+     * MARKED_COMPLETE allows voucher accept/deny, voucher timeout, and AI approve/deny events.
      *
      * Failing scenario:
      * If these events are removed, MARKED_COMPLETE becomes a dead-end and completion flow breaks.
@@ -96,12 +96,12 @@ test("MARKED_COMPLETE keeps explicit voucher/orca decision transitions", () => {
     const transitions = getValidTransitions("MARKED_COMPLETE").slice().sort();
 
     assert.deepEqual(transitions, [
-        "ORCA_APPROVE",
-        "ORCA_DENY",
+        "AI_APPROVE",
+        "AI_DENY",
         "TIMEOUT_VOUCHER",
         "VOUCHER_ACCEPT",
         "VOUCHER_DENY",
     ]);
-    assert.equal(canTransition("MARKED_COMPLETE", "ORCA_APPROVE"), true);
-    assert.equal(canTransition("AWAITING_ORCA", "TIMEOUT_VOUCHER"), false);
+    assert.equal(canTransition("MARKED_COMPLETE", "AI_APPROVE"), true);
+    assert.equal(canTransition("AWAITING_AI", "TIMEOUT_VOUCHER"), false);
 });

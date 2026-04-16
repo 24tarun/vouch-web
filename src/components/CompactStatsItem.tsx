@@ -25,7 +25,7 @@ export interface CompactStatsTask {
     pomo_total_seconds?: number;
 }
 
-const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE", "AWAITING_USER"]);
+const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_USER"]);
 
 interface CompactStatsItemProps {
     task: CompactStatsTask;
@@ -38,13 +38,13 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
     "POSTPONED",
     "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
-    "AWAITING_ORCA",
-    "ORCA_DENIED",
+    "AWAITING_AI",
+    "AI_DENIED",
     "AWAITING_USER",
     "ESCALATED",
     "ACCEPTED",
     "AUTO_ACCEPTED",
-    "ORCA_ACCEPTED",
+    "AI_ACCEPTED",
     "DENIED",
     "MISSED",
     "RECTIFIED",
@@ -86,7 +86,7 @@ export function CompactStatsItem({
     const isActiveTask = task.status === "ACTIVE" || task.status === "POSTPONED";
     const hasOpenProofRequest =
         Boolean(task.proof_request_open) &&
-        (task.status === "AWAITING_VOUCHER" || task.status === "AWAITING_ORCA" || task.status === "MARKED_COMPLETE");
+        (task.status === "AWAITING_VOUCHER" || task.status === "AWAITING_AI" || task.status === "MARKED_COMPLETE");
     const proofRequestedByLabel = task.voucher?.username || "Your voucher";
     const shouldPrefetchDetail = PREFETCH_STATUSES.has(task.status);
     const statusBadge = resolveStatsBadgeStatus(task.status, forceActiveBadge);

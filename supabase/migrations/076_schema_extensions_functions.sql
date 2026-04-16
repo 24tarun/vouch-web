@@ -89,10 +89,10 @@ BEGIN
   IF NEW.status IN (
       'MARKED_COMPLETE',
       'AWAITING_VOUCHER',
-      'AWAITING_ORCA',
+      'AWAITING_AI',
       'ACCEPTED',
       'AUTO_ACCEPTED',
-      'ORCA_ACCEPTED'
+      'AI_ACCEPTED'
     )
     AND OLD.status IS DISTINCT FROM NEW.status THEN
     DELETE FROM public.task_subtasks

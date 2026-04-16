@@ -6,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { computeFullReputationScore } from "@/lib/reputation/algorithm";
 import type { ReputationTaskInput } from "@/lib/reputation/types";
 import { type Database, type FriendPomoActivity, type FriendProfile } from "@/lib/types";
-import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { type SupabaseClient } from "@supabase/supabase-js";
 
 const PENDING_VOUCHER_STATUSES = [
@@ -14,7 +14,7 @@ const PENDING_VOUCHER_STATUSES = [
     "POSTPONED",
     "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
-    "AWAITING_ORCA",
+    "AWAITING_AI",
     "AWAITING_USER",
     "ESCALATED",
 ];
@@ -99,7 +99,7 @@ function buildRelationshipUserSummary(
         username,
         email: profile.email?.trim().toLowerCase() || "",
         initial: username[0]?.toUpperCase() || "?",
-        rp_score: profile.id === ORCA_PROFILE_ID ? 1000 : scores.get(profile.id) ?? 400,
+        rp_score: profile.id === AI_PROFILE_ID ? 1000 : scores.get(profile.id) ?? 400,
     };
 }
 
@@ -137,7 +137,7 @@ function mapReputationTask(
 
 async function getFriendReputationScores(friendIds: string[]): Promise<Map<string, number>> {
     const scores = new Map<string, number>();
-    const scoringIds = friendIds.filter((friendId) => friendId !== ORCA_PROFILE_ID);
+    const scoringIds = friendIds.filter((friendId) => friendId !== AI_PROFILE_ID);
     if (scoringIds.length === 0) return scores;
 
     try {
@@ -239,8 +239,8 @@ export async function addFriend(formData: FormData) {
     if (friendProfile.id === user.id) {
         return { error: "You cannot add yourself as a friend" };
     }
-    if (friendProfile.id === ORCA_PROFILE_ID) {
-        return { error: "Use AI Features in Settings to add Orca as a friend." };
+    if (friendProfile.id === AI_PROFILE_ID) {
+        return { error: "Use AI Features in Settings to add AI as a friend." };
     }
 
     // Check if already friends (either direction)
@@ -296,8 +296,8 @@ export async function removeFriend(friendId: string) {
     if (!user) {
         return { error: "Not authenticated" };
     }
-    if (friendId === ORCA_PROFILE_ID) {
-        return { error: "Use AI Features in Settings to remove Orca as a friend." };
+    if (friendId === AI_PROFILE_ID) {
+        return { error: "Use AI Features in Settings to remove AI as a friend." };
     }
 
     // Check if friend is active voucher for any pending tasks
@@ -408,7 +408,7 @@ export async function getFriends(): Promise<FriendProfile[]> {
 
     return friends.map((friend) => ({
         ...friend,
-        rp_score: friend.id === ORCA_PROFILE_ID ? 1000 : friendScores.get(friend.id) ?? 400,
+        rp_score: friend.id === AI_PROFILE_ID ? 1000 : friendScores.get(friend.id) ?? 400,
     }));
 }
 
@@ -640,30 +640,9 @@ export async function withdrawOutgoingFriendRequest(requestId: string) {
 
     if (!user) return { error: "Not authenticated" };
 
-    const supabaseAdmin = createAdminClient();
-
-    const { data: requestRow, error: requestError } = await (supabaseAdmin.from("friend_requests" as any) as any)
-        .select("id, sender_id, status")
-        .eq("id", requestId as any)
-        .maybeSingle();
-
-    if (requestError) {
-        return { error: requestError.message ?? "Could not load friend request" };
-    }
-
-    if (!requestRow || requestRow.sender_id !== user.id) {
-        return { error: "You can only withdraw your own outgoing request." };
-    }
-
-    if (requestRow.status !== "PENDING") {
-        return { error: "This friend request is no longer pending." };
-    }
-
-    const { error } = await (supabaseAdmin.from("friend_requests" as any) as any)
-        .delete()
-        .eq("id", requestId as any)
-        .eq("sender_id", user.id as any)
-        .eq("status", "PENDING" as any);
+    const { error } = await (supabase.rpc("withdraw_friend_request" as any, {
+        p_request_id: requestId,
+    } as any) as any);
 
     if (error) return { error: error.message ?? "Could not withdraw friend request" };
 
@@ -754,7 +733,7 @@ export async function unblockRelationshipUser(targetUserId: string) {
     return { success: true };
 }
 
-export async function setOrcaAsFriendEnabled(enabled: boolean) {
+export async function setAiAsFriendEnabled(enabled: boolean) {
     const supabase: SupabaseClient<Database> = await createClient();
     const {
         data: { user },
@@ -764,30 +743,30 @@ export async function setOrcaAsFriendEnabled(enabled: boolean) {
         return { error: "Not authenticated" };
     }
     if (typeof enabled !== "boolean") {
-        return { error: "Invalid Orca toggle value." };
+        return { error: "Invalid AI toggle value." };
     }
 
-    const { data: orcaProfile } = await (supabase.from("profiles" as any) as any)
+    const { data: aiProfile } = await (supabase.from("profiles" as any) as any)
         .select("id")
-        .eq("id", ORCA_PROFILE_ID as any)
+        .eq("id", AI_PROFILE_ID as any)
         .maybeSingle();
 
-    if (!orcaProfile) {
-        return { error: "Orca profile is not available. Run the latest database migrations." };
+    if (!aiProfile) {
+        return { error: "AI profile is not available. Run the latest database migrations." };
     }
 
     if (!enabled) {
-        // Prevent disabling while Orca is actively assigned as voucher for pending owner tasks.
+        // Prevent disabling while AI is actively assigned as voucher for pending owner tasks.
         // @ts-ignore
         const { data: activeTasks } = await supabase
             .from("tasks")
             .select("id")
             .eq("user_id", user.id)
-            .eq("voucher_id", ORCA_PROFILE_ID)
+            .eq("voucher_id", AI_PROFILE_ID)
             .in("status", PENDING_VOUCHER_STATUSES as any);
 
         if (activeTasks && activeTasks.length > 0) {
-            return { error: "Cannot remove Orca while she is voucher on your pending tasks." };
+            return { error: "Cannot remove AI while she is voucher on your pending tasks." };
         }
     }
 
@@ -795,78 +774,78 @@ export async function setOrcaAsFriendEnabled(enabled: boolean) {
 
     if (enabled) {
         // @ts-ignore
-        const { error: ownerToOrcaError } = await (supabaseAdmin.from("friendships" as any) as any).insert({
+        const { error: ownerToAiError } = await (supabaseAdmin.from("friendships" as any) as any).insert({
             user_id: user.id,
-            friend_id: ORCA_PROFILE_ID,
+            friend_id: AI_PROFILE_ID,
         });
 
-        if (ownerToOrcaError && ownerToOrcaError.code !== "23505") {
-            console.error("Failed to create friendship (user->orca):", ownerToOrcaError);
-            return { error: "Could not add Orca as a friend." };
+        if (ownerToAiError && ownerToAiError.code !== "23505") {
+            console.error("Failed to create friendship (user->ai):", ownerToAiError);
+            return { error: "Could not add AI as a friend." };
         }
 
         // @ts-ignore
-        const { error: orcaToOwnerError } = await (supabaseAdmin.from("friendships" as any) as any).insert({
-            user_id: ORCA_PROFILE_ID,
+        const { error: aiToOwnerError } = await (supabaseAdmin.from("friendships" as any) as any).insert({
+            user_id: AI_PROFILE_ID,
             friend_id: user.id,
         });
 
-        if (orcaToOwnerError && orcaToOwnerError.code !== "23505") {
-            console.error("Failed to create reciprocal friendship (orca->user):", orcaToOwnerError);
+        if (aiToOwnerError && aiToOwnerError.code !== "23505") {
+            console.error("Failed to create reciprocal friendship (ai->user):", aiToOwnerError);
         }
     } else {
         // @ts-ignore
-        const { error: ownerToOrcaDeleteError } = await (supabaseAdmin.from("friendships" as any) as any)
+        const { error: ownerToAiDeleteError } = await (supabaseAdmin.from("friendships" as any) as any)
             .delete()
             .eq("user_id", user.id as any)
-            .eq("friend_id", ORCA_PROFILE_ID as any);
+            .eq("friend_id", AI_PROFILE_ID as any);
 
-        if (ownerToOrcaDeleteError) {
-            console.error("Failed to delete friendship (user->orca):", ownerToOrcaDeleteError);
-            return { error: "Could not remove Orca as a friend." };
+        if (ownerToAiDeleteError) {
+            console.error("Failed to delete friendship (user->ai):", ownerToAiDeleteError);
+            return { error: "Could not remove AI as a friend." };
         }
 
         // @ts-ignore
-        const { error: orcaToOwnerDeleteError } = await (supabaseAdmin.from("friendships" as any) as any)
+        const { error: aiToOwnerDeleteError } = await (supabaseAdmin.from("friendships" as any) as any)
             .delete()
-            .eq("user_id", ORCA_PROFILE_ID as any)
+            .eq("user_id", AI_PROFILE_ID as any)
             .eq("friend_id", user.id as any);
 
-        if (orcaToOwnerDeleteError) {
-            console.error("Failed to delete reciprocal friendship (orca->user):", orcaToOwnerDeleteError);
+        if (aiToOwnerDeleteError) {
+            console.error("Failed to delete reciprocal friendship (ai->user):", aiToOwnerDeleteError);
         }
 
         // @ts-ignore
         const { error: clearDefaultError } = await (supabase.from("profiles" as any) as any)
             .update({ default_voucher_id: user.id } as any)
             .eq("id", user.id as any)
-            .eq("default_voucher_id", ORCA_PROFILE_ID as any);
+            .eq("default_voucher_id", AI_PROFILE_ID as any);
 
         if (clearDefaultError) {
-            console.error("Failed to clear default voucher after removing Orca:", clearDefaultError);
+            console.error("Failed to clear default voucher after removing AI:", clearDefaultError);
         }
     }
 
     const { data: friendship, error: friendshipError } = await (supabase.from("friendships" as any) as any)
         .select("id")
         .eq("user_id", user.id as any)
-        .eq("friend_id", ORCA_PROFILE_ID as any)
+        .eq("friend_id", AI_PROFILE_ID as any)
         .maybeSingle();
 
     if (friendshipError) {
-        console.error("Failed to load Orca friendship state:", friendshipError);
-        return { error: "Could not verify Orca friendship state." };
+        console.error("Failed to load AI friendship state:", friendshipError);
+        return { error: "Could not verify AI friendship state." };
     }
 
     const resolvedEnabled = Boolean(friendship);
     // @ts-ignore
     const { error: profileUpdateError } = await (supabase.from("profiles" as any) as any)
-        .update({ orca_friend_opt_in: resolvedEnabled } as any)
+        .update({ ai_friend_opt_in: resolvedEnabled } as any)
         .eq("id", user.id as any);
 
     if (profileUpdateError) {
-        console.error("Failed to persist Orca opt-in preference:", profileUpdateError);
-        return { error: "Could not save Orca preference." };
+        console.error("Failed to persist AI opt-in preference:", profileUpdateError);
+        return { error: "Could not save AI preference." };
     }
 
     revalidateFriendPaths();

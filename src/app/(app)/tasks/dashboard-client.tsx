@@ -4,7 +4,7 @@ import { fireCompletionConfetti } from "@/lib/confetti";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Search, X } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import {
     createTask,
     finalizeTaskProofUpload,
@@ -17,14 +17,12 @@ import { setDashboardTipsHidden } from "@/actions/auth";
 import { getUserReputationScore } from "@/actions/reputation";
 import { DashboardHeaderActions, type DashboardSortMode } from "@/components/DashboardHeaderActions";
 import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
-import { FloatingBoxTaskCreator, type FloatingBoxTaskCreatorHandle } from "@/components/task-creator-variants/FloatingBoxTaskCreator";
 import { PostponeDeadlineDialog } from "@/components/PostponeDeadlineDialog";
 import { TaskRow } from "@/components/TaskRow";
 import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList";
 import { CollapsibleFutureList } from "@/components/CollapsibleFutureList";
 import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
-import { cn } from "@/lib/utils";
 import type { Profile, Task } from "@/lib/types";
 import type { SupportedCurrency } from "@/lib/currency";
 import { toast } from "sonner";
@@ -45,8 +43,9 @@ import {
     buildBeforeStartSubmissionMessage,
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
-import { ORCA_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { TaskStatusBadge } from "@/design-system";
+import { WebcamCaptureModal, isMobileDevice } from "@/components/WebcamCaptureModal";
 
 const MAX_COMPLETED_TASKS = 10;
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
@@ -82,7 +81,7 @@ function isDashboardActiveStatus(status: Task["status"]): boolean {
 
 function splitTasks(tasks: Task[]) {
     const active = tasks.filter((task) => isDashboardActiveStatus(task.status));
-    const completed = tasks.filter((task) => !isDashboardActiveStatus(task.status));
+    const completed = tasks.filter((task) => !isDashboardActiveStatus(task.status) && task.status !== "DELETED");
 
     return { active, completed };
 }
@@ -194,17 +193,17 @@ export default function DashboardClient({
     const [tipsHidden, setTipsHidden] = useState(initialHideTips);
     const [isTogglingTips, setIsTogglingTips] = useState(false);
     const [sortMode, setSortMode] = useState<DashboardSortMode>("deadline_asc");
-    const [floatingBoxCreatorOpen, setFloatingBoxCreatorOpen] = useState(false);
     const [isTaskSearchOpen, setIsTaskSearchOpen] = useState(false);
     const [taskSearchQuery, setTaskSearchQuery] = useState("");
     const [taskSearchResults, setTaskSearchResults] = useState<Task[]>([]);
     const [isTaskSearchLoading, setIsTaskSearchLoading] = useState(false);
     const [taskSearchError, setTaskSearchError] = useState<string | null>(null);
-    const floatingBoxCreatorRef = useRef<FloatingBoxTaskCreatorHandle>(null);
+    const taskSearchInputRef = useRef<HTMLInputElement>(null);
     const [liveReputationScore, setLiveReputationScore] = useState<ReputationScoreData | null>(reputationScore);
     const proofInputRef = useRef<HTMLInputElement>(null);
     const proofByTaskIdRef = useRef<Record<string, TaskProofDraft>>({});
     const proofPickerTaskIdRef = useRef<string | null>(null);
+    const [webcamTaskId, setWebcamTaskId] = useState<string | null>(null);
     const activeTasksRef = useRef<Task[]>(split.active);
     const completedTasksRef = useRef<Task[]>(split.completed.slice(0, MAX_COMPLETED_TASKS));
     const sortedActiveTaskBuckets = useMemo(() => {
@@ -277,6 +276,11 @@ export default function DashboardClient({
     useEffect(() => {
         activeTasksRef.current = activeTasks;
     }, [activeTasks]);
+
+    useEffect(() => {
+        if (!isTaskSearchOpen) return;
+        taskSearchInputRef.current?.focus();
+    }, [isTaskSearchOpen]);
 
     useEffect(() => {
         completedTasksRef.current = completedTasks;
@@ -449,8 +453,8 @@ export default function DashboardClient({
                 currentCompletedTasks.find((task) => task.id === taskId);
 
             // If the task moved to a terminal/non-active status, remove it from all lists
-            // even if it wasn't previously tracked (e.g. AWAITING_ORCA -> ORCA_ACCEPTED).
-            const TERMINAL_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
+            // even if it wasn't previously tracked (e.g. AWAITING_AI -> AI_ACCEPTED).
+            const TERMINAL_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
             if (!existingTask) {
                 if (change.newRow && TERMINAL_STATUSES.includes(change.newRow.status)) {
                     const nextActiveTasks = currentActiveTasks.filter((task) => task.id !== taskId);
@@ -488,6 +492,15 @@ export default function DashboardClient({
                 return;
             }
 
+            if (patchedTask.status === "DELETED") {
+                activeTasksRef.current = nextActiveTasks;
+                completedTasksRef.current = nextCompletedTasks;
+                setActiveTasks(nextActiveTasks);
+                setCompletedTasks(nextCompletedTasks);
+                clearTaskTransientState(taskId);
+                return;
+            }
+
             const mergedCompletedTasks = [patchedTask, ...nextCompletedTasks].slice(0, MAX_COMPLETED_TASKS);
             activeTasksRef.current = nextActiveTasks;
             completedTasksRef.current = mergedCompletedTasks;
@@ -496,7 +509,7 @@ export default function DashboardClient({
 
             clearTaskTransientState(taskId);
 
-            const finalStatuses = new Set(["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED"]);
+            const finalStatuses = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED"]);
             if (finalStatuses.has(patchedTask.status)) {
                 refreshReputation();
             }
@@ -545,7 +558,11 @@ export default function DashboardClient({
         }
 
         proofPickerTaskIdRef.current = task.id;
-        proofInputRef.current?.click();
+        if (isMobileDevice()) {
+            proofInputRef.current?.click();
+        } else {
+            setWebcamTaskId(task.id);
+        }
     };
 
     const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -784,17 +801,17 @@ export default function DashboardClient({
         const voucherResponseDeadline = getVoucherResponseDeadlineLocal(now);
         const userTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
         const proofIntent = proofDraft ? getProofIntentFromPreparedProof(proofDraft.proof) : null;
-        const isOrcaVoucher = task.voucher_id === ORCA_PROFILE_ID;
+        const isAiVoucher = task.voucher_id === AI_PROFILE_ID;
         if (proofIntent || task.completion_proof) {
             void purgeLocalProofMedia(task.id);
         }
         const nowIso = now.toISOString();
         const optimisticTask: Task = {
             ...task,
-            status: isSelfVouched ? "ACCEPTED" : (isOrcaVoucher ? "AWAITING_ORCA" : "AWAITING_VOUCHER"),
+            status: isSelfVouched ? "ACCEPTED" : (isAiVoucher ? "AWAITING_AI" : "AWAITING_VOUCHER"),
             marked_completed_at: nowIso,
             voucher_response_deadline:
-                isSelfVouched || isOrcaVoucher
+                isSelfVouched || isAiVoucher
                     ? null
                     : voucherResponseDeadline.toISOString(),
             updated_at: nowIso,
@@ -1022,6 +1039,15 @@ export default function DashboardClient({
         setIsTogglingTips(false);
     };
 
+    const handleToggleTaskSearch = () => {
+        setIsTaskSearchOpen((previous) => {
+            if (previous) {
+                setTaskSearchQuery("");
+            }
+            return !previous;
+        });
+    };
+
     return (
         <div className="max-w-3xl mx-auto space-y-4 md:space-y-6 px-4 md:px-0 pb-14">
             <TaskDetailPrefetcher tasks={prefetchTasks} />
@@ -1036,100 +1062,38 @@ export default function DashboardClient({
                         isTogglingTips={isTogglingTips}
                         sortMode={sortMode}
                         onSortModeChange={setSortMode}
-                        onOpenCreator={() => {
-                            setFloatingBoxCreatorOpen(true);
-                            floatingBoxCreatorRef.current?.focusTitle();
-                        }}
+                        isTaskSearchOpen={isTaskSearchOpen}
+                        onToggleTaskSearch={handleToggleTaskSearch}
                     />
                 </div>
                 {liveReputationScore !== null && (
                     <ReputationBar data={liveReputationScore} />
                 )}
-                <div className="flex justify-end">
-                    <div
-                        className={cn(
-                            "overflow-hidden transition-all duration-200 ease-out",
-                            isTaskSearchOpen ? "w-80 md:w-96" : "w-8"
-                        )}
-                    >
-                        <div
-                            className={cn(
-                                "flex items-center",
-                                isTaskSearchOpen
-                                    ? "rounded-md border border-slate-800 bg-slate-950/70 px-1.5"
-                                    : "justify-end"
-                            )}
-                        >
-                        <button
-                            type="button"
-                            onClick={() =>
-                                setIsTaskSearchOpen((previous) => {
-                                    if (previous) {
-                                        setTaskSearchQuery("");
-                                    }
-                                    return !previous;
-                                })
-                            }
-                            className={cn(
-                                "rounded p-1.5 text-slate-400 transition-colors hover:text-white",
-                                isTaskSearchOpen && "hover:bg-slate-800/60"
-                            )}
-                            aria-label={isTaskSearchOpen ? "Close task search" : "Open task search"}
-                            title={isTaskSearchOpen ? "Close search" : "Open search"}
-                        >
-                            <Search className="h-4 w-4" />
-                        </button>
-                        <input
-                            type="search"
-                            value={taskSearchQuery}
-                            onChange={(event) => setTaskSearchQuery(event.target.value)}
-                            className={cn(
-                                "min-w-0 w-full bg-transparent py-2 pl-1 pr-2 text-sm text-slate-100 focus:outline-none",
-                                isTaskSearchOpen ? "opacity-100" : "pointer-events-none opacity-0"
-                            )}
-                            aria-label="Search tasks"
-                        />
-                        {isTaskSearchOpen && taskSearchQuery.length > 0 && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setTaskSearchQuery("");
-                                    setIsTaskSearchOpen(false);
-                                }}
-                                className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
-                                aria-label="Clear task search"
-                                title="Clear search"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
-                        )}
+                {isTaskSearchOpen && (
+                    <div className="flex justify-end">
+                        <div className="w-80 overflow-hidden transition-all duration-200 ease-out md:w-96">
+                            <div className="flex items-center rounded-md border border-slate-800 bg-slate-950/70 px-1.5">
+                                <input
+                                    ref={taskSearchInputRef}
+                                    type="search"
+                                    value={taskSearchQuery}
+                                    onChange={(event) => setTaskSearchQuery(event.target.value)}
+                                    className="min-w-0 w-full bg-transparent py-2 pl-1 pr-2 text-sm text-slate-100 focus:outline-none"
+                                    aria-label="Search tasks"
+                                />
+                            </div>
                         </div>
                     </div>
-                </div>
+                )}
             </div>
 
-            <div className="hidden md:block">
-                <TaskInput
-                    friends={friends}
-                    defaultFailureCostEuros={defaultFailureCostEuros}
-                    defaultCurrency={currency}
-                    defaultVoucherId={defaultVoucherId}
-                    defaultEventDurationMinutes={defaultEventDurationMinutes}
-                    selfUserId={userId}
-                    onCreateTaskOptimistic={handleCreateTaskOptimistic}
-                />
-            </div>
-
-            {/* Floating box task creator (FBTC) */}
-            <FloatingBoxTaskCreator
-                ref={floatingBoxCreatorRef}
-                isOpen={floatingBoxCreatorOpen}
-                onClose={() => setFloatingBoxCreatorOpen(false)}
+            <TaskInput
                 friends={friends}
-                selfUserId={userId}
-                defaultVoucherId={defaultVoucherId}
+                defaultFailureCostEuros={defaultFailureCostEuros}
                 defaultCurrency={currency}
-                defaultFailureCost={parseFloat(defaultFailureCostEuros) || 1}
+                defaultVoucherId={defaultVoucherId}
+                defaultEventDurationMinutes={defaultEventDurationMinutes}
+                selfUserId={userId}
                 onCreateTaskOptimistic={handleCreateTaskOptimistic}
             />
             {!tipsHidden && (
@@ -1207,6 +1171,18 @@ export default function DashboardClient({
                 accept="image/*,video/*"
                 className="hidden"
                 onChange={handleProofInputChange}
+            />
+            <WebcamCaptureModal
+                open={webcamTaskId !== null}
+                onClose={() => setWebcamTaskId(null)}
+                onCapture={async (file) => {
+                    const taskId = webcamTaskId;
+                    setWebcamTaskId(null);
+                    if (taskId) await processPickedProofFile(taskId, file);
+                }}
+                onFallbackToFilePicker={() => {
+                    proofInputRef.current?.click();
+                }}
             />
 
             <PostponeDeadlineDialog

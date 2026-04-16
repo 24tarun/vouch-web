@@ -40,8 +40,8 @@ const VOUCH_HISTORY_OPEN_SESSION_KEY = "voucher.history.open";
 const PENDING_FALLBACK_POLL_MS = 60000;
 const ACCEPTED_STATUS_ERROR = "Cannot accept task in ACCEPTED status";
 const ACTIVE_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED"]);
-const ALL_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"]);
-const HISTORY_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"]);
+const ALL_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"]);
+const HISTORY_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"]);
 
 function mergeTasksById(
     existing: HistoryTask[],
@@ -619,6 +619,8 @@ export function CompactPendingItem({
     const hoursLeft = hasValidDeadline
         ? Math.max(0, Math.floor((deadline.getTime() - renderTimestamp) / (1000 * 60 * 60)))
         : Number.POSITIVE_INFINITY;
+    const canReview = task.status === "AWAITING_VOUCHER" || task.status === "MARKED_COMPLETE";
+    const canRequestProof = canReview;
     const proof = task.completion_proof;
     const proofVersion = proof
         ? (proof.updated_at || task.updated_at)
@@ -702,8 +704,8 @@ export function CompactPendingItem({
                 )}
             </div>
 
-            <div className="shrink-0 self-center flex items-center gap-3">
-                {task.pending_actionable && (
+            <div className="shrink-0 self-center flex items-center gap-2">
+                {canReview && (
                     <>
                         <Button
                             size="sm"
@@ -726,17 +728,19 @@ export function CompactPendingItem({
                         >
                             <X className="h-4 w-4" strokeWidth={3} />
                         </Button>
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={onRequestProof}
-                            disabled={isLoading}
-                            aria-label={`Request proof for task ${task.title}`}
-                            title="Request proof"
-                            className="h-9 w-9 p-0 text-pink-400 hover:text-pink-300 hover:bg-pink-400/10 border border-pink-400/30"
-                        >
-                            <CircleHelp className="h-4 w-4" strokeWidth={2.5} />
-                        </Button>
+                        {canRequestProof && (
+                            <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={onRequestProof}
+                                disabled={isLoading}
+                                aria-label={`Request proof for task ${task.title}`}
+                                title="Request proof"
+                                className="h-9 w-9 p-0 text-pink-400 hover:text-pink-300 hover:bg-pink-400/10 border border-pink-400/30"
+                            >
+                                <CircleHelp className="h-4 w-4" strokeWidth={2.5} />
+                            </Button>
+                        )}
                     </>
                 )}
             </div>

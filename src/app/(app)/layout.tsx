@@ -26,7 +26,7 @@ export default async function DashboardLayout({
             .select("*", { count: "exact", head: true })
             .eq("user_id", user.id)
             .eq("proof_request_open", true)
-            .in("status", ["AWAITING_VOUCHER", "AWAITING_ORCA", "MARKED_COMPLETE"]),
+            .in("status", ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"]),
     ]);
     const statsBadgeCount = proofRequestCountResult.count || 0;
 

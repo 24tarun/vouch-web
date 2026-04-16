@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createTask } from "@/actions/tasks";
 import { Calendar, Check, Loader2, Repeat, User } from "lucide-react";
 import {
@@ -129,7 +129,11 @@ export interface TaskInputCreatePayload {
     isStrict: boolean;
 }
 
-export function TaskInput({
+export interface TaskInputHandle {
+    focusTitle: () => void;
+}
+
+export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({
     friends,
     defaultFailureCostEuros,
     defaultCurrency,
@@ -137,7 +141,7 @@ export function TaskInput({
     defaultEventDurationMinutes,
     selfUserId,
     onCreateTaskOptimistic,
-}: TaskInputProps) {
+}: TaskInputProps, ref) {
     const LAST_VOUCHER_STORAGE_KEY = "task-input:last-voucher-id";
 
     const resolveVoucherSelection = useCallback((candidate: string | null | undefined) => {
@@ -253,6 +257,13 @@ export function TaskInput({
         syncTitleCaretFromElement(input);
         syncTitleHighlightScroll();
     }, [syncTitleCaretFromElement, syncTitleHighlightScroll, title, titleCaretIndex]);
+
+    useImperativeHandle(ref, () => ({
+        focusTitle: () => {
+            titleInputRef.current?.focus();
+            titleInputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+        },
+    }), []);
 
     const applyColorPickerSelection = useCallback((aliasToken: string) => {
         const input = titleInputRef.current;
@@ -1332,4 +1343,4 @@ export function TaskInput({
             )}
         </form>
     );
-}
+});

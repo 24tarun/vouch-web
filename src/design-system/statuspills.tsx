@@ -31,13 +31,13 @@ const TASK_STATUS_BADGE_CLASS_BY_STATUS: Record<TaskStatus, string> = {
     POSTPONED: "bg-[#0066FF]/20 text-[#66A3FF] border border-[#0066FF]/40",
     MARKED_COMPLETE: "bg-emerald-400/15 text-emerald-400 border border-emerald-400/35",
     AWAITING_VOUCHER: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
-    AWAITING_ORCA: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
-    ORCA_DENIED: "bg-red-500/10 text-red-500 border border-red-500/30",
+    AWAITING_AI: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
+    AI_DENIED: "bg-red-500/10 text-red-500 border border-red-500/30",
     AWAITING_USER: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     ESCALATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
     ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     AUTO_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
-    ORCA_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
+    AI_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     DENIED: "bg-red-500/10 text-red-500 border border-red-500/30",
     MISSED: "bg-red-500/10 text-red-500 border border-red-500/30",
     RECTIFIED: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
@@ -51,8 +51,8 @@ function getTaskStatusBadgeClass(status: TaskStatus): string {
 
 function formatTaskStatusLabel(status: TaskStatus): string {
     if (status === "AUTO_ACCEPTED") return "AUTO ACCEPTED";
-    if (status === "ORCA_ACCEPTED") return "ORCA ACCEPTED";
-    if (status === "ORCA_DENIED") return "ORCA DENIED";
+    if (status === "AI_ACCEPTED") return "AI ACCEPTED";
+    if (status === "AI_DENIED") return "AI DENIED";
     if (status === "SETTLED") return "OVERRIDE";
     return status.replace(/_/g, " ");
 }
@@ -149,7 +149,7 @@ const ACTIVITY_EVENT_BADGE_CLASS_BY_EVENT_TYPE: Record<string, string> = {
     REPETITION_STOPPED: "bg-purple-400/10 text-purple-400 border border-purple-400/30",
     AI_APPROVE: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     AI_DENY: "bg-red-500/10 text-red-500 border border-red-500/30",
-    ORCA_DENIED_AUTO_HOP: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
+    AI_DENIED_AUTO_HOP: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     ESCALATE: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
     AI_ESCALATE_TO_HUMAN: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
     ACCEPT_DENIAL: "bg-red-500/20 text-red-300 border border-red-500/30",
@@ -181,8 +181,8 @@ function formatActivityEventLabel(eventType: string, elapsedSeconds?: number): s
     if (eventType === "VOUCHER_DELETE") return "DELETED";
     if (eventType === "RECTIFY") return "RECTIFIED";
     if (eventType === "DEADLINE_MISSED") return "MISSED";
-    if (eventType === "AI_APPROVE") return "ORCA APPROVED";
-    if (eventType === "AI_DENY") return "ORCA DENIED";
+    if (eventType === "AI_APPROVE") return "AI APPROVED";
+    if (eventType === "AI_DENY") return "AI DENIED";
     if (eventType === "DEADLINE_WARNING_1H") return "1HR LEFT REMINDER SENT";
     if (eventType === "DEADLINE_WARNING_10M") return "10MIN LEFT REMINDER SENT";
     if (eventType === "REPETITION_STOPPED") return "REPETITIONS STOPPED";
@@ -230,7 +230,7 @@ export function StatsPomoBadge({ totalSeconds }: StatsPomoBadgeProps) {
 const HISTORY_STATUS_TEXT_CLASS_BY_STATUS: Record<string, string> = {
     ACCEPTED: "text-lime-300",
     AUTO_ACCEPTED: "text-lime-300",
-    ORCA_ACCEPTED: "text-lime-300",
+    AI_ACCEPTED: "text-lime-300",
     DENIED: "text-[#dc322f]",
     MISSED: "text-[#dc322f]",
     RECTIFIED: "text-[#cb4b16]",

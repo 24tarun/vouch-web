@@ -131,7 +131,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_recurrence_rule_iteration
 CREATE INDEX IF NOT EXISTS idx_tasks_owner_open_proof_requests
   ON public.tasks USING btree (user_id)
   WHERE proof_request_open = true
-    AND status = ANY (ARRAY['AWAITING_VOUCHER','AWAITING_ORCA','MARKED_COMPLETE']);
+    AND status = ANY (ARRAY['AWAITING_VOUCHER','AWAITING_AI','MARKED_COMPLETE']);
 
 -- voucher_reminder_logs
 CREATE INDEX IF NOT EXISTS idx_voucher_reminder_logs_voucher_date

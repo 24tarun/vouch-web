@@ -261,7 +261,7 @@ export async function voucherRequestProof(taskId: string) {
         return { error: "Self-vouched tasks do not support proof requests." };
     }
 
-    if ((task as any).status !== "AWAITING_VOUCHER") {
+    if ((task as any).status !== "AWAITING_VOUCHER" && (task as any).status !== "MARKED_COMPLETE") {
         return { error: `Cannot request proof in ${(task as any).status} status` };
     }
 
@@ -275,7 +275,7 @@ export async function voucherRequestProof(taskId: string) {
         } as any)
         .eq("id", taskId as any)
         .eq("voucher_id", user.id as any)
-        .eq("status", "AWAITING_VOUCHER")
+        .in("status", ["AWAITING_VOUCHER", "MARKED_COMPLETE"] as any)
         .select("id");
 
     if (updateError) {
@@ -290,8 +290,8 @@ export async function voucherRequestProof(taskId: string) {
         event_type: "PROOF_REQUESTED",
         actor_id: user.id as any,
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: "AWAITING_VOUCHER",
-        to_status: "AWAITING_VOUCHER",
+        from_status: (task as any).status,
+        to_status: (task as any).status,
     });
 
     const owner = (task as any).user as { id?: string; email?: string | null; username?: string | null } | null;
@@ -559,7 +559,7 @@ export async function getAssignedTasksForVoucher() {
         "POSTPONED",
         "MARKED_COMPLETE",
         "AWAITING_VOUCHER",
-        "AWAITING_ORCA",
+        "AWAITING_AI",
     ];
 
     // @ts-ignore
@@ -627,7 +627,7 @@ export async function getFailedTasks() {
     }));
 }
 
-const FINAL_HISTORY_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
+const FINAL_HISTORY_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
 
 export async function getVouchHistoryPage(offsetInput: number, limitInput: number) {
     const supabase = await createClient();
@@ -700,7 +700,7 @@ export async function getVouchHistoryPage(offsetInput: number, limitInput: numbe
 /**
  * Escalate an AI-denied task to a human voucher for a second opinion.
  * The task must be in AWAITING_USER status and originally AI-vouched.
- * No penalty is charged at Orca denial stage; penalty is charged only on ACCEPT_DENIAL.
+ * No penalty is charged at AI denial stage; penalty is charged only on ACCEPT_DENIAL.
  * Sets ai_escalated_from = true so the 0.5× weight applies even if human approves.
  */
 export async function escalateToHumanVoucher(
@@ -734,14 +734,14 @@ export async function escalateToHumanVoucher(
     }
 
     // Check that the task is currently AI-vouched and has not already been escalated.
-    const { ORCA_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
-    if ((task as any).voucher_id !== ORCA_PROFILE_ID || Boolean((task as any).ai_escalated_from)) {
+    const { AI_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
+    if ((task as any).voucher_id !== AI_PROFILE_ID || Boolean((task as any).ai_escalated_from)) {
         return { error: "This task was not AI-vouched and cannot be escalated" };
     }
 
-    // Escalation is friend-only; Orca is disabled in the picker
-    if (newVoucherId === ORCA_PROFILE_ID) {
-        return { error: "Cannot escalate to Orca. Choose a friend." };
+    // Escalation is friend-only; AI is disabled in the picker
+    if (newVoucherId === AI_PROFILE_ID) {
+        return { error: "Cannot escalate to AI. Choose a friend." };
     }
 
     if (newVoucherId === user.id) {
@@ -780,7 +780,7 @@ export async function escalateToHumanVoucher(
         return { error: updateError.message };
     }
 
-    // No ledger reversal needed — no penalty was charged at Orca denial stage
+    // No ledger reversal needed — no penalty was charged at AI denial stage
 
     // Write ESCALATED transitional event, then auto-hop to AWAITING_VOUCHER
     await (supabase.from("task_events") as any).insert([
@@ -809,7 +809,7 @@ export async function escalateToHumanVoucher(
         await sendNotification({
             userId: (newVoucherId as any),
             title: "Task escalated to you",
-            text: `${(task as any).user?.username || "A friend"} is appealing Orca's denial of "${(task as any).title}".`,
+            text: `${(task as any).user?.username || "A friend"} is appealing AI's denial of "${(task as any).title}".`,
             email: false,
             push: true,
             url: "/voucher",
@@ -829,8 +829,8 @@ export async function escalateToHumanVoucher(
 }
 
 /**
- * Owner accepts an Orca denial — AWAITING_USER -> DENIED.
- * Penalty is charged here (not at Orca denial stage).
+ * Owner accepts an AI denial — AWAITING_USER -> DENIED.
+ * Penalty is charged here (not at AI denial stage).
  */
 export async function acceptDenial(
     taskId: string

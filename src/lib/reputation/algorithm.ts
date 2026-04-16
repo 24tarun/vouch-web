@@ -13,7 +13,7 @@ import {
 } from "./constants";
 import type { ReputationTaskInput, CategoryScores, ReputationScoreData } from "./types";
 
-const SUCCESS_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "ORCA_ACCEPTED", "RECTIFIED", "SETTLED"]);
+const SUCCESS_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "RECTIFIED", "SETTLED"]);
 const FAILURE_STATUSES = new Set(["DENIED", "MISSED"]);
 const FINALIZED_STATUSES = new Set([...SUCCESS_STATUSES, ...FAILURE_STATUSES]);
 
@@ -189,13 +189,15 @@ function computeScoreForTasks(tasks: ReputationTaskInput[], userId: string): num
 function computeVelocityDelta(tasks: ReputationTaskInput[], userId: string): number | null {
     const cutoff = Date.now() - VELOCITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
     const recentTasks = tasks.filter((task) => getTaskEventTime(task) >= cutoff);
-    const priorTasks = tasks.filter((task) => getTaskEventTime(task) < cutoff);
+    const tasksBeforeLookback = tasks.filter((task) => getTaskEventTime(task) < cutoff);
 
-    if (countOwnedFinalizedTasks(recentTasks, userId) < 2 || countOwnedFinalizedTasks(priorTasks, userId) < 2) {
+    if (countOwnedFinalizedTasks(recentTasks, userId) < 2 || countOwnedFinalizedTasks(tasksBeforeLookback, userId) < 2) {
         return null;
     }
 
-    return computeScoreForTasks(recentTasks, userId) - computeScoreForTasks(priorTasks, userId);
+    const currentScore = computeScoreForTasks(tasks, userId);
+    const scoreBeforeLookback = computeScoreForTasks(tasksBeforeLookback, userId);
+    return currentScore - scoreBeforeLookback;
 }
 
 export function computeFullReputationScore(
