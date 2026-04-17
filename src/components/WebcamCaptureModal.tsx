@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { Camera, FolderOpen } from "lucide-react";
+import { Camera, FolderOpen, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
@@ -10,6 +10,15 @@ interface WebcamCaptureModalProps {
     onClose: () => void;
     onCapture: (file: File) => void;
     onFallbackToFilePicker: () => void;
+}
+
+/** Try getUserMedia with a given constraint, resolving to null on any error. */
+async function tryGetUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream | null> {
+    try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch {
+        return null;
+    }
 }
 
 export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFilePicker }: WebcamCaptureModalProps) {
@@ -29,21 +38,44 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
         setReady(false);
         setError(null);
 
-        navigator.mediaDevices
-            .getUserMedia({ video: { facingMode: "environment" }, audio: false })
-            .then((stream) => {
-                streamRef.current = stream;
-                if (videoRef.current) {
-                    videoRef.current.srcObject = stream;
-                    videoRef.current.onloadedmetadata = () => setReady(true);
-                }
-            })
-            .catch((err: unknown) => {
-                const msg = err instanceof Error ? err.message : "Camera access denied";
-                setError(msg);
-            });
+        let cancelled = false;
 
-        return () => stopStream();
+        (async () => {
+            // On desktop, `facingMode: "environment"` (rear camera) is not available —
+            // that constraint alone causes NotFoundError/OverconstrainedError even when the
+            // browser has camera permission. Try progressively looser constraints:
+            //   1. any camera (most permissive — works on all desktops)
+            //   2. nothing (shouldn't happen, but guards against edge-cases)
+            const stream =
+                (await tryGetUserMedia({ video: true, audio: false }));
+
+            if (cancelled) {
+                stream?.getTracks().forEach((t) => t.stop());
+                return;
+            }
+
+            if (!stream) {
+                setError(
+                    "Camera access was blocked. " +
+                    "Please allow camera access in your browser's address-bar or site settings, " +
+                    "and make sure your OS has granted the browser camera permission."
+                );
+                return;
+            }
+
+            streamRef.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.onloadedmetadata = () => {
+                    if (!cancelled) setReady(true);
+                };
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+            stopStream();
+        };
     }, [open, stopStream]);
 
     const handleCapture = () => {
@@ -81,28 +113,38 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
 
     return (
         <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-            <DialogContent className="max-w-lg p-0 overflow-hidden">
-                <div className="p-4 border-b">
-                    <DialogTitle className="text-sm font-medium">Take Photo</DialogTitle>
+            <DialogContent className="max-w-lg p-0 overflow-hidden bg-slate-900 border-slate-800 text-slate-200 [&>[data-slot='dialog-close']]:text-slate-400 [&>[data-slot='dialog-close']]:hover:text-slate-200">
+                <div className="px-5 pt-5 pb-4 border-b border-slate-800">
+                    <DialogTitle className="text-sm font-semibold text-slate-100">Take Photo</DialogTitle>
                 </div>
 
                 {error ? (
-                    <div className="p-6 space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                            Could not access camera: {error}
-                        </p>
+                    <div className="p-5 space-y-4">
+                        <div className="flex gap-3 items-start rounded-lg bg-slate-800/60 border border-slate-700 p-3">
+                            <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                            <p className="text-sm text-slate-300 leading-relaxed">{error}</p>
+                        </div>
                         <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={handleClose}>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleClose}
+                                className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                            >
                                 Cancel
                             </Button>
-                            <Button size="sm" onClick={handleFallback}>
+                            <Button
+                                size="sm"
+                                onClick={handleFallback}
+                                className="bg-slate-700 hover:bg-slate-600 text-slate-100"
+                            >
                                 <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
-                                Choose from files
+                                Choose from files instead
                             </Button>
                         </div>
                     </div>
                 ) : (
-                    <div className="space-y-0">
+                    <div>
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                         <video
                             ref={videoRef}
@@ -112,18 +154,33 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                             className="w-full bg-black"
                             style={{ maxHeight: "60vh", objectFit: "contain" }}
                         />
-                        <div className="flex gap-2 justify-between p-3 border-t">
-                            <Button variant="ghost" size="sm" onClick={handleFallback}>
+                        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-800">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={handleFallback}
+                                className="text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                            >
                                 <FolderOpen className="mr-1.5 h-3.5 w-3.5" />
                                 Choose file
                             </Button>
                             <div className="flex gap-2">
-                                <Button variant="outline" size="sm" onClick={handleClose}>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleClose}
+                                    className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100"
+                                >
                                     Cancel
                                 </Button>
-                                <Button size="sm" onClick={handleCapture} disabled={!ready}>
+                                <Button
+                                    size="sm"
+                                    onClick={handleCapture}
+                                    disabled={!ready}
+                                    className="bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40"
+                                >
                                     <Camera className="mr-1.5 h-3.5 w-3.5" />
-                                    Capture
+                                    {ready ? "Capture" : "Starting…"}
                                 </Button>
                             </div>
                         </div>
