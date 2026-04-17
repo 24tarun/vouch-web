@@ -73,6 +73,7 @@ src/
     ReputationBar.tsx
     TaskInput.tsx
     TaskRow.tsx
+    WebcamCaptureModal.tsx # Desktop proof capture modal (photo + <=15s video)
     PomodoroTimer.tsx
     RealtimeListener.tsx
     ...
@@ -109,7 +110,7 @@ src/
 User identity + defaults.
 - `id` (uuid, PK = auth user id), `username`, `email`
 - `default_voucher_id`, `default_failure_cost_cents`, `currency` (EUR/USD/INR)
-- `strict_pomo_enabled`, `default_pomo_duration_minutes`
+- `default_pomo_duration_minutes` (`strict_pomo_enabled` remains in DB as legacy, but strict Pomodoro is no longer used in app behavior)
 - `deadline_one_hour_warning_enabled`, `deadline_final_warning_enabled`
 - `voucher_can_view_active_tasks` â€” whether voucher can see owner's active tasks
 - `default_event_duration_minutes`
@@ -141,7 +142,7 @@ Financial log. `user_id`, `task_id`, `entry_type` (failure/rectified/override/vo
 Proof uploads. `task_id`, `upload_state` (PENDING/UPLOADED), `media_type`, `storage_object_path`.
 
 ### `pomo_sessions`
-Pomodoro work sessions. `task_id`, `user_id`, `status` (ACTIVE/PAUSED/COMPLETED/DELETED), `elapsed_seconds`, `is_strict`.
+Pomodoro work sessions. `task_id`, `user_id`, `status` (ACTIVE/PAUSED/COMPLETED/DELETED), `elapsed_seconds`, `is_strict` (legacy; no strict-mode behavior in app).
 
 ### `recurrence_rules`
 Templates for recurring tasks. `user_id`, `recurrence_type` (DAILY/WEEKLY/MONTHLY), `interval`, `template_title`, timezone fields.

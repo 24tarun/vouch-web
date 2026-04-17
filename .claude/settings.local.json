@@ -4,7 +4,11 @@
       "Skill(update-config)",
       "Bash(C:/Users/tarun/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.6/scripts/start-server.sh --project-dir C:/coding/vouch)",
       "Bash(bash \"C:/Users/tarun/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.6/skills/brainstorming/scripts/start-server.sh\" --project-dir \"C:/coding/vouch\")",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(find src *)",
+      "Bash(sed -n '1,20p' /Users/tarun/Desktop/coding/vouch/vouch-web/src/app/\\\\\\(app\\\\\\)/tasks/dashboard-client.tsx)",
+      "Bash(sed -n '1,25p' /Users/tarun/Desktop/coding/vouch/vouch-web/src/app/\\\\\\(app\\\\\\)/tasks/\\\\[id\\\\]/task-detail-client.tsx)",
+      "Bash(sed -n '1,20p' /Users/tarun/Desktop/coding/vouch/vouch-web/src/components/PomodoroProvider.tsx)"
     ]
   },
   "enableAllProjectMcpServers": true,

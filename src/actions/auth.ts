@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath, revalidateTag } from "next/cache";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
@@ -15,7 +15,7 @@ import {
     normalizeCurrency,
     type SupportedCurrency,
 } from "@/lib/currency";
-import { pendingVoucherRequestsTag } from "@/lib/cache-tags";
+import { invalidatePendingVoucherRequestsCache } from "@/lib/cache-tags";
 import { TASK_PROOFS_BUCKET } from "@/lib/task-proof-shared";
 import {
     DEFAULT_FAILURE_COST_CENTS,
@@ -80,11 +80,9 @@ async function autoEndLingeringPomoSession(
         ? Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 1000))
         : 0;
     const finalElapsed = (session.elapsed_seconds || 0) + additionalElapsed;
-    const isStrictSession = Boolean(session.is_strict);
-
     const { data: updatedSession, error: updateError } = await (supabase.from("pomo_sessions") as any)
         .update({
-            status: isStrictSession ? "DELETED" : "COMPLETED",
+            status: "COMPLETED",
             elapsed_seconds: finalElapsed,
             completed_at: now.toISOString(),
         })
@@ -100,14 +98,6 @@ async function autoEndLingeringPomoSession(
     }
 
     if (!updatedSession) return;
-    if (isStrictSession) {
-        revalidatePath("/tasks");
-        if (session.task_id) {
-            revalidatePath(`/tasks/${session.task_id}`);
-        }
-        return;
-    }
-
     if (!session.task_id) return;
 
     const { data: task } = await (supabase.from("tasks") as any)
@@ -348,6 +338,84 @@ export async function deleteAccount(): Promise<{ success: true } | { error: stri
     const userId = user.id;
     const supabaseAdmin = createAdminClient();
 
+    const OPEN_VOUCHER_BLOCKING_STATUSES = [
+        "CREATED",
+        "ACTIVE",
+        "POSTPONED",
+        "MARKED_COMPLETED",
+        "MARKED_COMPLETE",
+        "AWAITING_VOUCHER",
+        "AWAITING_AI",
+        "AWAITING_USER",
+        "ESCALATED",
+    ];
+    const FINAL_TASK_STATUSES = [
+        "COMPLETED",
+        "FAILED",
+        "ACCEPTED",
+        "AUTO_ACCEPTED",
+        "AI_ACCEPTED",
+        "DENIED",
+        "MISSED",
+        "RECTIFIED",
+        "SETTLED",
+        "DELETED",
+    ];
+
+    // Block deletion if this user is still voucher for other users' open/in-flight work.
+    const [blockingTaskCountResult, blockingRuleCountResult] = await Promise.all([
+        (supabaseAdmin.from("tasks") as any)
+            .select("id", { count: "exact", head: true })
+            .eq("voucher_id", userId as any)
+            .neq("user_id", userId as any)
+            .in("status", OPEN_VOUCHER_BLOCKING_STATUSES as any),
+        (supabaseAdmin.from("recurrence_rules") as any)
+            .select("id", { count: "exact", head: true })
+            .eq("voucher_id", userId as any)
+            .neq("user_id", userId as any),
+    ]);
+
+    if (blockingTaskCountResult.error) {
+        return { error: blockingTaskCountResult.error.message };
+    }
+    if (blockingRuleCountResult.error) {
+        return { error: blockingRuleCountResult.error.message };
+    }
+
+    const blockingTaskCount = blockingTaskCountResult.count || 0;
+    const blockingRuleCount = blockingRuleCountResult.count || 0;
+    if (blockingTaskCount > 0 || blockingRuleCount > 0) {
+        return {
+            error:
+                `Account deletion is blocked because you're still assigned as voucher for ` +
+                `${blockingTaskCount} open task${blockingTaskCount === 1 ? "" : "s"} and ` +
+                `${blockingRuleCount} recurring rule${blockingRuleCount === 1 ? "" : "s"} owned by other users. ` +
+                `Please ask them to change voucher first.`,
+        };
+    }
+
+    // Preserve other users' history: reassign voucher to owner for finalized tasks
+    // that currently reference the deleting user as voucher.
+    const { data: historicalTasksToReassign, error: historicalTasksToReassignError } = await (supabaseAdmin.from("tasks") as any)
+        .select("id, user_id")
+        .eq("voucher_id", userId as any)
+        .neq("user_id", userId as any)
+        .in("status", FINAL_TASK_STATUSES as any);
+
+    if (historicalTasksToReassignError) {
+        return { error: historicalTasksToReassignError.message };
+    }
+
+    for (const task of ((historicalTasksToReassign as Array<{ id: string; user_id: string }> | null) || [])) {
+        const { error: reassignVoucherError } = await (supabaseAdmin.from("tasks") as any)
+            .update({ voucher_id: task.user_id } as any)
+            .eq("id", task.id as any);
+
+        if (reassignVoucherError) {
+            return { error: reassignVoucherError.message };
+        }
+    }
+
     const [ownerProofRowsResult, voucherProofRowsResult] = await Promise.all([
         (supabaseAdmin.from("task_completion_proofs") as any)
             .select("bucket, object_path")
@@ -501,7 +569,6 @@ export async function updateUserDefaults(formData: FormData) {
     const defaultEventDurationRaw = formData.get("defaultEventDurationMinutes");
     const defaultFailureCostRaw = formData.get("defaultFailureCost") as string;
     const defaultVoucherIdRaw = formData.get("defaultVoucherId") as string;
-    const strictPomoEnabledRaw = formData.get("strictPomoEnabled");
     const deadlineOneHourWarningEnabledRaw = formData.get("deadlineOneHourWarningEnabled");
     const deadlineFinalWarningEnabledRaw = formData.get("deadlineFinalWarningEnabled");
     const voucherCanViewActiveTasksEnabledRaw = formData.get("voucherCanViewActiveTasksEnabled");
@@ -577,16 +644,6 @@ export async function updateUserDefaults(formData: FormData) {
     }
 
     const defaultVoucherId = defaultVoucherIdRaw?.trim() ? defaultVoucherIdRaw.trim() : user.id;
-    let strictPomoEnabled: boolean | undefined;
-    if (strictPomoEnabledRaw != null && strictPomoEnabledRaw !== "") {
-        if (typeof strictPomoEnabledRaw !== "string") {
-            return { error: "Strict Pomodoro toggle value is invalid." };
-        }
-        if (strictPomoEnabledRaw !== "true" && strictPomoEnabledRaw !== "false") {
-            return { error: "Strict Pomodoro toggle value is invalid." };
-        }
-        strictPomoEnabled = strictPomoEnabledRaw === "true";
-    }
     let deadlineOneHourWarningEnabled: boolean | undefined;
     if (deadlineOneHourWarningEnabledRaw != null && deadlineOneHourWarningEnabledRaw !== "") {
         if (typeof deadlineOneHourWarningEnabledRaw !== "string") {
@@ -646,9 +703,6 @@ export async function updateUserDefaults(formData: FormData) {
         default_failure_cost_cents: defaultFailureCostCents ?? DEFAULT_FAILURE_COST_CENTS,
         default_voucher_id: defaultVoucherId,
     };
-    if (strictPomoEnabled !== undefined) {
-        profileUpdate.strict_pomo_enabled = strictPomoEnabled;
-    }
     if (deadlineOneHourWarningEnabled !== undefined) {
         profileUpdate.deadline_one_hour_warning_enabled = deadlineOneHourWarningEnabled;
     }
@@ -686,7 +740,7 @@ export async function updateUserDefaults(formData: FormData) {
             .filter((value): value is string => typeof value === "string" && value.length > 0)
     );
     for (const voucherId of voucherIds) {
-        revalidateTag(pendingVoucherRequestsTag(voucherId), "max");
+        invalidatePendingVoucherRequestsCache(voucherId);
     }
 
     revalidatePath("/settings");

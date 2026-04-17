@@ -78,12 +78,10 @@ export async function POST(req: NextRequest) {
         const startTime = new Date(session.started_at);
         const additionalElapsed = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
         const finalElapsed = (session.elapsed_seconds || 0) + additionalElapsed;
-        const isStrictSession = Boolean(session.is_strict);
-
         const { data: updatedSession, error: updateError } = await ((supabase
             .from("pomo_sessions") as any)
             .update({
-                status: isStrictSession ? "DELETED" : "COMPLETED",
+                status: "COMPLETED",
                 elapsed_seconds: finalElapsed,
                 completed_at: now.toISOString(),
             })
@@ -101,10 +99,6 @@ export async function POST(req: NextRequest) {
         if (!updatedSession) {
             return NextResponse.json({ success: true, noop: true });
         }
-        if (isStrictSession) {
-            return NextResponse.json({ success: true });
-        }
-
         if (session.task_id) {
             const { data: task } = await (supabase
                 .from("tasks") as any)

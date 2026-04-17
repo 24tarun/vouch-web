@@ -277,12 +277,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
         if (res.error) {
             toast.error(res.error);
         } else {
-            const counted = (res as { counted?: boolean }).counted;
-            if (session.is_strict && counted === false) {
-                toast.info("Strict pomodoro ended early. Time was not logged.");
-            } else {
-                toast.success("Pomodoro session logged!");
-            }
+            toast.success("Pomodoro session logged!");
             await refreshSession(); // Should clear session
             router.refresh();
         }

@@ -484,7 +484,7 @@
 - **Recurrence Rule**: template row in `recurrence_rules` used by scheduled generator to create future tasks. (Source: `src/trigger/recurrence-generator.ts`)
 - **Reminder**: `task_reminders` row (`MANUAL` or default seeded deadline warning sources). (Source: `src/lib/task-reminder-defaults.ts`)
 - **Completion Proof**: metadata row + private storage object used during voucher review window. (Source: `task_completion_proofs`, `task-proofs` bucket)
-- **Pomodoro Session**: tracked focus session (`pomo_sessions`) optionally strict-counted. (Source: `src/actions/tasks.ts`)
+- **Pomodoro Session**: tracked focus session (`pomo_sessions`) counted on completion. (`is_strict` exists in schema for backward compatibility but is not used by runtime behavior.) (Source: `src/actions/tasks.ts`)
 - **Defaults/Profile**: per-user task/pomo/currency/notification/visibility defaults in `profiles`. (Source: `src/actions/auth.ts::updateUserDefaults`)
 - **Event Task**: task with `-event` flag, scheduled via `-start`/`-end` tokens, syncs to Google Calendar as calendar event with optional color. (Source: `src/actions/tasks.ts`, `src/trigger/recurrence-generator.ts`)
 - **Google Calendar Connection**: per-user OAuth link with encrypted tokens, directional sync controls, and watch subscription for push notifications. (Source: `google_calendar_connections`, `src/actions/google-calendar.ts`)
@@ -580,12 +580,9 @@
 
 - States **MUST** be `ACTIVE|PAUSED|COMPLETED|DELETED`. (Source: `008`)
 - `startPomoSession` **MUST** create `ACTIVE`; one concurrent active-or-paused session is DB-enforced via `idx_single_active_or_paused_pomo` for `ACTIVE` and `PAUSED` statuses. (Source: `src/actions/tasks.ts::startPomoSession`, `041`)
-- `pausePomoSession` **MUST** require non-strict active session. (Source: `src/actions/tasks.ts::pausePomoSession`)
-- `resumePomoSession` **MUST** require non-strict paused session. (Source: `src/actions/tasks.ts::resumePomoSession`)
-- `endPomoSession` **MUST** set terminal:
-  - strict + non-timer end -> `DELETED` (not counted),
-  - otherwise -> `COMPLETED` (counted and event logged).
-  (Source: `src/actions/tasks.ts::endPomoSession`)
+- `pausePomoSession` **MUST** require active session and compute elapsed time delta. (Source: `src/actions/tasks.ts::pausePomoSession`)
+- `resumePomoSession` **MUST** require paused session. (Source: `src/actions/tasks.ts::resumePomoSession`)
+- `endPomoSession` **MUST** set terminal status to `COMPLETED` for non-terminal sessions, log completion events, and remain idempotent for already-terminal sessions. (Source: `src/actions/tasks.ts::endPomoSession`)
 
 ## 5.3 Proof Upload State Machine
 
@@ -644,7 +641,7 @@
 - `deleteAccount()` **MUST** execute: load proof rows -> delete recurrence_rules where voucher=user -> null task_events.actor_id and rectify_passes.authorized_by -> remove storage proofs -> signOut -> admin delete user. (Source: `src/actions/auth.ts::deleteAccount`)
 - `getUser()` **MUST** return current user or null. (Source: `src/actions/auth.ts::getUser`)
 - `getProfile()` **MUST** return full profile row or null for unauthenticated. (Source: `src/actions/auth.ts::getProfile`)
-- `updateUserDefaults(formData)` **MUST** accept keys `defaultPomoDurationMinutes,defaultFailureCost,defaultVoucherId,strictPomoEnabled,deadlineOneHourWarningEnabled,deadlineFinalWarningEnabled,voucherCanViewActiveTasksEnabled,currency,defaultEventDurationMinutes`; enforce all validations (including `defaultEventDurationMinutes` 1..720); update profile; invalidate pending voucher tags and revalidate key paths. (Source: `src/actions/auth.ts::updateUserDefaults`)
+- `updateUserDefaults(formData)` **MUST** accept keys `defaultPomoDurationMinutes,defaultFailureCost,defaultVoucherId,deadlineOneHourWarningEnabled,deadlineFinalWarningEnabled,voucherCanViewActiveTasksEnabled,currency,defaultEventDurationMinutes`; enforce all validations (including `defaultEventDurationMinutes` 1..720); update profile; invalidate pending voucher tags and revalidate key paths. (Source: `src/actions/auth.ts::updateUserDefaults`)
 - `setDashboardTipsHidden(hidden)` **MUST** update `profiles.hide_tips` for current user and revalidate dashboard/settings. (Source: `src/actions/auth.ts::setDashboardTipsHidden`)
 - `updateUsername(formData)` **MUST** validate min length 3, enforce uniqueness, update profile, and revalidate settings. (Source: `src/actions/auth.ts::updateUsername`)
 
@@ -692,10 +689,10 @@
 - `getTask(taskId)` **MUST** enforce owner/voucher visibility rules, block voucher active-view unless owner enabled, and may auto-fail overdue active tasks as read-side effect. (Source: `src/actions/tasks.ts::getTask`)
 - `getTaskEvents(taskId)` **MUST** return ordered events (RLS-gated). (Source: `src/actions/tasks.ts::getTaskEvents`)
 - `getTaskPomoSummary(taskId)` **MUST** enforce task access and return aggregates over non-DELETED sessions. (Source: `src/actions/tasks.ts::getTaskPomoSummary`)
-- `startPomoSession(taskId,durationMinutes)` **MUST** require owned task and no existing ACTIVE/PAUSED session; stamps strict mode from profile. (Source: `src/actions/tasks.ts::startPomoSession`)
-- `pausePomoSession(sessionId)` **MUST** require active non-strict session and compute elapsed delta. (Source: `src/actions/tasks.ts::pausePomoSession`)
-- `resumePomoSession(sessionId)` **MUST** require paused non-strict session. (Source: `src/actions/tasks.ts::resumePomoSession`)
-- `endPomoSession(sessionId,source?)` **MUST** be idempotent for terminal sessions; strict early-stop does not count (`DELETED`), counted sessions become `COMPLETED` and log `POMO_COMPLETED` (+timer-complete push). (Source: `src/actions/tasks.ts::endPomoSession`)
+- `startPomoSession(taskId,durationMinutes)` **MUST** require owned task and no existing ACTIVE/PAUSED session. (Source: `src/actions/tasks.ts::startPomoSession`)
+- `pausePomoSession(sessionId)` **MUST** require active session and compute elapsed delta. (Source: `src/actions/tasks.ts::pausePomoSession`)
+- `resumePomoSession(sessionId)` **MUST** require paused session. (Source: `src/actions/tasks.ts::resumePomoSession`)
+- `endPomoSession(sessionId,source?)` **MUST** be idempotent for terminal sessions; non-terminal sessions become `COMPLETED` and log `POMO_COMPLETED` (+timer-complete push). (Source: `src/actions/tasks.ts::endPomoSession`)
 - `deletePomoSession(sessionId)` **MUST** set owned session to `DELETED`. (Source: `src/actions/tasks.ts::deletePomoSession`)
 - `getActivePomoSession()` **MUST** return `{session,serverNow}` with latest active/paused session or null. (Source: `src/actions/tasks.ts::getActivePomoSession`)
 

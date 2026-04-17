@@ -96,20 +96,79 @@ export async function compressImageToMaxSize(file: File, maxBytes = Infinity): P
     throw new Error("Image could not be transcoded.");
 }
 
+function isValidDurationSeconds(durationSeconds: number): boolean {
+    return Number.isFinite(durationSeconds) && durationSeconds > 0;
+}
+
+function durationToMs(durationSeconds: number): number {
+    return Math.round(durationSeconds * 1000);
+}
+
+async function waitForLoadedMetadata(video: HTMLVideoElement): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error("Could not read video metadata"));
+    });
+}
+
+async function probeDurationBySeek(video: HTMLVideoElement): Promise<number | null> {
+    try {
+        await new Promise<void>((resolve, reject) => {
+            let settled = false;
+            const timeoutId = window.setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                reject(new Error("Duration seek probe timed out"));
+            }, 3000);
+
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timeoutId);
+                resolve();
+            };
+
+            video.onseeked = finish;
+            video.ontimeupdate = finish;
+            video.onerror = () => {
+                if (settled) return;
+                settled = true;
+                window.clearTimeout(timeoutId);
+                reject(new Error("Duration seek probe failed"));
+            };
+
+            // Some browsers only populate duration after seeking to a very large time.
+            video.currentTime = Number.MAX_SAFE_INTEGER;
+        });
+    } catch {
+        return null;
+    }
+
+    return isValidDurationSeconds(video.duration) ? durationToMs(video.duration) : null;
+}
+
 export async function getVideoDurationMs(file: File): Promise<number> {
     const videoUrl = URL.createObjectURL(file);
     try {
         const video = document.createElement("video");
         video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
         video.src = videoUrl;
 
-        await new Promise<void>((resolve, reject) => {
-            video.onloadedmetadata = () => resolve();
-            video.onerror = () => reject(new Error("Could not read video metadata"));
-        });
+        await waitForLoadedMetadata(video);
 
-        const durationMs = Math.round((video.duration || 0) * 1000);
-        if (!Number.isFinite(durationMs) || durationMs <= 0) {
+        if (isValidDurationSeconds(video.duration)) {
+            return durationToMs(video.duration);
+        }
+
+        const seekProbeDurationMs = await probeDurationBySeek(video);
+        if (seekProbeDurationMs != null) {
+            return seekProbeDurationMs;
+        }
+
+        const durationMs = durationToMs(video.duration || 0);
+        if (!isValidDurationSeconds(durationMs / 1000)) {
             throw new Error("Invalid video duration");
         }
 

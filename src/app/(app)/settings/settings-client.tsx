@@ -136,9 +136,6 @@ export default function SettingsClient({
     const [defaultVoucherId, setDefaultVoucherId] = useState<string | null>(
         profile.default_voucher_id ?? profile.id
     );
-    const [strictPomoEnabled, setStrictPomoEnabled] = useState(
-        profile.strict_pomo_enabled ?? false
-    );
     const [deadlineOneHourWarningEnabled, setDeadlineOneHourWarningEnabled] = useState(
         profile.deadline_one_hour_warning_enabled ?? true
     );
@@ -210,7 +207,6 @@ export default function SettingsClient({
                 defaultEventDurationMinutes,
                 defaultFailureCostEuros,
                 effectiveDefaultVoucherId,
-                strictPomoEnabled,
                 deadlineOneHourWarningEnabled,
                 deadlineFinalWarningEnabled,
                 voucherCanViewActiveTasksEnabled,
@@ -222,7 +218,6 @@ export default function SettingsClient({
             defaultEventDurationMinutes,
             defaultFailureCostEuros,
             effectiveDefaultVoucherId,
-            strictPomoEnabled,
             deadlineOneHourWarningEnabled,
             deadlineFinalWarningEnabled,
             voucherCanViewActiveTasksEnabled,
@@ -256,7 +251,6 @@ export default function SettingsClient({
         formData.append("defaultEventDurationMinutes", defaultEventDurationMinutes);
         formData.append("defaultFailureCost", defaultFailureCostEuros);
         formData.append("defaultVoucherId", effectiveDefaultVoucherId ?? "");
-        formData.append("strictPomoEnabled", String(strictPomoEnabled));
         formData.append("deadlineOneHourWarningEnabled", String(deadlineOneHourWarningEnabled));
         formData.append("deadlineFinalWarningEnabled", String(deadlineFinalWarningEnabled));
         formData.append("voucherCanViewActiveTasksEnabled", String(voucherCanViewActiveTasksEnabled));
@@ -1500,24 +1494,6 @@ export default function SettingsClient({
                         {isDefaultsLoading ? (
                             <p className="text-sm text-slate-300 leading-5">Saving...</p>
                         ) : null}
-                    </div>
-
-                    <div className="border-b border-slate-900 py-3">
-                        <div className="flex items-start gap-4">
-                            <div className="flex-1 min-w-0 space-y-1">
-                                <Label htmlFor="strictPomoEnabled" className="text-slate-200">
-                                    Strict Pomodoro
-                                </Label>
-                                <p className="text-xs text-slate-400">
-                                    When enabled, newly started pomodoros cannot be paused and only timer-completed sessions count.
-                                </p>
-                            </div>
-                            <GlassToggle
-                                id="strictPomoEnabled"
-                                checked={strictPomoEnabled}
-                                onChange={setStrictPomoEnabled}
-                            />
-                        </div>
                     </div>
 
                     <div className="border-b border-slate-900 py-3">

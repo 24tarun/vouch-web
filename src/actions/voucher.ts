@@ -1,13 +1,17 @@
 "use server";
 
-import { revalidatePath, revalidateTag, unstable_cache } from "next/cache";
+import { revalidatePath, unstable_cache } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
 import { sendNotification } from "@/lib/notifications";
 import { type Database, type VoucherPendingTask } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { activeTasksTag, pendingVoucherRequestsTag } from "@/lib/cache-tags";
+import {
+    pendingVoucherRequestsTag,
+    invalidateActiveTasksCache,
+    invalidatePendingVoucherRequestsCache,
+} from "@/lib/cache-tags";
 import { deleteTaskProof } from "@/lib/task-proof";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
@@ -18,14 +22,6 @@ import {
     notifyCommitmentFailureIfNeeded,
     notifyCommitmentRevivedIfNeeded,
 } from "@/actions/commitments";
-
-function invalidatePendingVoucherRequestsCache(voucherId: string) {
-    revalidateTag(pendingVoucherRequestsTag(voucherId), "max");
-}
-
-function invalidateOwnerActiveTasksCache(ownerId: string) {
-    revalidateTag(activeTasksTag(ownerId), "max");
-}
 
 async function enqueueGoogleCalendarUpsert(userId: string, taskId: string) {
     try {
@@ -131,7 +127,7 @@ export async function voucherAccept(taskId: string) {
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
     // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
-    invalidateOwnerActiveTasksCache((task as any).user_id);
+    invalidateActiveTasksCache((task as any).user_id);
     invalidatePendingVoucherRequestsCache((user as any).id);
     revalidatePath("/tasks");
     revalidatePath("/stats");
@@ -228,7 +224,7 @@ export async function voucherDeny(taskId: string) {
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
     // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
-    invalidateOwnerActiveTasksCache((task as any).user_id);
+    invalidateActiveTasksCache((task as any).user_id);
     invalidatePendingVoucherRequestsCache((user as any).id);
     revalidatePath("/tasks");
     revalidatePath("/stats");
@@ -318,7 +314,7 @@ export async function voucherRequestProof(taskId: string) {
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
     // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
-    invalidateOwnerActiveTasksCache((task as any).user_id);
+    invalidateActiveTasksCache((task as any).user_id);
     invalidatePendingVoucherRequestsCache(user.id);
     revalidatePath("/tasks");
     revalidatePath("/stats");
@@ -819,7 +815,7 @@ export async function escalateToHumanVoucher(
     }
 
     // Invalidate caches
-    invalidateOwnerActiveTasksCache((task as any).user_id);
+    invalidateActiveTasksCache((task as any).user_id);
     invalidatePendingVoucherRequestsCache((newVoucherId as any));
     revalidatePath("/tasks");
     revalidatePath("/voucher");
@@ -893,7 +889,7 @@ export async function acceptDenial(
 
     await notifyCommitmentFailureIfNeeded(taskId, (task as any).recurrence_rule_id ?? null);
 
-    invalidateOwnerActiveTasksCache(user.id);
+    invalidateActiveTasksCache(user.id);
     revalidatePath("/tasks");
     revalidatePath("/stats");
     revalidatePath(`/tasks/${taskId}`);
