@@ -557,6 +557,3 @@ export async function overrideTask(taskId: string) {
     revalidatePath("/tasks");
     return { success: true };
 }
-
-// Re-export type for external consumers
-export type { MarkTaskCompleteWithProofResult };

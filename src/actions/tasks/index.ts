@@ -6,7 +6,6 @@ export {
     markTaskCompleteWithProofIntent,
     undoTaskComplete,
     overrideTask,
-    type MarkTaskCompleteWithProofResult,
 } from "./complete";
 
 export {
