@@ -60,6 +60,22 @@ pnpm install
 1.  Run the migrations in the `supabase/migrations` folder against your Supabase project (using the Supabase Dashboard SQL Editor or CLI).
 2.  Ensure your database schema matches the types expected by the application.
 
+### Supabase Edge Function (Mobile Proof Upload)
+
+This repo also contains the `task-proof-upload` edge function used by mobile for signed proof uploads:
+
+- Path: `supabase/functions/task-proof-upload/index.ts`
+- Required function env vars:
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `SUPABASE_SERVICE_ROLE_KEY`
+
+Deploy with Supabase CLI:
+
+```bash
+supabase functions deploy task-proof-upload --project-ref <your-project-ref>
+```
+
 ## 4. Run Development Server
 
 Start the Next.js development server:
