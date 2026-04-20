@@ -53,6 +53,15 @@ const passwordResetSchema = z.object({
     path: ["confirmPassword"],
 });
 
+function isValidTimeZone(timeZone: string): boolean {
+    try {
+        new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function getAppUrl(): string {
     return (process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL).trim().replace(/\/+$/, "");
 }
@@ -427,6 +436,14 @@ export async function updateUserDefaults(formData: FormData) {
     const voucherCanViewActiveTasksEnabledRaw = formData.get("voucherCanViewActiveTasksEnabled");
     const mobileNotificationsEnabledRaw = formData.get("mobileNotificationsEnabled");
     const currencyRaw = formData.get("currency");
+    const timezoneRaw = formData.get("timezone");
+    const timezoneUserSetRaw = formData.get("timezoneUserSet");
+    const charityEnabledRaw = formData.get("charityEnabled");
+    const selectedCharityIdRaw = formData.get("selectedCharityId");
+    const hasTimezoneField = formData.has("timezone");
+    const hasTimezoneUserSetField = formData.has("timezoneUserSet");
+    const hasCharityEnabledField = formData.has("charityEnabled");
+    const hasSelectedCharityField = formData.has("selectedCharityId");
 
     let currency: SupportedCurrency | undefined;
     if (currencyRaw != null && currencyRaw !== "") {
@@ -438,7 +455,7 @@ export async function updateUserDefaults(formData: FormData) {
 
     const { data: currentProfile, error: currentProfileError } = await supabase
         .from("profiles")
-        .select("currency, default_event_duration_minutes")
+        .select("currency, default_event_duration_minutes, charity_enabled, selected_charity_id, timezone, timezone_user_set")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -537,6 +554,92 @@ export async function updateUserDefaults(formData: FormData) {
         }
         mobileNotificationsEnabled = mobileNotificationsEnabledRaw === "true";
     }
+    let timezone: string | undefined;
+    if (hasTimezoneField) {
+        if (typeof timezoneRaw !== "string" || timezoneRaw.trim().length === 0) {
+            return { error: "Timezone value is invalid." };
+        }
+        const nextTimezone = timezoneRaw.trim();
+        if (!isValidTimeZone(nextTimezone)) {
+            return { error: "Timezone value is invalid." };
+        }
+        timezone = nextTimezone;
+    }
+    let timezoneUserSet: boolean | undefined;
+    if (hasTimezoneUserSetField) {
+        if (typeof timezoneUserSetRaw !== "string") {
+            return { error: "Timezone selection mode is invalid." };
+        }
+        if (timezoneUserSetRaw !== "true" && timezoneUserSetRaw !== "false") {
+            return { error: "Timezone selection mode is invalid." };
+        }
+        timezoneUserSet = timezoneUserSetRaw === "true";
+    }
+    let charityEnabled: boolean | undefined;
+    if (hasCharityEnabledField) {
+        if (typeof charityEnabledRaw !== "string") {
+            return { error: "Charity toggle value is invalid." };
+        }
+        if (charityEnabledRaw !== "true" && charityEnabledRaw !== "false") {
+            return { error: "Charity toggle value is invalid." };
+        }
+        charityEnabled = charityEnabledRaw === "true";
+    }
+    const selectedCharityIdInput = hasSelectedCharityField
+        ? (typeof selectedCharityIdRaw === "string" ? selectedCharityIdRaw.trim() : "")
+        : null;
+    let selectedCharityId = selectedCharityIdInput && selectedCharityIdInput.length > 0
+        ? selectedCharityIdInput
+        : null;
+    const currentCharityEnabled = Boolean(
+        (currentProfile as { charity_enabled?: boolean } | null)?.charity_enabled
+    );
+    const currentSelectedCharityId = (
+        (currentProfile as { selected_charity_id?: string | null } | null)?.selected_charity_id
+            ?? null
+    );
+    let resolvedCharityEnabled = charityEnabled ?? currentCharityEnabled;
+    if (!hasSelectedCharityField) {
+        selectedCharityId = currentSelectedCharityId;
+    }
+    if (selectedCharityId === null) {
+        resolvedCharityEnabled = false;
+    }
+    if (selectedCharityId) {
+        const { data: charity } = await (supabase.from("charities") as any)
+            .select("id, is_active")
+            .eq("id", selectedCharityId)
+            .maybeSingle();
+
+        if (!charity || charity.is_active !== true) {
+            selectedCharityId = null;
+            resolvedCharityEnabled = false;
+        }
+    }
+    if (resolvedCharityEnabled && !selectedCharityId) {
+        const { data: defaultCharity } = await (supabase.from("charities") as any)
+            .select("id")
+            .eq("key", "donate_to_developer")
+            .eq("is_active", true)
+            .maybeSingle();
+
+        if (defaultCharity?.id) {
+            selectedCharityId = defaultCharity.id;
+        } else {
+            const { data: fallbackCharity } = await (supabase.from("charities") as any)
+                .select("id")
+                .eq("is_active", true)
+                .order("name", { ascending: true })
+                .limit(1)
+                .maybeSingle();
+            if (fallbackCharity?.id) {
+                selectedCharityId = fallbackCharity.id;
+            }
+        }
+    }
+    if (resolvedCharityEnabled && !selectedCharityId) {
+        return { error: "Charity mode requires selecting one active charity." };
+    }
     if (defaultVoucherId !== user.id) {
         const { data: friendship } = await supabase
             .from("friendships")
@@ -570,6 +673,16 @@ export async function updateUserDefaults(formData: FormData) {
     }
     if (currency !== undefined) {
         profileUpdate.currency = currency;
+    }
+    if (hasTimezoneField && timezone) {
+        profileUpdate.timezone = timezone;
+    }
+    if (hasTimezoneUserSetField && timezoneUserSet !== undefined) {
+        profileUpdate.timezone_user_set = timezoneUserSet;
+    }
+    if (hasCharityEnabledField || hasSelectedCharityField) {
+        profileUpdate.charity_enabled = resolvedCharityEnabled;
+        profileUpdate.selected_charity_id = selectedCharityId;
     }
 
     // @ts-ignore

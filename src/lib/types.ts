@@ -16,8 +16,21 @@ export interface Profile {
     voucher_can_view_active_tasks: boolean;
     mobile_notifications_enabled?: boolean;
     ai_friend_opt_in?: boolean;
+    charity_enabled: boolean;
+    selected_charity_id: string | null;
+    timezone: string;
+    timezone_user_set: boolean;
     hide_tips: boolean;
     created_at: string;
+}
+
+export interface Charity {
+    id: string;
+    key: string;
+    name: string;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface FriendProfile extends Profile {
@@ -188,6 +201,18 @@ export interface VoucherReminderLog {
     created_at: string;
 }
 
+export interface MonthlySettlementRun {
+    id: string;
+    user_id: string;
+    period: string;
+    timezone: string;
+    total_cents: number | null;
+    charity_key: string | null;
+    claimed_at: string;
+    sent_at: string | null;
+    email_sent: boolean;
+}
+
 export interface GoogleCalendarConnection {
     user_id: string;
     sync_app_to_google_enabled: boolean;
@@ -340,8 +365,13 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips">>
+                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips" | "charity_enabled" | "selected_charity_id" | "timezone" | "timezone_user_set"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips" | "charity_enabled" | "selected_charity_id" | "timezone" | "timezone_user_set">>
                 Update: Partial<Profile>
+            }
+            charities: {
+                Row: Charity
+                Insert: Omit<Charity, "id" | "created_at" | "updated_at" | "is_active"> & Partial<Pick<Charity, "id" | "created_at" | "updated_at" | "is_active">>
+                Update: Partial<Charity>
             }
             friendships: {
                 Row: Friendship
@@ -432,6 +462,11 @@ export interface Database {
                 Row: VoucherReminderLog
                 Insert: Omit<VoucherReminderLog, "id" | "created_at">
                 Update: Partial<VoucherReminderLog>
+            }
+            monthly_settlement_runs: {
+                Row: MonthlySettlementRun
+                Insert: Omit<MonthlySettlementRun, "id" | "claimed_at" | "email_sent"> & Partial<Pick<MonthlySettlementRun, "id" | "claimed_at" | "email_sent">>
+                Update: Partial<MonthlySettlementRun>
             }
         }
         Views: {

@@ -46,7 +46,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { SignOutMenuForm } from "@/components/SignOutMenuForm";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
-import type { FriendProfile, Profile } from "@/lib/types";
+import type { Charity, FriendProfile, Profile } from "@/lib/types";
 import {
     getFailureCostBounds,
     getCurrencySymbol,
@@ -63,6 +63,7 @@ import {
 } from "@/lib/constants";
 import { AI_VOUCHER_DISPLAY_NAME, AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
+import { formatTimeZoneLabel, getTimeZoneOptions } from "@/lib/timezones";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -70,6 +71,7 @@ interface SettingsClientProps {
     profile: Profile;
     friends: FriendProfile[];
     googleCalendarIntegration: GoogleCalendarIntegrationState;
+    charities: Charity[];
 }
 
 type VoucherConflictTask = {
@@ -82,6 +84,7 @@ export default function SettingsClient({
     profile,
     friends: initialFriends,
     googleCalendarIntegration,
+    charities,
 }: SettingsClientProps) {
     const initialCurrency = normalizeCurrency(profile.currency);
     const initialFailureCostBounds = getFailureCostBounds(initialCurrency);
@@ -151,6 +154,11 @@ export default function SettingsClient({
     const [isMobileNotificationsLoading, setIsMobileNotificationsLoading] = useState(false);
     const [mobileNotificationsError, setMobileNotificationsError] = useState<string | null>(null);
     const [currency, setCurrency] = useState<SupportedCurrency>(initialCurrency);
+    const [timeZone, setTimeZone] = useState(profile.timezone || "UTC");
+    const [timeZoneUserSet, setTimeZoneUserSet] = useState(profile.timezone_user_set ?? false);
+    const [charityEnabled, setCharityEnabled] = useState(profile.charity_enabled ?? false);
+    const [selectedCharityId, setSelectedCharityId] = useState(profile.selected_charity_id ?? "");
+    const [isCharitySelectOpen, setIsCharitySelectOpen] = useState(false);
     const [isDefaultsLoading, setIsDefaultsLoading] = useState(false);
     const [defaultsError, setDefaultsError] = useState<string | null>(null);
     const [defaultsSuccess, setDefaultsSuccess] = useState(false);
@@ -200,6 +208,28 @@ export default function SettingsClient({
         "PushManager" in window &&
         "Notification" in window;
     const canEnableMobileNotifications = VAPID_PUBLIC_KEY.length > 0 && pushApiSupported;
+    const deviceTimeZone = useMemo(
+        () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        []
+    );
+    const timeZoneOptions = useMemo(() => {
+        const options = getTimeZoneOptions();
+        return options.includes(timeZone) ? options : [timeZone, ...options];
+    }, [timeZone]);
+    const selectedCharity = useMemo(
+        () => charities.find((charity) => charity.id === selectedCharityId) ?? null,
+        [charities, selectedCharityId]
+    );
+    const defaultCharityId = useMemo(() => {
+        const donateToDeveloper = charities.find(
+            (charity) => charity.key === "donate_to_developer" && charity.is_active
+        );
+        if (donateToDeveloper) {
+            return donateToDeveloper.id;
+        }
+        const firstActiveCharity = charities.find((charity) => charity.is_active);
+        return firstActiveCharity?.id ?? "";
+    }, [charities]);
     const defaultsSnapshot = useMemo(
         () =>
             JSON.stringify({
@@ -212,6 +242,10 @@ export default function SettingsClient({
                 voucherCanViewActiveTasksEnabled,
                 mobileNotificationsEnabled,
                 currency,
+                timeZone,
+                timeZoneUserSet,
+                charityEnabled,
+                selectedCharityId,
             }),
         [
             defaultPomoDurationMinutes,
@@ -223,6 +257,10 @@ export default function SettingsClient({
             voucherCanViewActiveTasksEnabled,
             mobileNotificationsEnabled,
             currency,
+            timeZone,
+            timeZoneUserSet,
+            charityEnabled,
+            selectedCharityId,
         ]
     );
 
@@ -256,6 +294,10 @@ export default function SettingsClient({
         formData.append("voucherCanViewActiveTasksEnabled", String(voucherCanViewActiveTasksEnabled));
         formData.append("mobileNotificationsEnabled", String(mobileNotificationsEnabled));
         formData.append("currency", currency);
+        formData.append("timezone", timeZone);
+        formData.append("timezoneUserSet", String(timeZoneUserSet));
+        formData.append("charityEnabled", String(charityEnabled));
+        formData.append("selectedCharityId", selectedCharityId);
         return formData;
     };
 
@@ -302,6 +344,19 @@ export default function SettingsClient({
         const parsedFailureCents = Math.round(parsedFailureMajor * 100);
         if (parsedFailureCents < bounds.minCents || parsedFailureCents > bounds.maxCents) {
             return `Default failure cost must be between ${currencySymbol}${bounds.minMajor} and ${currencySymbol}${bounds.maxMajor}.`;
+        }
+
+        if (!timeZone || !timeZoneOptions.includes(timeZone)) {
+            return "Timezone is invalid.";
+        }
+
+        if (charityEnabled) {
+            if (!selectedCharityId) {
+                return "Select one charity when Charity Choice is enabled.";
+            }
+            if (!selectedCharity || !selectedCharity.is_active) {
+                return "Selected charity is unavailable. Choose an active charity.";
+            }
         }
 
         return null;
@@ -559,6 +614,36 @@ export default function SettingsClient({
         );
     }
 
+    function handleTimeZoneChange(value: string) {
+        setTimeZone(value);
+        setTimeZoneUserSet(true);
+    }
+
+    function handleCharityToggle(nextEnabled: boolean) {
+        setCharityEnabled(nextEnabled);
+        if (!nextEnabled) {
+            setSelectedCharityId("");
+            setIsCharitySelectOpen(false);
+            return;
+        }
+        if (!selectedCharityId || !selectedCharity || !selectedCharity.is_active) {
+            setSelectedCharityId(defaultCharityId);
+        }
+        setIsCharitySelectOpen(true);
+    }
+
+    function handleCharitySelect(value: string) {
+        if (value === "__none__") {
+            setSelectedCharityId("");
+            setCharityEnabled(false);
+            return;
+        }
+        setSelectedCharityId(value);
+        if (!charityEnabled) {
+            setCharityEnabled(true);
+        }
+    }
+
     async function handleMobileNotificationsToggle(nextEnabled: boolean) {
         if (isMobileNotificationsLoading) return;
 
@@ -638,6 +723,25 @@ export default function SettingsClient({
      *    id; this discards stale out-of-order responses from earlier edits.
      * 6) On success, briefly show defaultsSuccess and auto-hide it after 1.5s if no newer request exists.
      */
+    useEffect(() => {
+        if (timeZoneUserSet) return;
+        if (!deviceTimeZone || deviceTimeZone === timeZone) return;
+        if (!timeZoneOptions.includes(deviceTimeZone)) return;
+        setTimeZone(deviceTimeZone);
+    }, [deviceTimeZone, timeZone, timeZoneOptions, timeZoneUserSet]);
+
+    useEffect(() => {
+        if (!charityEnabled) return;
+        if (!selectedCharityId || !selectedCharity || !selectedCharity.is_active) {
+            if (defaultCharityId) {
+                setSelectedCharityId(defaultCharityId);
+                return;
+            }
+            setCharityEnabled(false);
+            setSelectedCharityId("");
+        }
+    }, [charityEnabled, defaultCharityId, selectedCharity, selectedCharityId]);
+
     useEffect(() => {
         if (!hasMountedRef.current) {
             hasMountedRef.current = true;
@@ -1490,6 +1594,27 @@ export default function SettingsClient({
                         </Select>
                     </div>
 
+                    <div className="space-y-2">
+                        <Label htmlFor="timezone" className="text-slate-200">
+                            Timezone
+                        </Label>
+                        <Select value={timeZone} onValueChange={handleTimeZoneChange}>
+                            <SelectTrigger
+                                id="timezone"
+                                className="bg-slate-800/40 border-slate-700 text-white w-full"
+                            >
+                                <SelectValue placeholder="Select timezone" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-slate-800 text-white max-h-80">
+                                {timeZoneOptions.map((zone) => (
+                                    <SelectItem key={zone} value={zone}>
+                                        {formatTimeZoneLabel(zone)}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
                     <div aria-live="polite" className="min-h-5">
                         {isDefaultsLoading ? (
                             <p className="text-sm text-slate-300 leading-5">Saving...</p>
@@ -1857,12 +1982,52 @@ export default function SettingsClient({
 
             <section className="space-y-3 border-b border-slate-900 pb-8">
                 <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">Charity Preferences</h2>
-                    <p className="text-sm text-slate-400">Coming soon</p>
+                    <h2 className="text-xl font-semibold text-white">Charity Choice</h2>
                 </div>
-                <p className="text-slate-400">
-                    You&apos;ll be able to select your preferred charity for donations
-                    here. For now, all contributions will go to a placeholder charity.
+                <div className="border-b border-slate-900 py-3">
+                    <div className="flex items-start gap-4">
+                        <div className="flex-1 min-w-0 space-y-1">
+                            <Label htmlFor="charityEnabled" className="text-slate-200">
+                                Enable charity mode
+                            </Label>
+                        </div>
+                        <GlassToggle
+                            id="charityEnabled"
+                            checked={charityEnabled}
+                            onChange={handleCharityToggle}
+                        />
+                    </div>
+                </div>
+                {charityEnabled ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="selectedCharityId" className="text-slate-200">
+                            Charity
+                        </Label>
+                        <Select
+                            value={selectedCharityId || "__none__"}
+                            onValueChange={handleCharitySelect}
+                            open={isCharitySelectOpen}
+                            onOpenChange={setIsCharitySelectOpen}
+                        >
+                            <SelectTrigger
+                                id="selectedCharityId"
+                                className="bg-slate-800/40 border-slate-700 text-white w-full"
+                            >
+                                <SelectValue placeholder="Select one charity" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-slate-900 border-slate-800 text-white">
+                                <SelectItem value="__none__">No charity selected</SelectItem>
+                                {charities.map((charity) => (
+                                    <SelectItem key={charity.id} value={charity.id} disabled={!charity.is_active}>
+                                        {charity.name}{charity.is_active ? "" : " (Unavailable)"}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                ) : null}
+                <p className="text-sm text-slate-400">
+                    No payment is processed in app; you pay manually outside the app.
                 </p>
             </section>
 

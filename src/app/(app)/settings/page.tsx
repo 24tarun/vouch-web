@@ -32,6 +32,10 @@ export default async function SettingsPage() {
         getFriends(),
         getGoogleCalendarIntegrationState(),
     ]);
+    const { data: charities } = await supabase
+        .from("charities")
+        .select("id, key, name, is_active, created_at, updated_at")
+        .order("name", { ascending: true });
 
     return (
         <div className="flex min-h-[calc(100dvh-8rem)] flex-col">
@@ -40,6 +44,7 @@ export default async function SettingsPage() {
                     profile={profile}
                     friends={friends}
                     googleCalendarIntegration={googleCalendarIntegration}
+                    charities={(charities as Array<{ id: string; key: string; name: string; is_active: boolean; created_at: string; updated_at: string }> | null) ?? []}
                 />
             </div>
             <div className="pt-6 pb-safe">

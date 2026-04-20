@@ -1,31 +1,101 @@
 /**
  * Trigger: monthly-settlement
- * Runs: Monthly at 09:00 UTC on day 1 (`0 9 1 * *`).
+ * Runs: every 15 minutes.
  * What it does when it runs:
- * 1) Computes the previous month period (YYYY-MM).
- * 2) Loads all users and that month's ledger entries in two batched queries.
- * 3) If user total > 0, sends a settlement email with a detailed breakdown and payment CTA.
- * 4) If total is 0 but the user had activity, sends a "perfect month" congratulatory email.
+ * 1) Loads users and checks whether each user is at local day 3 / local hour 00.
+ * 2) Computes the previous month period in that user's saved profile timezone.
+ * 3) Loads that user's monthly ledger entries and composes settlement email content.
+ * 4) Claims idempotency row (`monthly_settlement_runs`) before sending.
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";
 import { formatCurrencyFromCents, normalizeCurrency } from "@/lib/currency";
 
+interface SettlementCharity {
+    key: string;
+    name: string;
+    is_active: boolean;
+}
+
 interface SettlementUser {
     id: string;
     email: string | null;
     username: string | null;
     currency: string | null;
+    timezone: string | null;
+    charity_enabled: boolean | null;
+    selected_charity: SettlementCharity | null;
 }
 
 interface SettlementEntry {
-    user_id: string;
     amount_cents: number;
     entry_type: string;
     task: {
         title: string | null;
     } | null;
+}
+
+function isValidTimeZone(timeZone: string): boolean {
+    try {
+        new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function resolveTimeZone(rawTimeZone: string | null): string {
+    if (typeof rawTimeZone === "string" && rawTimeZone.length > 0 && isValidTimeZone(rawTimeZone)) {
+        return rawTimeZone;
+    }
+    return "UTC";
+}
+
+export function getLocalDateParts(date: Date, timeZone: string): {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+} {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        hour12: false,
+    }).formatToParts(date);
+
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? "0");
+    return {
+        year: get("year"),
+        month: get("month"),
+        day: get("day"),
+        hour: get("hour"),
+    };
+}
+
+export function getPreviousLocalMonthPeriod(date: Date, timeZone: string): {
+    period: string;
+    monthName: string;
+} {
+    const local = getLocalDateParts(date, timeZone);
+    const previousMonth = local.month === 1 ? 12 : local.month - 1;
+    const previousYear = local.month === 1 ? local.year - 1 : local.year;
+    const period = `${previousYear}-${String(previousMonth).padStart(2, "0")}`;
+    const localMonthDate = new Date(Date.UTC(previousYear, previousMonth - 1, 15, 12, 0, 0));
+    const monthName = new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        month: "long",
+        year: "numeric",
+    }).format(localMonthDate);
+    return { period, monthName };
+}
+
+export function shouldCompileNow(date: Date, timeZone: string): boolean {
+    const local = getLocalDateParts(date, timeZone);
+    return local.day === 3 && local.hour === 0;
 }
 
 function formatLedgerEntryType(entryType: string): string {
@@ -38,74 +108,91 @@ function formatLedgerEntryType(entryType: string): string {
 
 export const monthlySettlement = schedules.task({
     id: "monthly-settlement",
-    cron: "0 9 1 * *", // Run at 9am on the 1st of every month
+    cron: "*/15 * * * *",
     run: async () => {
         const supabase = createAdminClient();
-
-        // Calculate LAST month's period (YYYY-MM)
-        const today = new Date();
-        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const period = lastMonth.toISOString().slice(0, 7);
-        const monthName = lastMonth.toLocaleString("default", { month: "long", year: "numeric" });
-
-        console.log(`Running settlement for period: ${period}`);
+        const now = new Date();
 
         const { data: usersData, error: usersError } = await (supabase.from("profiles") as any)
-            .select("id, email, username, currency");
+            .select(`
+                id,
+                email,
+                username,
+                currency,
+                timezone,
+                charity_enabled,
+                selected_charity:charities!profiles_selected_charity_id_fkey(key, name, is_active)
+            `);
         if (usersError) {
             console.error("Failed to load profiles for monthly settlement:", usersError);
             return;
         }
 
-        const { data: entriesData, error: entriesError } = await (supabase.from("ledger_entries") as any)
-            .select("user_id, amount_cents, entry_type, task:tasks(title)")
-            .eq("period", period as any);
-        if (entriesError) {
-            console.error("Failed to load ledger entries for monthly settlement:", entriesError);
-            return;
-        }
-
-        const users = (usersData || []) as SettlementUser[];
-        const entries = (entriesData || []) as SettlementEntry[];
-        if (users.length === 0 || entries.length === 0) return;
-
-        const entriesByUser = new Map<string, SettlementEntry[]>();
-        for (const entry of entries) {
-            const current = entriesByUser.get(entry.user_id);
-            if (current) {
-                current.push(entry);
-            } else {
-                entriesByUser.set(entry.user_id, [entry]);
-            }
-        }
+        const users = (usersData ?? []) as SettlementUser[];
+        if (users.length === 0) return;
 
         for (const user of users) {
-            const userEntries = entriesByUser.get(user.id) || [];
-            if (userEntries.length === 0) continue;
+            if (!user.email) continue;
 
-            const totalCents = userEntries.reduce((sum, entry) => sum + entry.amount_cents, 0);
+            const timeZone = resolveTimeZone(user.timezone);
+            if (!shouldCompileNow(now, timeZone)) continue;
+
+            const { period, monthName } = getPreviousLocalMonthPeriod(now, timeZone);
+            const { data: entriesData, error: entriesError } = await (supabase.from("ledger_entries") as any)
+                .select("amount_cents, entry_type, task:tasks(title)")
+                .eq("user_id", user.id as any)
+                .eq("period", period as any);
+
+            if (entriesError) {
+                console.error(`Failed to load ledger entries for ${user.id} / ${period}:`, entriesError);
+                continue;
+            }
+
+            const entries = (entriesData ?? []) as SettlementEntry[];
+            if (entries.length === 0) continue;
+
+            const totalCents = entries.reduce((sum, entry) => sum + entry.amount_cents, 0);
+            const charity = user.charity_enabled && user.selected_charity?.is_active
+                ? user.selected_charity
+                : null;
+
+            const { error: claimError } = await (supabase.from("monthly_settlement_runs") as any)
+                .insert({
+                    user_id: user.id,
+                    period,
+                    timezone: timeZone,
+                    total_cents: totalCents,
+                    charity_key: charity?.key ?? null,
+                } as any);
+
+            if (claimError) {
+                if ((claimError as { code?: string }).code === "23505") {
+                    continue;
+                }
+                console.error(`Failed to claim settlement run for ${user.id} / ${period}:`, claimError);
+                continue;
+            }
+
             const currency = normalizeCurrency(user.currency);
+            const amountFormatted = formatCurrencyFromCents(totalCents, currency);
+            const rowsHtml = entries.map((entry) => `
+                <tr>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${entry.task?.title || "Adjustment"}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee;">${formatLedgerEntryType(entry.entry_type)}</td>
+                    <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; color: ${entry.amount_cents > 0 ? "#dc322f" : "#859900"}; font-family: monospace;">
+                        ${entry.amount_cents > 0 ? "+" : ""}${formatCurrencyFromCents(entry.amount_cents, currency)}
+                    </td>
+                </tr>
+            `).join("");
 
             if (totalCents > 0) {
-                const amountFormatted = formatCurrencyFromCents(totalCents, currency);
-
-                const tableRows = userEntries.map((entry) => `
-                    <tr>
-                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${entry.task?.title || "Adjustment"}</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #eee;">${formatLedgerEntryType(entry.entry_type)}</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: right; color: ${entry.amount_cents > 0 ? "#dc322f" : "#859900"}; font-family: monospace;">
-                            ${entry.amount_cents > 0 ? "+" : ""}${formatCurrencyFromCents(entry.amount_cents, currency)}
-                        </td>
-                    </tr>
-                `).join("");
-
                 await sendNotification({
                     to: user.email || undefined,
                     userId: user.id,
                     subject: `Monthly Settlement: ${amountFormatted} for ${monthName}`,
                     title: "Monthly Settlement",
                     html: `
-                        <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                        <div style="font-family: sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; padding: 32px;">
                             <h1 style="color: #6366f1; margin-bottom: 8px; font-size: 24px;">Monthly Settlement</h1>
                             <p style="color: #64748b; margin-top: 0; font-size: 16px;">The month of <strong>${monthName}</strong> has concluded.</p>
 
@@ -124,17 +211,15 @@ export const monthlySettlement = schedules.task({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                ${tableRows}
+                                ${rowsHtml}
                                 </tbody>
                             </table>
 
-                            <div style="margin-top: 40px; background: #f8fafc; padding: 24px; border-radius: 8px; text-align: center;">
-                                <p style="margin: 0 0 16px 0; font-size: 14px; color: #475569;">Please proceed to settle your commitment to charity.</p>
-                                <a href="${process.env.NEXT_PUBLIC_APP_URL}/ledger" style="display: inline-block; background: #6366f1; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">Settle My Ledger</a>
-                            </div>
+                            ${charity ? `<p style="margin: 24px 0 8px 0; font-size: 15px; color: #1e293b;">Please send this amount manually to <strong>${charity.name}</strong>.</p>` : ""}
+                            <p style="margin: 0; font-size: 14px; color: #475569;">Payment is not processed in-app.</p>
 
                             <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 40px;">
-                                This is an automated settlement notice sent on the 1st of every month.
+                                This is an automated settlement notice generated on the 3rd in your selected timezone.
                             </p>
                         </div>
                     `,
@@ -156,13 +241,20 @@ export const monthlySettlement = schedules.task({
                                 <p style="margin: 8px 0 0 0; font-size: 36px; font-weight: 800; color: #15803d;">${formatCurrencyFromCents(0, currency)}</p>
                             </div>
 
-                            <p style="color: #64748b; font-size: 14px;">Your commitment to consistency is paying off. Let's keep the momentum going!</p>
-
-                            <a href="${process.env.NEXT_PUBLIC_APP_URL}/tasks" style="display: inline-block; margin-top: 24px; background: #6366f1; color: white; padding: 12px 28px; text-decoration: none; border-radius: 6px; font-weight: bold;">New Month, New Goals</a>
+                            ${charity ? `<p style="margin: 0 0 8px 0; color: #475569; font-size: 14px;">Your selected charity is <strong>${charity.name}</strong>.</p>` : ""}
+                            <p style="margin: 0; color: #475569; font-size: 14px;">Payment is not processed in-app.</p>
                         </div>
                     `,
                 });
             }
+
+            await (supabase.from("monthly_settlement_runs") as any)
+                .update({
+                    sent_at: new Date().toISOString(),
+                    email_sent: true,
+                } as any)
+                .eq("user_id", user.id as any)
+                .eq("period", period as any);
         }
     },
 });

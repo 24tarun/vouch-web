@@ -69,6 +69,10 @@ function buildProfile(id: string, username: string, email: string): Profile {
         deadline_one_hour_warning_enabled: true,
         deadline_final_warning_enabled: true,
         voucher_can_view_active_tasks: true,
+        charity_enabled: false,
+        selected_charity_id: null,
+        timezone: "UTC",
+        timezone_user_set: false,
         hide_tips: false,
         created_at: "2026-01-01T00:00:00.000Z",
     };
