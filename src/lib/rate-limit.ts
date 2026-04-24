@@ -30,7 +30,6 @@ export const apiLimiter = createLimiter(30, "1 m", "rl:api");
 export const proofUploadLimiter = createLimiter(20, "1 m", "rl:proof");
 export const aiEvaluationLimiter = createLimiter(20, "10 m", "rl:ai-eval");
 export const webhookLimiter = createLimiter(60, "1 m", "rl:webhook");
-export const googleOauthMobileLimiter = createLimiter(30, "1 m", "rl:google-oauth-mobile");
 
 export async function checkRateLimit(
     limiter: Ratelimit | null,
