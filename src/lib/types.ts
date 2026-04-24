@@ -10,6 +10,7 @@ export interface Profile {
     default_event_duration_minutes: number;
     default_failure_cost_cents: number;
     default_voucher_id: string | null;
+    default_requires_proof_for_all_tasks: boolean;
     strict_pomo_enabled: boolean;
     deadline_one_hour_warning_enabled: boolean;
     deadline_final_warning_enabled: boolean;
@@ -365,7 +366,7 @@ export interface Database {
         Tables: {
             profiles: {
                 Row: Profile
-                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips" | "charity_enabled" | "selected_charity_id" | "timezone" | "timezone_user_set"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips" | "charity_enabled" | "selected_charity_id" | "timezone" | "timezone_user_set">>
+                Insert: Omit<Profile, "id" | "created_at" | "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "default_requires_proof_for_all_tasks" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips" | "charity_enabled" | "selected_charity_id" | "timezone" | "timezone_user_set"> & Partial<Pick<Profile, "currency" | "default_pomo_duration_minutes" | "default_event_duration_minutes" | "default_failure_cost_cents" | "default_voucher_id" | "default_requires_proof_for_all_tasks" | "strict_pomo_enabled" | "deadline_one_hour_warning_enabled" | "deadline_final_warning_enabled" | "voucher_can_view_active_tasks" | "mobile_notifications_enabled" | "ai_friend_opt_in" | "hide_tips" | "charity_enabled" | "selected_charity_id" | "timezone" | "timezone_user_set">>
                 Update: Partial<Profile>
             }
             charities: {

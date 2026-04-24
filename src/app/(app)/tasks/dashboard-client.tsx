@@ -69,6 +69,7 @@ interface DashboardClientProps {
     defaultVoucherId: string | null;
     defaultPomoDurationMinutes: number;
     defaultEventDurationMinutes: number;
+    defaultRequiresProofForAllTasks: boolean;
     userId: string;
     username: string;
     initialHideTips: boolean;
@@ -172,6 +173,7 @@ export default function DashboardClient({
     defaultVoucherId,
     defaultPomoDurationMinutes,
     defaultEventDurationMinutes,
+    defaultRequiresProofForAllTasks,
     userId,
     username,
     initialHideTips,
@@ -1093,6 +1095,7 @@ export default function DashboardClient({
                 defaultCurrency={currency}
                 defaultVoucherId={defaultVoucherId}
                 defaultEventDurationMinutes={defaultEventDurationMinutes}
+                defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
                 selfUserId={userId}
                 onCreateTaskOptimistic={handleCreateTaskOptimistic}
             />

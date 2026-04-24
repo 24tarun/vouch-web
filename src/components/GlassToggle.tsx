@@ -44,6 +44,7 @@ export function GlassToggle({ checked, onChange, disabled = false, id }: GlassTo
                     : "none",
                 opacity: disabled ? 0.4 : 1,
                 flexShrink: 0,
+                alignSelf: "center",
             }}
         >
             <motion.div

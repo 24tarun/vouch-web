@@ -39,7 +39,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("currency, default_failure_cost_cents, default_voucher_id, default_pomo_duration_minutes, default_event_duration_minutes, username, hide_tips")
+            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, username, hide_tips")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => result.data),
@@ -58,6 +58,7 @@ export default async function DashboardPage() {
         currency: string | null;
         default_failure_cost_cents: number | null;
         default_voucher_id: string | null;
+        default_requires_proof_for_all_tasks: boolean | null;
         default_pomo_duration_minutes: number | null;
         default_event_duration_minutes: number | null;
         username: string | null;
@@ -78,6 +79,7 @@ export default async function DashboardPage() {
             : DEFAULT_EVENT_DURATION_MINUTES;
     const defaultVoucherId = profileDefaults?.default_voucher_id ?? userId ?? null;
     const currency = normalizeCurrency(profileDefaults?.currency);
+    const defaultRequiresProofForAllTasks = profileDefaults?.default_requires_proof_for_all_tasks ?? false;
     const username =
         profileDefaults?.username?.trim() ||
         ((user?.user_metadata as { username?: string } | undefined)?.username?.trim() ?? "") ||
@@ -151,6 +153,7 @@ export default async function DashboardPage() {
             defaultVoucherId={defaultVoucherId}
             defaultPomoDurationMinutes={defaultPomoDurationMinutes}
             defaultEventDurationMinutes={defaultEventDurationMinutes}
+            defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
             userId={userId || ""}
             username={username}
             initialHideTips={initialHideTips}

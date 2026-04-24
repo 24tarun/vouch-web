@@ -54,7 +54,6 @@ import {
     SUPPORTED_CURRENCIES,
     type SupportedCurrency,
 } from "@/lib/currency";
-import { formatDateOnlyDDMMYYYY } from "@/lib/date-format";
 import {
     DEFAULT_EVENT_DURATION_MINUTES,
     DEFAULT_FAILURE_COST_CENTS,
@@ -148,6 +147,9 @@ export default function SettingsClient({
     const [voucherCanViewActiveTasksEnabled, setVoucherCanViewActiveTasksEnabled] = useState(
         profile.voucher_can_view_active_tasks ?? false
     );
+    const [defaultRequiresProofForAllTasks, setDefaultRequiresProofForAllTasks] = useState(
+        profile.default_requires_proof_for_all_tasks ?? false
+    );
     const [mobileNotificationsEnabled, setMobileNotificationsEnabled] = useState(
         profile.mobile_notifications_enabled ?? false
     );
@@ -240,6 +242,7 @@ export default function SettingsClient({
                 deadlineOneHourWarningEnabled,
                 deadlineFinalWarningEnabled,
                 voucherCanViewActiveTasksEnabled,
+                defaultRequiresProofForAllTasks,
                 mobileNotificationsEnabled,
                 currency,
                 timeZone,
@@ -255,6 +258,7 @@ export default function SettingsClient({
             deadlineOneHourWarningEnabled,
             deadlineFinalWarningEnabled,
             voucherCanViewActiveTasksEnabled,
+            defaultRequiresProofForAllTasks,
             mobileNotificationsEnabled,
             currency,
             timeZone,
@@ -292,6 +296,7 @@ export default function SettingsClient({
         formData.append("deadlineOneHourWarningEnabled", String(deadlineOneHourWarningEnabled));
         formData.append("deadlineFinalWarningEnabled", String(deadlineFinalWarningEnabled));
         formData.append("voucherCanViewActiveTasksEnabled", String(voucherCanViewActiveTasksEnabled));
+        formData.append("defaultRequiresProofForAllTasks", String(defaultRequiresProofForAllTasks));
         formData.append("mobileNotificationsEnabled", String(mobileNotificationsEnabled));
         formData.append("currency", currency);
         formData.append("timezone", timeZone);
@@ -883,6 +888,17 @@ export default function SettingsClient({
         }
     }
 
+    async function handleGoogleConnectionToggle(enabled: boolean) {
+        if (enabled) {
+            if (googleConnected) return;
+            await handleGoogleConnect();
+            return;
+        }
+
+        if (!googleConnected) return;
+        await handleGoogleDisconnect();
+    }
+
     async function handleGoogleDisconnect() {
         if (isGoogleActionLoading) return;
         const confirmed = window.confirm(
@@ -1132,10 +1148,6 @@ export default function SettingsClient({
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Settings</h1>
-                    <p className="text-slate-400 mt-1">Manage your profile and defaults</p>
-                    <p className="text-xs text-slate-500 font-mono mt-2">
-                        Signed in as <span className="text-slate-300">{profile.email}</span>
-                    </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <HardRefreshButton />
@@ -1145,18 +1157,12 @@ export default function SettingsClient({
             <section className="space-y-6 border-b border-slate-900 pb-8">
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-white">Friends</h2>
-                    <p className="text-sm text-slate-400">
-                        Search people, manage friend requests, and block users.
-                    </p>
                 </div>
                 <div className="space-y-3">
-                    <Label htmlFor="friendSearch" className="text-slate-200">
-                        Search by email or username
-                    </Label>
                     <Input
                         id="friendSearch"
                         type="text"
-                        placeholder="Find people..."
+                        placeholder="Search friends with their email or username"
                         value={friendSearchQuery}
                         onChange={(e) => setFriendSearchQuery(e.target.value)}
                         className="bg-slate-800/40 border-slate-700 text-white"
@@ -1166,7 +1172,6 @@ export default function SettingsClient({
                 {relationshipsError && <p className="text-sm text-red-400">{relationshipsError}</p>}
                 {blockedUsersError && <p className="text-sm text-red-400">{blockedUsersError}</p>}
                 {relationshipSuccess && <p className="text-sm text-green-400">{relationshipSuccess}</p>}
-                {relationshipsLoading && <p className="text-sm text-slate-400">Loading relationships...</p>}
 
                 {friendSearchQuery.trim().length > 0 ? (
                     <div className="space-y-2">
@@ -1233,10 +1238,6 @@ export default function SettingsClient({
                     </div>
                 ) : (
                     <div className="space-y-3">
-                        {incomingRequests.length === 0 && outgoingRequests.length === 0 && relationshipFriends.length === 0 ? (
-                            <p className="text-sm text-slate-500">No friends yet.</p>
-                        ) : null}
-
                         {incomingRequests.map((request) => {
                             const acceptKey = `request:${request.id}:accept`;
                             const rejectKey = `request:${request.id}:reject`;
@@ -1409,22 +1410,14 @@ export default function SettingsClient({
                     </div>
                 )}
 
-                <p className="text-xs text-slate-500">
-                    Remove or block is disabled by backend rules while one of you is still voucher for the other on pending tasks.
-                </p>
             </section>
 
             <section className="space-y-4 border-b border-slate-900 pb-8">
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-white">Blocked Users</h2>
-                    <p className="text-sm text-slate-400">
-                        Unblock people you previously blocked so they can send friend requests again.
-                    </p>
                 </div>
-                {blockedUsersLoading ? (
-                    <p className="text-sm text-slate-400">Loading blocked users...</p>
-                ) : blockedUsers.length === 0 ? (
-                    <p className="text-sm text-slate-500">No blocked users.</p>
+                {blockedUsersLoading ? null : blockedUsers.length === 0 ? (
+                    null
                 ) : (
                     <div>
                         {blockedUsers.map((blockedUser) => (
@@ -1455,7 +1448,6 @@ export default function SettingsClient({
             <section className="space-y-4 border-b border-slate-900 pb-8">
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-white">Profile</h2>
-                    <p className="text-sm text-slate-400">Update your username</p>
                 </div>
 
                 <form onSubmit={handleUsernameSubmit} className="space-y-4">
@@ -1471,9 +1463,6 @@ export default function SettingsClient({
                             required
                             className="bg-slate-800/40 border-slate-700 text-white"
                         />
-                        <p className="text-xs text-slate-500">
-                            Your friends can find you by this username
-                        </p>
                     </div>
 
                     {usernameError && <p className="text-sm text-red-400">{usernameError}</p>}
@@ -1527,9 +1516,6 @@ export default function SettingsClient({
                             onChange={(e) => setDefaultFailureCostEuros(e.target.value)}
                             className="bg-slate-800/40 border-slate-700 text-white"
                         />
-                        <p className="text-xs text-slate-500">
-                            {currencySymbol}{failureCostBounds.minMajor} - {currencySymbol}{failureCostBounds.maxMajor}
-                        </p>
                     </div>
 
                     <div className="space-y-2">
@@ -1621,15 +1607,12 @@ export default function SettingsClient({
                         ) : null}
                     </div>
 
-                    <div className="border-b border-slate-900 py-3">
-                        <div className="flex items-start gap-4">
+                    <div className="py-3 border-b border-slate-900">
+                        <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="deadlineOneHourWarningEnabled" className="text-slate-200">
                                     Deadline warning (1 hour before deadline)
                                 </Label>
-                                <p className="text-xs text-slate-400">
-                                    Auto-adds a 1-hour reminder to each task. You can remove it per task in task details.
-                                </p>
                             </div>
                             <GlassToggle
                                 id="deadlineOneHourWarningEnabled"
@@ -1639,15 +1622,12 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="border-b border-slate-900 py-3">
-                        <div className="flex items-start gap-4">
+                    <div className="py-3 border-b border-slate-900">
+                        <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="deadlineFinalWarningEnabled" className="flex items-center gap-2 cursor-pointer font-medium text-slate-200">
                                     Final deadline warning (10 minutes before deadline)
                                 </Label>
-                                <p className="text-xs text-slate-400">
-                                    Auto-adds a 10-minute reminder to each task. You can remove it per task in task details.
-                                </p>
                             </div>
                             <GlassToggle
                                 id="deadlineFinalWarningEnabled"
@@ -1657,15 +1637,27 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="border-b border-slate-900 py-3">
-                        <div className="flex items-start gap-4">
+                    <div className="py-3 border-b border-slate-900">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 min-w-0 space-y-1">
+                                <Label htmlFor="defaultRequiresProofForAllTasks" className="text-slate-200">
+                                    Require proof for all new tasks
+                                </Label>
+                            </div>
+                            <GlassToggle
+                                id="defaultRequiresProofForAllTasks"
+                                checked={defaultRequiresProofForAllTasks}
+                                onChange={setDefaultRequiresProofForAllTasks}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="py-3 border-b border-slate-900">
+                        <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="voucherCanViewActiveTasksEnabled" className="text-slate-200">
                                     Allow vouchers to view my active tasks
                                 </Label>
-                                <p className="text-xs text-slate-400">
-                                    Controls whether selected vouchers can see your tasks in ACTIVE or POSTPONED status.
-                                </p>
                             </div>
                             <GlassToggle
                                 id="voucherCanViewActiveTasksEnabled"
@@ -1675,15 +1667,12 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="border-b border-slate-900 py-3">
-                        <div className="flex items-start gap-4">
+                    <div className="py-3">
+                        <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="mobileNotificationsEnabled" className="text-slate-200">
                                     Enable mobile notifications
                                 </Label>
-                                <p className="text-xs text-slate-400">
-                                    Get push updates for deadlines, voucher actions, and important account events.
-                                </p>
                                 {!VAPID_PUBLIC_KEY && (
                                     <p className="text-xs text-amber-300">
                                         Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY, so push cannot be enabled yet.
@@ -1723,19 +1712,13 @@ export default function SettingsClient({
             <section className="space-y-4 border-b border-slate-900 pb-8">
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-white">AI Features</h2>
-                    <p className="text-sm text-slate-400">
-                        Opt in to AI-powered helpers.
-                    </p>
                 </div>
-                <div className="border-b border-slate-900 py-3">
-                    <div className="flex items-start gap-4">
+                <div className="py-3">
+                    <div className="flex items-center gap-4">
                         <div className="flex-1 min-w-0 space-y-1">
                             <Label htmlFor="aiFriendEnabled" className="text-slate-200">
                                 Add AI as a friend
                             </Label>
-                            <p className="text-xs text-slate-400">
-                                When enabled, {AI_VOUCHER_DISPLAY_NAME} is added to your friends list and appears in voucher pickers.
-                            </p>
                         </div>
                         <GlassToggle
                             id="aiFriendEnabled"
@@ -1752,45 +1735,38 @@ export default function SettingsClient({
             <section className="space-y-4 border-b border-slate-900 pb-8">
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-white">Google Calendar</h2>
-                    <p className="text-sm text-slate-400">
-                        Configure Vouch to Google and Google to Vouch sync independently. Use -event when creating a task to sync it with Google Calendar.
-                    </p>
                 </div>
 
                 <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                        {!googleConnected ? (
+                    <div className="py-3">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 min-w-0 space-y-1">
+                                <Label htmlFor="googleConnectedToggle" className="text-slate-200">
+                                    Connect Google
+                                </Label>
+                            </div>
+                            <GlassToggle
+                                id="googleConnectedToggle"
+                                checked={googleConnected}
+                                disabled={isGoogleActionLoading}
+                                onChange={handleGoogleConnectionToggle}
+                            />
+                        </div>
+                    </div>
+
+                    {googleConnected && (
+                        <div className="flex flex-wrap items-center gap-2">
                             <Button
                                 type="button"
-                                onClick={handleGoogleConnect}
+                                variant="ghost"
+                                onClick={handleGoogleRefreshCalendars}
                                 disabled={isGoogleActionLoading}
-                                className="bg-slate-100 text-slate-950 hover:bg-white font-semibold"
+                                className="border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
                             >
-                                {isGoogleActionLoading ? "Connecting..." : "Connect Google"}
+                                {isGoogleActionLoading ? "Working..." : "Refresh Calendars"}
                             </Button>
-                        ) : (
-                            <>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    onClick={handleGoogleRefreshCalendars}
-                                    disabled={isGoogleActionLoading}
-                                    className="border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-                                >
-                                    {isGoogleActionLoading ? "Working..." : "Refresh Calendars"}
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    onClick={handleGoogleDisconnect}
-                                    disabled={isGoogleActionLoading}
-                                    className="text-red-300 hover:text-red-200 hover:bg-red-500/10"
-                                >
-                                    Disconnect & Forget
-                                </Button>
-                            </>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
                     {googleAccountEmail && (
                         <p className="text-xs text-slate-400">
@@ -1834,7 +1810,7 @@ export default function SettingsClient({
                             </div>
 
                             <div className="border-b border-slate-900 py-3">
-                                <div className="flex items-start gap-4">
+                                <div className="flex items-center gap-4">
                                     <div className="flex-1 min-w-0 space-y-1">
                                         <Label htmlFor="googleSyncAppToGoogleEnabled" className="text-slate-200">
                                             Sync Vouch -&gt; Google Calendar
@@ -1853,7 +1829,7 @@ export default function SettingsClient({
                             </div>
 
                             <div className="border-b border-slate-900 py-3">
-                                <div className="flex items-start gap-4">
+                                <div className="flex items-center gap-4">
                                     <div className="flex-1 min-w-0 space-y-1">
                                         <Label htmlFor="googleSyncGoogleToAppEnabled" className="text-slate-200">
                                             Sync Google Calendar -&gt; Vouch
@@ -1872,7 +1848,7 @@ export default function SettingsClient({
                             </div>
 
                             <div className="border-b border-slate-900 py-3">
-                                <div className="flex items-start gap-4">
+                                <div className="flex items-center gap-4">
                                     <div className="flex-1 min-w-0 space-y-1">
                                         <Label htmlFor="googleImportOnlyTaggedEvents" className="text-slate-200">
                                             Import only tagged Google events
@@ -1916,43 +1892,23 @@ export default function SettingsClient({
                 </div>
             </section>
 
-            <section className="space-y-3 border-b border-slate-900 pb-8">
-                <h2 className="text-xl font-semibold text-white">Account</h2>
-                <div className="flex justify-between border-b border-slate-900 py-2 text-sm">
-                    <span className="text-slate-400">Member since</span>
-                    <span className="text-white">
-                        {formatDateOnlyDDMMYYYY(profile.created_at)}
-                    </span>
-                </div>
-            </section>
-
             <section className="space-y-4 border-b border-red-950 pb-8">
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-red-300">Danger Zone</h2>
-                    <p className="text-sm text-red-200/80">
-                        Permanently delete your account and associated data.
-                    </p>
                 </div>
                 <div className="space-y-2">
-                    <p className="text-sm text-slate-400">
-                        Download a copy of all your data — tasks, ledger, sessions, friends, and more — as a JSON file.
-                    </p>
                     <Button
                         type="button"
-                        variant="outline"
                         onClick={handleExportData}
                         disabled={isExporting}
-                        className="border-slate-700 text-slate-200 hover:bg-slate-800"
+                        className="bg-sky-700 hover:bg-sky-600 text-white font-semibold"
                     >
-                        {isExporting ? "Exporting..." : "Export my data"}
+                        {isExporting ? "Exporting..." : "Export my data as a JSON"}
                     </Button>
                     {exportError && (
                         <p className="text-sm text-red-400">{exportError}</p>
                     )}
                 </div>
-                <p className="text-sm text-red-100/90">
-                    This action is irreversible. Your profile, tasks, reminders, friendships, and related records will be deleted.
-                </p>
                 {deleteAccountError && (
                     <p className="border-b border-red-900/60 pb-2 text-sm text-red-300">
                         {deleteAccountError}
@@ -1985,7 +1941,7 @@ export default function SettingsClient({
                     <h2 className="text-xl font-semibold text-white">Charity Choice</h2>
                 </div>
                 <div className="border-b border-slate-900 py-3">
-                    <div className="flex items-start gap-4">
+                    <div className="flex items-center gap-4">
                         <div className="flex-1 min-w-0 space-y-1">
                             <Label htmlFor="charityEnabled" className="text-slate-200">
                                 Enable charity mode
@@ -2026,9 +1982,6 @@ export default function SettingsClient({
                         </Select>
                     </div>
                 ) : null}
-                <p className="text-sm text-slate-400">
-                    No payment is processed in app; you pay manually outside the app.
-                </p>
             </section>
 
             {showDeleteModal && (

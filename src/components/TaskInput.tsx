@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createTask } from "@/actions/tasks";
-import { Calendar, Check, Loader2, Repeat, User } from "lucide-react";
+import { Calendar, Camera, Check, Loader2, Repeat, User } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -107,6 +107,7 @@ interface TaskInputProps {
     defaultCurrency: SupportedCurrency;
     defaultVoucherId: string | null;
     defaultEventDurationMinutes: number;
+    defaultRequiresProofForAllTasks: boolean;
     selfUserId: string;
     onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
 }
@@ -139,6 +140,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     defaultCurrency,
     defaultVoucherId,
     defaultEventDurationMinutes,
+    defaultRequiresProofForAllTasks,
     selfUserId,
     onCreateTaskOptimistic,
 }: TaskInputProps, ref) {
@@ -168,6 +170,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const [recurrenceLabel, setRecurrenceLabel] = useState<string>("");
     const [showCustomRecurrenceInline, setShowCustomRecurrenceInline] = useState(false);
     const [customDays, setCustomDays] = useState<number[]>([]);
+    const [requiresProof, setRequiresProof] = useState(defaultRequiresProofForAllTasks);
     const [deadlineError, setDeadlineError] = useState<string | null>(null);
 
     const [showShake, setShowShake] = useState(false);
@@ -426,6 +429,10 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     useEffect(() => {
         setFailureCost(defaultFailureCostEuros);
     }, [defaultFailureCostEuros]);
+
+    useEffect(() => {
+        setRequiresProof(defaultRequiresProofForAllTasks);
+    }, [defaultRequiresProofForAllTasks]);
 
     useEffect(() => {
         // Profile default takes precedence over localStorage — if the user has a
@@ -761,7 +768,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         const { title: taskTitle, subtasks } = parseTaskTitleAndSubtasks(title);
         const requiredPomoParse = parseRequiredPomoFromTitle(title);
         const requiredPomoMinutes = requiredPomoParse.requiredPomoMinutes;
-        const requiresProof = parseProofRequiredFromTitle(title);
+        const titleRequiresProof = parseProofRequiredFromTitle(title);
         const parsedRepeatType = parseRepeatTokenFromTitle(title);
         const effectiveRecurrenceType = parsedRepeatType ?? (recurrenceType || null);
 
@@ -865,7 +872,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             rawTitle: title,
             subtasks,
             requiredPomoMinutes,
-            requiresProof,
+            requiresProof: requiresProof || titleRequiresProof,
             deadlineIso: deadlineToSubmit.toISOString(),
             eventStartIso: eventStartDate ? eventStartDate.toISOString() : null,
             eventEndIso: eventEndDate ? eventEndDate.toISOString() : null,
@@ -886,6 +893,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             setRecurrenceType("");
             setRecurrenceLabel("");
             setShowCustomRecurrenceInline(false);
+            setRequiresProof(defaultRequiresProofForAllTasks);
             resetDeadlineToDefault();
             return;
         }
@@ -937,6 +945,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                 setRecurrenceType("");
                 setRecurrenceLabel("");
                 setShowCustomRecurrenceInline(false);
+                setRequiresProof(defaultRequiresProofForAllTasks);
                 resetDeadlineToDefault();
             }
         } catch (error) {
@@ -1219,6 +1228,21 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     )}
                                 </DropdownMenuContent>
                             </DropdownMenu>
+
+                            <button
+                                type="button"
+                                onClick={() => setRequiresProof((prev) => !prev)}
+                                className={cn(
+                                    "h-9 px-2.5 shrink-0 border rounded-lg transition-all flex items-center justify-center gap-1.5 text-[10px] font-mono",
+                                    requiresProof
+                                        ? "bg-cyan-500/15 border-cyan-400/40 text-cyan-200"
+                                        : "bg-slate-800/30 hover:bg-slate-700/30 border-slate-700/30 text-slate-400 hover:text-slate-200"
+                                )}
+                                title={requiresProof ? "Proof required by default for this task" : "Proof optional for this task"}
+                            >
+                                <Camera className="h-3.5 w-3.5" />
+                                <span>Proof</span>
+                            </button>
                         </div>
 
                         <button

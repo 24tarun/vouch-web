@@ -434,6 +434,7 @@ export async function updateUserDefaults(formData: FormData) {
     const deadlineOneHourWarningEnabledRaw = formData.get("deadlineOneHourWarningEnabled");
     const deadlineFinalWarningEnabledRaw = formData.get("deadlineFinalWarningEnabled");
     const voucherCanViewActiveTasksEnabledRaw = formData.get("voucherCanViewActiveTasksEnabled");
+    const defaultRequiresProofForAllTasksRaw = formData.get("defaultRequiresProofForAllTasks");
     const mobileNotificationsEnabledRaw = formData.get("mobileNotificationsEnabled");
     const currencyRaw = formData.get("currency");
     const timezoneRaw = formData.get("timezone");
@@ -455,7 +456,7 @@ export async function updateUserDefaults(formData: FormData) {
 
     const { data: currentProfile, error: currentProfileError } = await supabase
         .from("profiles")
-        .select("currency, default_event_duration_minutes, charity_enabled, selected_charity_id, timezone, timezone_user_set")
+        .select("currency, default_event_duration_minutes, charity_enabled, selected_charity_id, timezone, timezone_user_set, default_requires_proof_for_all_tasks")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -553,6 +554,16 @@ export async function updateUserDefaults(formData: FormData) {
             return { error: "Mobile notifications toggle value is invalid." };
         }
         mobileNotificationsEnabled = mobileNotificationsEnabledRaw === "true";
+    }
+    let defaultRequiresProofForAllTasks: boolean | undefined;
+    if (defaultRequiresProofForAllTasksRaw != null && defaultRequiresProofForAllTasksRaw !== "") {
+        if (typeof defaultRequiresProofForAllTasksRaw !== "string") {
+            return { error: "Default proof requirement toggle value is invalid." };
+        }
+        if (defaultRequiresProofForAllTasksRaw !== "true" && defaultRequiresProofForAllTasksRaw !== "false") {
+            return { error: "Default proof requirement toggle value is invalid." };
+        }
+        defaultRequiresProofForAllTasks = defaultRequiresProofForAllTasksRaw === "true";
     }
     let timezone: string | undefined;
     if (hasTimezoneField) {
@@ -667,6 +678,9 @@ export async function updateUserDefaults(formData: FormData) {
     }
     if (voucherCanViewActiveTasksEnabled !== undefined) {
         profileUpdate.voucher_can_view_active_tasks = voucherCanViewActiveTasksEnabled;
+    }
+    if (defaultRequiresProofForAllTasks !== undefined) {
+        profileUpdate.default_requires_proof_for_all_tasks = defaultRequiresProofForAllTasks;
     }
     if (mobileNotificationsEnabled !== undefined) {
         profileUpdate.mobile_notifications_enabled = mobileNotificationsEnabled;
