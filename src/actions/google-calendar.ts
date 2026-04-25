@@ -13,7 +13,6 @@ import {
     enableGoogleCalendarGoogleToAppForUser,
     listCalendarsForUserConnection,
     setGoogleCalendarDefaultEventDuration,
-    setGoogleCalendarDeadlineSourcePreference,
     setGoogleCalendarImportTaggedOnlyForUser,
     setGoogleCalendarSelection,
 } from "@/lib/google-calendar/sync";
@@ -29,8 +28,8 @@ export interface GoogleCalendarIntegrationState {
     watchExpiresAt: string | null;
     lastSyncAt: string | null;
     lastError: string | null;
-    deadlineSourcePreference: "start" | "end";
     defaultEventDurationMinutes: number;
+    defaultEventColorId: string;
 }
 
 async function getAuthenticatedUserId(): Promise<string> {
@@ -83,8 +82,8 @@ export async function getGoogleCalendarIntegrationState(): Promise<GoogleCalenda
             watchExpiresAt: null,
             lastSyncAt: null,
             lastError: null,
-            deadlineSourcePreference: "start" as const,
             defaultEventDurationMinutes: 60,
+            defaultEventColorId: "9",
         };
     }
 
@@ -105,8 +104,8 @@ export async function getGoogleCalendarIntegrationState(): Promise<GoogleCalenda
             watchExpiresAt: null,
             lastSyncAt: null,
             lastError: null,
-            deadlineSourcePreference: "start" as const,
             defaultEventDurationMinutes: 60,
+            defaultEventColorId: "9",
         };
     }
 
@@ -121,8 +120,8 @@ export async function getGoogleCalendarIntegrationState(): Promise<GoogleCalenda
         watchExpiresAt: (data.watch_expires_at as string | null) || null,
         lastSyncAt: (data.last_sync_at as string | null) || null,
         lastError: (data.last_error as string | null) || null,
-        deadlineSourcePreference: ((data.deadline_source_preference as string) === "end" ? "end" : "start") as "start" | "end",
         defaultEventDurationMinutes: Number(data.default_event_duration_minutes) || 60,
+        defaultEventColorId: (data.default_event_color_id as string | null) || "9",
     };
 }
 
@@ -226,18 +225,6 @@ export async function disconnectGoogleCalendar() {
         return { success: true };
     } catch (error) {
         return { error: error instanceof Error ? error.message : "Unable to disconnect Google Calendar." };
-    }
-}
-
-export async function setGoogleCalendarDeadlineSource(preference: "start" | "end") {
-    const supabase = await createClient();
-    const userId = await getAuthenticatedUserId();
-
-    try {
-        await setGoogleCalendarDeadlineSourcePreference(supabase, userId, preference);
-        return { success: true };
-    } catch (error) {
-        return { error: error instanceof Error ? error.message : "Unable to update deadline source preference." };
     }
 }
 

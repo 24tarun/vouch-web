@@ -7,7 +7,6 @@ import {
     disableGoogleCalendarGoogleToAppForUser,
     listCalendarsForUserConnection,
     setGoogleCalendarSelection,
-    setGoogleCalendarDeadlineSourcePreference,
     setGoogleCalendarDefaultEventDuration,
     disconnectGoogleCalendarForUser,
     setGoogleCalendarImportTaggedOnlyForUser,
@@ -18,7 +17,6 @@ type MobileSyncAction =
     | { type: "toggleAppToGoogle"; enabled: boolean }
     | { type: "toggleGoogleToApp"; enabled: boolean }
     | { type: "setCalendar"; calendarId: string }
-    | { type: "setDeadlineSource"; preference: "start" | "end" }
     | { type: "enqueueTask"; taskId: string }
     | { type: "setEventDuration"; durationMinutes: number }
     | { type: "setImportTaggedOnly"; enabled: boolean }
@@ -79,14 +77,6 @@ export async function POST(request: NextRequest) {
                     return NextResponse.json({ error: "Calendar not found" }, { status: 400 });
                 }
                 await setGoogleCalendarSelection(supabase, userId, selected.id, selected.summary);
-                return NextResponse.json({ success: true });
-            }
-
-            case "setDeadlineSource": {
-                if (body.preference !== "start" && body.preference !== "end") {
-                    return NextResponse.json({ error: "Invalid preference" }, { status: 400 });
-                }
-                await setGoogleCalendarDeadlineSourcePreference(supabase, userId, body.preference);
                 return NextResponse.json({ success: true });
             }
 

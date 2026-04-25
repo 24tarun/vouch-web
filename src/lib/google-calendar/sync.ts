@@ -546,37 +546,23 @@ async function initializeGoogleSyncToken(accessToken: string, calendarId: string
     return response.nextSyncToken || null;
 }
 
-async function backfillAndInitGoogleSyncToken(
+async function initCurrentGoogleSyncToken(
     accessToken: string,
     calendarId: string
-): Promise<{ syncToken: string | null; items: GoogleCalendarEvent[] }> {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const allItems: GoogleCalendarEvent[] = [];
-    let pageToken: string | undefined;
-    let nextSyncToken: string | null = null;
+): Promise<string | null> {
+    const params = new URLSearchParams({
+        showDeleted: "false",
+        maxResults: "1",
+        timeMin: new Date().toISOString(),
+    });
 
-    do {
-        const params = new URLSearchParams({
-            showDeleted: "false",
-            maxResults: "2500",
-            timeMin: thirtyDaysAgo,
-        });
-        if (pageToken) params.set("pageToken", pageToken);
+    const response = await googleFetch<GoogleEventDeltaResponse>(
+        `${GOOGLE_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+        "Could not initialize Google Calendar sync token."
+    );
 
-        const response = await googleFetch<GoogleEventDeltaResponse>(
-            `${GOOGLE_API_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } },
-            "Could not backfill Google Calendar events."
-        );
-
-        for (const item of response.items || []) {
-            if (item.status !== "cancelled") allItems.push(item);
-        }
-        nextSyncToken = response.nextSyncToken || nextSyncToken;
-        pageToken = response.nextPageToken;
-    } while (pageToken);
-
-    return { syncToken: nextSyncToken, items: allItems };
+    return response.nextSyncToken || null;
 }
 
 async function createGoogleCalendarWatch(
@@ -885,11 +871,8 @@ export async function enableGoogleCalendarGoogleToAppForUser(userId: string): Pr
     const fresh = await ensureFreshGoogleAccessToken(supabase, connection);
 
     let syncToken = connection.sync_token;
-    let backfillItems: GoogleCalendarEvent[] = [];
     if (!syncToken) {
-        const result = await backfillAndInitGoogleSyncToken(fresh.accessToken, connection.selected_calendar_id);
-        syncToken = result.syncToken;
-        backfillItems = result.items;
+        syncToken = await initCurrentGoogleSyncToken(fresh.accessToken, connection.selected_calendar_id);
     }
 
     if (connection.watch_channel_id && connection.watch_resource_id) {
@@ -921,16 +904,6 @@ export async function enableGoogleCalendarGoogleToAppForUser(userId: string): Pr
         throw new Error(error.message);
     }
 
-    // Import any events collected during the initial backfill (calendar selection or first enable).
-    if (backfillItems.length > 0) {
-        const refreshedConnection = await getConnectionByUserId(supabase, userId);
-        if (refreshedConnection) {
-            await processGoogleEventsForUser(supabase, userId, refreshedConnection, backfillItems);
-        }
-    }
-
-    // Run one incremental delta pass for any changes that arrived during the backfill window.
-    await processGoogleCalendarDeltaForUser(userId);
 }
 
 export async function disableGoogleCalendarGoogleToAppForUser(userId: string): Promise<void> {
@@ -1040,7 +1013,7 @@ export async function enqueueGoogleCalendarOutbox(
     const { data, error } = await (supabase.from("google_calendar_sync_outbox") as any)
         .insert({
             user_id: userId,
-            task_id: taskId,
+            task_id: (intent === "DELETE" && !task) ? null : taskId,
             intent,
             status: "PENDING",
             next_attempt_at: new Date().toISOString(),
@@ -1475,7 +1448,6 @@ async function processGoogleEventsForUser(
         connection.selected_calendar_id
     );
     const importOnlyTaggedGoogleEvents = Boolean(connection.import_only_tagged_google_events);
-    const deadlineSource = connection.deadline_source_preference || "start";
 
     for (const event of events) {
         if (!event.id) continue;
@@ -1567,7 +1539,7 @@ async function processGoogleEventsForUser(
             continue;
         }
         const eventColorId = isGoogleEventColorId(event.colorId) ? event.colorId : null;
-        const deadlineIso = deadlineSource === "start" ? (eventStartIso || eventEndIso) : eventEndIso;
+        const deadlineIso = eventEndIso;
 
         const googleUpdatedTs = parseIsoTimestamp(event.updated);
 
@@ -1817,17 +1789,6 @@ export async function listCalendarsForUserConnection(
 
         throw error;
     }
-}
-
-export async function setGoogleCalendarDeadlineSourcePreference(
-    supabase: SupabaseClient<Database>,
-    userId: string,
-    preference: "start" | "end"
-): Promise<void> {
-    const { error } = await (supabase.from("google_calendar_connections") as any)
-        .update({ deadline_source_preference: preference } as any)
-        .eq("user_id", userId as any);
-    if (error) throw new Error(error.message);
 }
 
 export async function setGoogleCalendarDefaultEventDuration(

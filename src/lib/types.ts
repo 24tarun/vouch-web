@@ -232,8 +232,8 @@ export interface GoogleCalendarConnection {
     last_webhook_at: string | null;
     last_sync_at: string | null;
     last_error: string | null;
-    deadline_source_preference: 'start' | 'end';
     default_event_duration_minutes: number;
+    default_event_color_id: string;
     created_at: string;
     updated_at: string;
 }
@@ -314,6 +314,8 @@ export interface RecurrenceRule {
     rule_config: RecurrenceRuleConfig;
     timezone: string;
     google_sync_for_rule: boolean;
+    time_bound_for_rule?: boolean;
+    window_start_offset_minutes?: number | null;
     google_event_duration_minutes?: number | null;
     google_event_color_id?: string | null;
     manual_reminder_offsets_ms?: number[] | null;

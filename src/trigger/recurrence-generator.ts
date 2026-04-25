@@ -30,7 +30,7 @@ export const recurrenceGenerator = schedules.task({
         const { data: rules, error } = await supabase
             .from("recurrence_rules")
             .select(
-                "id, user_id, voucher_id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, last_generated_date, created_at, manual_reminder_offsets_ms, google_sync_for_rule, google_event_duration_minutes, google_event_color_id"
+                "id, user_id, voucher_id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, last_generated_date, created_at, manual_reminder_offsets_ms, google_sync_for_rule, time_bound_for_rule, window_start_offset_minutes, google_event_duration_minutes, google_event_color_id"
             ) as { data: RecurrenceRule[] | null, error: any };
 
         if (error) {
@@ -479,13 +479,14 @@ async function processRule(
         }
 
         const deadlineIso = new Date(guess).toISOString();
-        const eventDurationMinutes = Number((rule as any).google_event_duration_minutes);
-        const hasEventDuration =
-            Boolean(rule.google_sync_for_rule) &&
-            Number.isFinite(eventDurationMinutes) &&
-            eventDurationMinutes > 0;
-        const eventStartIso = hasEventDuration
-            ? new Date(new Date(deadlineIso).getTime() - eventDurationMinutes * 60 * 1000).toISOString()
+        const windowStartOffsetMinutes = Number(
+            (rule as any).window_start_offset_minutes ?? (rule as any).google_event_duration_minutes
+        );
+        const hasWindowStartOffset =
+            Number.isFinite(windowStartOffsetMinutes) &&
+            windowStartOffsetMinutes > 0;
+        const eventStartIso = hasWindowStartOffset
+            ? new Date(new Date(deadlineIso).getTime() - windowStartOffsetMinutes * 60 * 1000).toISOString()
             : null;
 
         // Create Task
@@ -501,9 +502,11 @@ async function processRule(
                 requires_proof: Boolean(rule.requires_proof),
                 deadline: deadlineIso,
                 status: "ACTIVE",
+                start_at: Boolean((rule as any).time_bound_for_rule) ? eventStartIso : null,
+                is_strict: Boolean((rule as any).time_bound_for_rule),
                 google_sync_for_task: Boolean(rule.google_sync_for_rule),
-                google_event_start_at: eventStartIso,
-                google_event_end_at: hasEventDuration ? deadlineIso : null,
+                google_event_start_at: Boolean(rule.google_sync_for_rule) ? eventStartIso : null,
+                google_event_end_at: Boolean(rule.google_sync_for_rule) && hasWindowStartOffset ? deadlineIso : null,
                 google_event_color_id:
                     Boolean(rule.google_sync_for_rule) &&
                         isGoogleEventColorId((rule as any).google_event_color_id)

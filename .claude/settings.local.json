@@ -12,7 +12,8 @@
       "mcp__c5fe56a3-78b2-4e5e-bb68-f97f26d052b0__execute_sql",
       "mcp__c5fe56a3-78b2-4e5e-bb68-f97f26d052b0__apply_migration",
       "mcp__c5fe56a3-78b2-4e5e-bb68-f97f26d052b0__list_projects",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "mcp__c5fe56a3-78b2-4e5e-bb68-f97f26d052b0__list_migrations"
     ]
   },
   "enableAllProjectMcpServers": true,
