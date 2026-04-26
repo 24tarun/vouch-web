@@ -195,11 +195,14 @@ export default function SettingsClient({
     const effectiveDefaultVoucherId = hasValidDefaultVoucher ? (defaultVoucherId as string) : profile.id;
     const currencySymbol = getCurrencySymbol(currency);
     const failureCostBounds = getFailureCostBounds(currency);
-    const pushApiSupported =
-        typeof window !== "undefined" &&
-        "serviceWorker" in navigator &&
-        "PushManager" in window &&
-        "Notification" in window;
+    const [pushApiSupported, setPushApiSupported] = useState(false);
+    useEffect(() => {
+        setPushApiSupported(
+            "serviceWorker" in navigator &&
+            "PushManager" in window &&
+            "Notification" in window
+        );
+    }, []);
     const canEnableMobileNotifications = VAPID_PUBLIC_KEY.length > 0 && pushApiSupported;
     const deviceTimeZone = useMemo(
         () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
@@ -682,13 +685,14 @@ export default function SettingsClient({
             }
 
             const registration = await navigator.serviceWorker.ready;
-            let subscription = await registration.pushManager.getSubscription();
-            if (!subscription) {
-                subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-                });
+            const existing = await registration.pushManager.getSubscription();
+            if (existing) {
+                await existing.unsubscribe();
             }
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+            });
 
             const serialized = JSON.parse(JSON.stringify(subscription));
             const result = await saveSubscription(serialized);
@@ -910,13 +914,10 @@ export default function SettingsClient({
 
             setGoogleConnected(false);
             setGoogleSyncAppToGoogleEnabled(false);
-            setGoogleSyncGoogleToAppEnabled(false);
-            setGoogleImportOnlyTaggedEvents(false);
             setGoogleAccountEmail(null);
             setGoogleSelectedCalendarId("");
             setGoogleSelectedCalendarSummary(null);
             setGoogleCalendars([]);
-            setGoogleLastSyncAt(null);
             setGoogleLastError(null);
             setGoogleActionSuccess("Google Calendar disconnected and forgotten.");
         } catch (error) {
@@ -1381,51 +1382,45 @@ export default function SettingsClient({
                 )}
             </section>
 
-            <section className="space-y-4 border-b border-slate-900 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">Profile</h2>
-                </div>
+	            <section className="space-y-4 border-b border-slate-900 pb-8">
+	                <div className="space-y-1">
+	                    <h2 className="text-xl font-semibold text-white">Defaults</h2>
+	                </div>
 
-                <form onSubmit={handleUsernameSubmit} className="space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="username" className="text-slate-200">
-                            Username
-                        </Label>
-                        <Input
-                            id="username"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
-                            minLength={3}
-                            required
-                            className="bg-slate-800/40 border-slate-700 text-white"
-                        />
-                    </div>
+	                <div className="space-y-4">
+	                    <form onSubmit={handleUsernameSubmit} className="space-y-4">
+	                        <div className="space-y-2">
+	                            <Label htmlFor="username" className="text-slate-200">
+	                                Username
+	                            </Label>
+	                            <Input
+	                                id="username"
+	                                value={username}
+	                                onChange={(e) => setUsername(e.target.value)}
+	                                minLength={3}
+	                                required
+	                                className="bg-slate-800/40 border-slate-700 text-white"
+	                            />
+	                        </div>
+	
+	                        {usernameError && <p className="text-sm text-red-400">{usernameError}</p>}
+	                        {usernameSuccess && (
+	                            <p className="text-sm text-green-400">Username updated!</p>
+	                        )}
+	
+	                        <Button
+	                            type="submit"
+	                            disabled={isUsernameLoading || username === profile.username}
+	                            className="bg-slate-100 text-slate-950 hover:bg-white font-semibold"
+	                        >
+	                            {isUsernameLoading ? "Saving..." : "Save Changes"}
+	                        </Button>
+	                    </form>
 
-                    {usernameError && <p className="text-sm text-red-400">{usernameError}</p>}
-                    {usernameSuccess && (
-                        <p className="text-sm text-green-400">Username updated!</p>
-                    )}
-
-                    <Button
-                        type="submit"
-                        disabled={isUsernameLoading || username === profile.username}
-                        className="bg-slate-100 text-slate-950 hover:bg-white font-semibold"
-                    >
-                        {isUsernameLoading ? "Saving..." : "Save Changes"}
-                    </Button>
-                </form>
-            </section>
-
-            <section className="space-y-4 border-b border-slate-900 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">Defaults</h2>
-                </div>
-
-                <div className="space-y-4">
-                    <div className="space-y-2">
-                        <Label htmlFor="defaultPomoDurationMinutes" className="text-slate-200">
-                            Default Pomodoro Duration (minutes)
-                        </Label>
+	                    <div className="space-y-2">
+	                        <Label htmlFor="defaultPomoDurationMinutes" className="text-slate-200">
+	                            Default Pomodoro Duration (minutes)
+	                        </Label>
                         <Input
                             id="defaultPomoDurationMinutes"
                             type="number"

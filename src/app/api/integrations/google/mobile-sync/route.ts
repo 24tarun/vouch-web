@@ -3,13 +3,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
     enableGoogleCalendarAppToGoogleForUser,
     disableGoogleCalendarAppToGoogleForUser,
-    enableGoogleCalendarGoogleToAppForUser,
-    disableGoogleCalendarGoogleToAppForUser,
     listCalendarsForUserConnection,
     setGoogleCalendarSelection,
     setGoogleCalendarDefaultEventDuration,
     disconnectGoogleCalendarForUser,
-    setGoogleCalendarImportTaggedOnlyForUser,
     enqueueGoogleCalendarOutbox,
 } from "@/lib/google-calendar/sync";
 
@@ -62,11 +59,6 @@ export async function POST(request: NextRequest) {
             }
 
             case "toggleGoogleToApp": {
-                if (body.enabled) {
-                    await enableGoogleCalendarGoogleToAppForUser(userId);
-                } else {
-                    await disableGoogleCalendarGoogleToAppForUser(userId);
-                }
                 return NextResponse.json({ success: true });
             }
 
@@ -90,7 +82,6 @@ export async function POST(request: NextRequest) {
             }
 
             case "setImportTaggedOnly": {
-                await setGoogleCalendarImportTaggedOnlyForUser(supabase, userId, body.enabled);
                 return NextResponse.json({ success: true });
             }
 

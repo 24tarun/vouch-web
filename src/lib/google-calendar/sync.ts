@@ -549,17 +549,6 @@ export async function disconnectGoogleCalendarForUser(userId: string): Promise<v
         // Strict policy: revocation must succeed before any local integration data is purged.
         await revokeGoogleTokenStrict(tokenForRevocation);
 
-        try {
-            if (connection.watch_channel_id && connection.watch_resource_id && connection.encrypted_access_token) {
-                await stopGoogleCalendarWatch(
-                    decryptSecret(connection.encrypted_access_token),
-                    connection.watch_channel_id,
-                    connection.watch_resource_id
-                );
-            }
-        } catch (error) {
-            console.error("Could not stop Google watch during disconnect:", error);
-        }
     }
 
     const { error: outboxError } = await (supabase.from("google_calendar_sync_outbox") as any)
@@ -921,7 +910,6 @@ export async function processGoogleCalendarOutboxItem(outboxId: number): Promise
         if (shouldFinalize) {
             if (shouldDeleteRemoteEvent && googleEventId && calendarId) {
                 await googleDeleteEvent(fresh.accessToken, calendarId, googleEventId);
-                await insertTombstone(supabase, userId, calendarId, googleEventId);
             }
 
             await (supabase.from("google_calendar_task_links") as any)
