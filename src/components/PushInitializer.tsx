@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { saveSubscription } from "@/actions/push";
 import { haptics } from "@/lib/haptics";
 
-const VAPID_PUBLIC_KEY = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "").trim();
+const VAPID_PUBLIC_KEY = normalizeVapidPublicKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "");
 
 export function PushInitializer() {
     const hasVapidKey = VAPID_PUBLIC_KEY.length > 0;
@@ -66,9 +66,23 @@ export function PushInitializer() {
             }
 
             const reg = await navigator.serviceWorker.ready;
+            let applicationServerKey: Uint8Array;
+            try {
+                applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+            } catch {
+                haptics.error();
+                setError("NEXT_PUBLIC_VAPID_PUBLIC_KEY is malformed. Regenerate VAPID keys and redeploy.");
+                return;
+            }
+            if (!isLikelyValidVapidPublicKey(applicationServerKey)) {
+                haptics.error();
+                setError("NEXT_PUBLIC_VAPID_PUBLIC_KEY is invalid (expected a 65-byte uncompressed key).");
+                return;
+            }
+
             const sub = await reg.pushManager.subscribe({
                 userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+                applicationServerKey: applicationServerKey as BufferSource,
             });
 
             const result = await saveSubscription(JSON.parse(JSON.stringify(sub)));
@@ -83,6 +97,12 @@ export function PushInitializer() {
         } catch (err) {
             console.error("Subscription failed:", err);
             haptics.error();
+            if (err instanceof DOMException && err.name === "AbortError") {
+                setError(
+                    "Push registration failed. Check VAPID key pair/environment variables and browser push service availability."
+                );
+                return;
+            }
             setError(err instanceof Error ? err.message : "Subscription failed.");
         }
     };
@@ -133,7 +153,7 @@ export function PushInitializer() {
 }
 
 function urlBase64ToUint8Array(base64String: string) {
-    const normalized = base64String.trim();
+    const normalized = normalizeVapidPublicKey(base64String);
     const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
     const base64 = (normalized + padding).replace(/\-/g, "+").replace(/_/g, "/");
     const rawData = window.atob(base64);
@@ -142,4 +162,12 @@ function urlBase64ToUint8Array(base64String: string) {
         outputArray[i] = rawData.charCodeAt(i);
     }
     return outputArray;
+}
+
+function normalizeVapidPublicKey(value: string) {
+    return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
+}
+
+function isLikelyValidVapidPublicKey(key: Uint8Array) {
+    return key.byteLength === 65 && key[0] === 0x04;
 }

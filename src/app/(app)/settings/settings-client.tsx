@@ -62,7 +62,7 @@ import { AI_VOUCHER_DISPLAY_NAME, AI_PROFILE_ID } from "@/lib/ai-voucher/constan
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
 import { formatTimeZoneLabel, getTimeZoneOptions } from "@/lib/timezones";
 
-const VAPID_PUBLIC_KEY = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "").trim();
+const VAPID_PUBLIC_KEY = normalizeVapidPublicKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "");
 
 interface SettingsClientProps {
     profile: Profile;
@@ -689,9 +689,25 @@ export default function SettingsClient({
             if (existing) {
                 await existing.unsubscribe();
             }
+            let applicationServerKey: Uint8Array;
+            try {
+                applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+            } catch {
+                setMobileNotificationsError(
+                    "NEXT_PUBLIC_VAPID_PUBLIC_KEY is malformed. Regenerate VAPID keys and redeploy."
+                );
+                return;
+            }
+            if (!isLikelyValidVapidPublicKey(applicationServerKey)) {
+                setMobileNotificationsError(
+                    "NEXT_PUBLIC_VAPID_PUBLIC_KEY is invalid (expected a 65-byte uncompressed key)."
+                );
+                return;
+            }
+
             const subscription = await registration.pushManager.subscribe({
                 userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+                applicationServerKey: applicationServerKey as BufferSource,
             });
 
             const serialized = JSON.parse(JSON.stringify(subscription));
@@ -704,6 +720,12 @@ export default function SettingsClient({
             setMobileNotificationsEnabled(true);
         } catch (error) {
             console.error(error);
+            if (error instanceof DOMException && error.name === "AbortError") {
+                setMobileNotificationsError(
+                    "Push registration failed. Check VAPID key pair/environment variables and browser push service availability."
+                );
+                return;
+            }
             setMobileNotificationsError(
                 error instanceof Error && error.message
                     ? error.message
@@ -1922,7 +1944,7 @@ export default function SettingsClient({
 }
 
 function urlBase64ToUint8Array(base64String: string) {
-    const normalized = base64String.trim();
+    const normalized = normalizeVapidPublicKey(base64String);
     const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
     const base64 = (normalized + padding).replace(/\-/g, "+").replace(/_/g, "/");
     const rawData = window.atob(base64);
@@ -1931,4 +1953,12 @@ function urlBase64ToUint8Array(base64String: string) {
         outputArray[i] = rawData.charCodeAt(i);
     }
     return outputArray;
+}
+
+function normalizeVapidPublicKey(value: string) {
+    return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
+}
+
+function isLikelyValidVapidPublicKey(key: Uint8Array) {
+    return key.byteLength === 65 && key[0] === 0x04;
 }
