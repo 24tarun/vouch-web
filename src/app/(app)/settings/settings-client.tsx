@@ -30,7 +30,7 @@ import {
     startGoogleCalendarConnect,
     type GoogleCalendarIntegrationState,
 } from "@/actions/google-calendar";
-import { deleteSubscription, saveSubscription } from "@/actions/push";
+import { deleteSubscription, saveSubscription, sendTestPushNotification } from "@/actions/push";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -153,6 +153,9 @@ export default function SettingsClient({
     );
     const [isMobileNotificationsLoading, setIsMobileNotificationsLoading] = useState(false);
     const [mobileNotificationsError, setMobileNotificationsError] = useState<string | null>(null);
+    const [isTestPushLoading, setIsTestPushLoading] = useState(false);
+    const [testPushStatusMessage, setTestPushStatusMessage] = useState<string | null>(null);
+    const [testPushStatusKind, setTestPushStatusKind] = useState<"success" | "error" | null>(null);
     const [currency, setCurrency] = useState<SupportedCurrency>(initialCurrency);
     const [timeZone, setTimeZone] = useState(profile.timezone || "UTC");
     const [timeZoneUserSet, setTimeZoneUserSet] = useState(profile.timezone_user_set ?? false);
@@ -729,10 +732,40 @@ export default function SettingsClient({
             setMobileNotificationsError(
                 error instanceof Error && error.message
                     ? error.message
-                    : "Could not update mobile notification setting."
+                    : "Could not update web push notification setting."
             );
         } finally {
             setIsMobileNotificationsLoading(false);
+        }
+    }
+
+    async function handleSendTestPush() {
+        if (isTestPushLoading) return;
+
+        setIsTestPushLoading(true);
+        setTestPushStatusMessage(null);
+        setTestPushStatusKind(null);
+
+        try {
+            const result = await sendTestPushNotification();
+            if (!result.success) {
+                setTestPushStatusKind("error");
+                setTestPushStatusMessage(result.error ?? "Could not send test notification.");
+                return;
+            }
+
+            setTestPushStatusKind("success");
+            setTestPushStatusMessage("Test notification sent.");
+        } catch (error) {
+            console.error(error);
+            setTestPushStatusKind("error");
+            setTestPushStatusMessage(
+                error instanceof Error && error.message
+                    ? error.message
+                    : "Could not send test notification."
+            );
+        } finally {
+            setIsTestPushLoading(false);
         }
     }
 
@@ -1628,21 +1661,36 @@ export default function SettingsClient({
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="mobileNotificationsEnabled" className="text-slate-200">
-                                    Enable mobile notifications
+                                    Enable web push notifications
                                 </Label>
-                                {!VAPID_PUBLIC_KEY && (
-                                    <p className="text-xs text-amber-300">
-                                        Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY, so push cannot be enabled yet.
-                                    </p>
-                                )}
-                                {VAPID_PUBLIC_KEY && !pushApiSupported && (
-                                    <p className="text-xs text-slate-500">
-                                        This browser does not currently support Web Push.
-                                    </p>
-                                )}
                                 {mobileNotificationsError && (
                                     <p className="text-xs text-red-400">{mobileNotificationsError}</p>
                                 )}
+                                <div className="pt-2 flex items-center gap-3">
+                                    <Button
+                                        type="button"
+                                        onClick={handleSendTestPush}
+                                        disabled={
+                                            isTestPushLoading ||
+                                            isMobileNotificationsLoading ||
+                                            !mobileNotificationsEnabled
+                                        }
+                                        className="h-8 px-3 text-xs bg-slate-800 text-slate-100 hover:bg-slate-700 disabled:opacity-60"
+                                    >
+                                        {isTestPushLoading ? "Sending..." : "Send test push"}
+                                    </Button>
+                                    {testPushStatusMessage && (
+                                        <p
+                                            className={`text-xs ${
+                                                testPushStatusKind === "success"
+                                                    ? "text-green-400"
+                                                    : "text-red-400"
+                                            }`}
+                                        >
+                                            {testPushStatusMessage}
+                                        </p>
+                                    )}
+                                </div>
                             </div>
                             <GlassToggle
                                 id="mobileNotificationsEnabled"

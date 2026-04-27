@@ -1749,6 +1749,14 @@ export default function TaskDetailClient({
                             {taskState.description && (
                                 <p className="mt-3 text-slate-400 text-sm leading-relaxed">{taskState.description}</p>
                             )}
+                            {taskState.creation_input && taskState.creation_input.length > 0 && (
+                                <div className="mt-3 text-left inline-block max-w-full">
+                                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Created with</p>
+                                    <p className="mt-1 rounded-md border border-slate-800/80 bg-slate-950/60 px-2.5 py-2 text-xs font-mono text-slate-300 whitespace-pre-wrap break-words">
+                                        {taskState.creation_input}
+                                    </p>
+                                </div>
+                            )}
                         </div>
 
                     </div>

@@ -427,6 +427,9 @@ export function TaskRow({
         if (target.closest("button,[role='menuitem'],a,input,select,textarea")) {
             return;
         }
+        if (task.id.startsWith("temp-")) {
+            return;
+        }
         prefetchTaskDetails();
         router.push(detailPath);
     };
@@ -543,11 +546,17 @@ export function TaskRow({
             )}
 
             <Button
-                asChild
+                asChild={!task.id.startsWith("temp-")}
                 variant="ghost"
-                className="h-10 w-10 p-0 text-slate-300 hover:text-white hover:bg-slate-800"
+                className="h-10 w-10 p-0 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-default"
                 aria-label="Open task"
                 title="Open task"
+                disabled={task.id.startsWith("temp-")}
+                onClick={(e) => {
+                    if (task.id.startsWith("temp-")) {
+                        e.preventDefault();
+                    }
+                }}
             >
                 <Link href={detailPath} prefetch>
                     <ExternalLink className="h-[18px] w-[18px]" />
@@ -671,11 +680,17 @@ export function TaskRow({
                         )}
 
                         <Button
-                            asChild
+                            asChild={!task.id.startsWith("temp-")}
                             variant="ghost"
-                            className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800"
+                            className="h-7 w-7 p-0 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-default"
                             aria-label="Open task"
                             title="Open task"
+                            disabled={task.id.startsWith("temp-")}
+                            onClick={(e) => {
+                                if (task.id.startsWith("temp-")) {
+                                    e.preventDefault();
+                                }
+                            }}
                         >
                             <Link href={detailPath} prefetch>
                                 <ExternalLink className="h-3.5 w-3.5" />
@@ -841,10 +856,15 @@ export function TaskRow({
                                 <Link
                                     href={detailPath}
                                     prefetch
-                                    className="h-10 w-10 flex items-center justify-center text-slate-400"
+                                    className={cn("h-10 w-10 flex items-center justify-center text-slate-400", task.id.startsWith("temp-") && "opacity-50 pointer-events-none cursor-default")}
                                     aria-label="Open task"
                                     title="Open task"
-                                    onClick={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (task.id.startsWith("temp-")) {
+                                            e.preventDefault();
+                                        }
+                                    }}
                                 >
                                     <ExternalLink className="h-[18px] w-[18px]" />
                                 </Link>

@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { sendPushToUser } from "@/lib/web-push";
 
 const pushSubscriptionSchema = z.object({
     endpoint: z.string().url(),
@@ -73,4 +74,40 @@ export async function deleteSubscription(subscription: unknown) {
     if (error) {
         console.error("Error deleting subscription:", error);
     }
+}
+
+/**
+ * Sends a one-off test web push notification to the authenticated user.
+ */
+export async function sendTestPushNotification() {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { success: false, error: "User not authenticated" };
+    }
+
+    const result = await sendPushToUser(user.id, {
+        title: "TAS test notification",
+        body: "Push is working on this device.",
+        url: "/settings",
+        tag: "tas-test-push",
+        data: {
+            kind: "TEST_PUSH",
+            sentAt: new Date().toISOString(),
+        },
+        ttlSeconds: 60,
+    });
+
+    if (result.skipped && result.reason === "disabled_by_user") {
+        return { success: false, error: "Enable mobile notifications first." };
+    }
+    if (result.skipped && result.reason === "no_subscriptions") {
+        return { success: false, error: "No push subscription found for this browser/device yet." };
+    }
+    if (!result.success) {
+        return { success: false, error: result.reason || "Failed to send test push notification." };
+    }
+
+    return { success: true };
 }

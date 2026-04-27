@@ -50,6 +50,7 @@ export interface Task {
     user_id: string;
     voucher_id: string;
     title: string;
+    creation_input?: string | null;
     description: string | null;
     failure_cost_cents: number;
     required_pomo_minutes: number | null;
