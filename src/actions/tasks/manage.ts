@@ -99,18 +99,28 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
 
+    const expectedStatus = (task as any).status as TaskStatus;
+    const currentDeadlineIso = currentDeadline.toISOString();
     // @ts-ignore
-    const { error } = await (supabase.from("tasks") as any)
+    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
         .update({
             status: "POSTPONED",
             deadline: newDeadlineDate.toISOString(),
             postponed_at: new Date().toISOString(),
         } as any)
         .eq("id", (taskId as any))
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .eq("status", expectedStatus as any)
+        .eq("deadline", currentDeadlineIso as any)
+        .is("postponed_at", null)
+        .gt("deadline", new Date().toISOString() as any)
+        .select("id");
 
     if (error) {
         return { error: error.message };
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task can no longer be postponed. Please refresh." };
     }
 
     const reminderRealignment = await realignTaskRemindersAfterPostpone(

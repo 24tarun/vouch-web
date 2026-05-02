@@ -526,6 +526,17 @@ export function revalidateTaskSurfaces(taskId: string, userId: string) {
     revalidatePath(`/tasks/${taskId}`);
 }
 
+export function revalidateTaskAndSocialSurfaces(taskId: string, ownerUserId: string, voucherUserId?: string | null) {
+    invalidateActiveTasksCache(ownerUserId);
+    if (voucherUserId) {
+        invalidatePendingVoucherRequestsCache(voucherUserId);
+    }
+    revalidatePath("/tasks");
+    revalidatePath("/stats");
+    revalidatePath("/friends");
+    revalidatePath(`/tasks/${taskId}`);
+}
+
 // ─── Ownership query helpers ──────────────────────────────────────────────────
 
 export async function getOwnedParentTask(

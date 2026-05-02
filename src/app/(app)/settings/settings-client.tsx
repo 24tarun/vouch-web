@@ -5,29 +5,15 @@ import { GlassToggle } from "@/components/GlassToggle";
 import { deleteAccount, getActiveVoucherTasks, updateUserDefaults, updateUsername } from "@/actions/auth";
 import { exportUserData } from "@/actions/export";
 import {
-    acceptIncomingFriendRequest,
-    blockRelationshipUser,
-    getBlockedUsers,
-    getFriends,
-    getRelationshipData,
-    rejectIncomingFriendRequest,
-    removeFriendById,
     searchUsersForFriendship,
-    sendFriendRequestToUser,
     setAiAsFriendEnabled,
-    unblockRelationshipUser,
-    withdrawOutgoingFriendRequest,
     type BlockedUserOption,
     type IncomingFriendRequest,
     type OutgoingFriendRequest,
     type SearchCandidate,
 } from "@/actions/friends";
 import {
-    disconnectGoogleCalendar,
     listGoogleCalendarsForSettings,
-    setGoogleCalendarCalendar,
-    setGoogleCalendarAppToGoogleEnabled,
-    startGoogleCalendarConnect,
     type GoogleCalendarIntegrationState,
 } from "@/actions/google-calendar";
 import { deleteSubscription, saveSubscription, sendTestPushNotification } from "@/actions/push";
@@ -61,6 +47,19 @@ import {
 import { AI_VOUCHER_DISPLAY_NAME, AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
 import { formatTimeZoneLabel, getTimeZoneOptions } from "@/lib/timezones";
+import { DeleteAccountModal } from "@/app/(app)/settings/settings/sections/delete-account-modal";
+import { useSettingsRelationships } from "@/app/(app)/settings/settings/hooks/use-settings-relationships";
+import { useSettingsGoogleCalendar } from "@/app/(app)/settings/settings/hooks/use-settings-google-calendar";
+import {
+    buildDefaultsFormData,
+    clampFailureCostToCurrencyBounds,
+    validateDefaultsState,
+} from "@/app/(app)/settings/settings/utils/defaults";
+import {
+    isLikelyValidVapidPublicKey,
+    normalizeVapidPublicKey,
+    urlBase64ToUint8Array,
+} from "@/app/(app)/settings/settings/utils/push";
 
 const VAPID_PUBLIC_KEY = normalizeVapidPublicKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "");
 
@@ -265,290 +264,35 @@ export default function SettingsClient({
         ]
     );
 
-    const clampFailureCostToCurrencyBounds = (rawValue: string, targetCurrency: SupportedCurrency): string => {
-        const targetBounds = getFailureCostBounds(targetCurrency);
-        const parsed = Number(rawValue);
-        const normalized = Number.isFinite(parsed) ? parsed : targetBounds.minMajor;
-        const clamped = Math.min(targetBounds.maxMajor, Math.max(targetBounds.minMajor, normalized));
-
-        return targetBounds.step < 1
-            ? clamped.toFixed(2)
-            : Math.round(clamped).toString();
-    };
-
-    /*
-     * This helper collects every defaults-related state field and writes them into FormData using
-     * the exact keys expected by updateUserDefaults on the server.
-     *
-     * The auto-save effect calls this function immediately before invoking updateUserDefaults(formData),
-     * so this stays as the single source of truth for request payload construction and keeps the new
-     * auto-save behavior aligned with the old manual submit behavior.
-     */
-    const buildDefaultsFormData = () => {
-        const formData = new FormData();
-        formData.append("defaultPomoDurationMinutes", defaultPomoDurationMinutes);
-        formData.append("defaultEventDurationMinutes", defaultEventDurationMinutes);
-        formData.append("defaultFailureCost", defaultFailureCostEuros);
-        formData.append("defaultVoucherId", effectiveDefaultVoucherId ?? "");
-        formData.append("deadlineOneHourWarningEnabled", String(deadlineOneHourWarningEnabled));
-        formData.append("deadlineFinalWarningEnabled", String(deadlineFinalWarningEnabled));
-        formData.append("voucherCanViewActiveTasksEnabled", String(voucherCanViewActiveTasksEnabled));
-        formData.append("defaultRequiresProofForAllTasks", String(defaultRequiresProofForAllTasks));
-        formData.append("mobileNotificationsEnabled", String(mobileNotificationsEnabled));
-        formData.append("currency", currency);
-        formData.append("timezone", timeZone);
-        formData.append("timezoneUserSet", String(timeZoneUserSet));
-        formData.append("charityEnabled", String(charityEnabled));
-        formData.append("selectedCharityId", selectedCharityId);
-        return formData;
-    };
-
-    /*
-     * This validation helper prevents invalid intermediate values from triggering server writes while
-     * the user is actively typing.
-     *
-     * Validation order:
-     * 1) Check default pomodoro duration is an integer within 1..120.
-     * 2) Check failure cost is parseable to a finite number.
-     * 3) Load per-currency bounds via getFailureCostBounds(currency) and validate rounded cents against
-     *    minCents/maxCents so client logic matches authoritative server-side logic.
-     *
-     * Returning a non-null string means "do not save yet"; the effect will surface this as defaultsError
-     * and skip calling updateUserDefaults.
-     */
-    const validateDefaultsState = () => {
-        const parsedPomo = Number(defaultPomoDurationMinutes);
-        if (
-            !Number.isFinite(parsedPomo) ||
-            !Number.isInteger(parsedPomo) ||
-            parsedPomo < 1 ||
-            parsedPomo > MAX_POMO_DURATION_MINUTES
-        ) {
-            return `Default Pomodoro duration must be an integer between 1 and ${MAX_POMO_DURATION_MINUTES}.`;
-        }
-
-        const parsedEventDuration = Number(defaultEventDurationMinutes);
-        if (
-            !Number.isFinite(parsedEventDuration) ||
-            !Number.isInteger(parsedEventDuration) ||
-            parsedEventDuration < 1 ||
-            parsedEventDuration > 720
-        ) {
-            return "Default event duration must be an integer between 1 and 720.";
-        }
-
-        const parsedFailureMajor = Number(defaultFailureCostEuros);
-        if (!Number.isFinite(parsedFailureMajor)) {
-            return "Default failure cost is invalid.";
-        }
-
-        const bounds = getFailureCostBounds(currency);
-        const parsedFailureCents = Math.round(parsedFailureMajor * 100);
-        if (parsedFailureCents < bounds.minCents || parsedFailureCents > bounds.maxCents) {
-            return `Default failure cost must be between ${currencySymbol}${bounds.minMajor} and ${currencySymbol}${bounds.maxMajor}.`;
-        }
-
-        if (!timeZone || !timeZoneOptions.includes(timeZone)) {
-            return "Timezone is invalid.";
-        }
-
-        if (charityEnabled) {
-            if (!selectedCharityId) {
-                return "Select one charity when Charity Choice is enabled.";
-            }
-            if (!selectedCharity || !selectedCharity.is_active) {
-                return "Selected charity is unavailable. Choose an active charity.";
-            }
-        }
-
-        return null;
-    };
-
-    async function refreshFriendsList() {
-        const updatedFriends = await getFriends();
-        setFriends((updatedFriends as FriendProfile[]) || []);
-    }
-
-    function updateRelationshipInFlight(key: string, action: string | null) {
-        setRelationshipInFlight((prev) => ({ ...prev, [key]: action }));
-    }
-
-    async function refreshRelationshipsAndSearch() {
-        setRelationshipsLoading(true);
-        setRelationshipsError(null);
-
-        const [relationshipsResult, blockedUsersResult] = await Promise.all([
-            getRelationshipData(),
-            getBlockedUsers(),
-        ]);
-
-        if (relationshipsResult.error) {
-            setRelationshipsError(relationshipsResult.error);
-        } else {
-            setRelationshipFriends(relationshipsResult.friends);
-            setIncomingRequests(relationshipsResult.incomingRequests);
-            setOutgoingRequests(relationshipsResult.outgoingRequests);
-        }
-
-        if (blockedUsersResult.error) {
-            setBlockedUsersError(blockedUsersResult.error);
-        } else {
-            setBlockedUsers(blockedUsersResult.users);
-            setBlockedUsersError(null);
-        }
-
-        setRelationshipsLoading(false);
-        setBlockedUsersLoading(false);
-        await refreshFriendsList();
-
-        const searchQuery = friendSearchQuery.trim();
-        if (searchQuery) {
-            const searchResult = await searchUsersForFriendship(searchQuery);
-            if (searchResult.error) {
-                setFriendSearchResults([]);
-                setFriendSearchError(searchResult.error);
-            } else {
-                setFriendSearchResults(searchResult.candidates);
-                setFriendSearchError(null);
-            }
-        }
-    }
-
-    async function handleSendFriendRequest(candidate: SearchCandidate) {
-        const key = `send:${candidate.id}`;
-        updateRelationshipInFlight(key, "send");
-        setRelationshipSuccess(null);
-        try {
-            const result = await sendFriendRequestToUser(candidate.id);
-            if (result.error) {
-                setRelationshipsError(result.error);
-                return;
-            }
-
-            setRelationshipSuccess("Friend request sent.");
-            await refreshRelationshipsAndSearch();
-        } finally {
-            updateRelationshipInFlight(key, null);
-        }
-    }
-
-    async function handleAcceptFriendRequest(request: IncomingFriendRequest) {
-        const key = `request:${request.id}:accept`;
-        updateRelationshipInFlight(key, "accept");
-        setRelationshipSuccess(null);
-        try {
-            const result = await acceptIncomingFriendRequest(request.id);
-            if (result.error) {
-                setRelationshipsError(result.error);
-                return;
-            }
-
-            setRelationshipSuccess(`Accepted @${request.sender.username}.`);
-            await refreshRelationshipsAndSearch();
-        } finally {
-            updateRelationshipInFlight(key, null);
-        }
-    }
-
-    async function handleRejectFriendRequest(request: IncomingFriendRequest) {
-        const key = `request:${request.id}:reject`;
-        updateRelationshipInFlight(key, "reject");
-        setRelationshipSuccess(null);
-        try {
-            const result = await rejectIncomingFriendRequest(request.id);
-            if (result.error) {
-                setRelationshipsError(result.error);
-                return;
-            }
-
-            setRelationshipSuccess(`Rejected @${request.sender.username}.`);
-            await refreshRelationshipsAndSearch();
-        } finally {
-            updateRelationshipInFlight(key, null);
-        }
-    }
-
-    async function handleWithdrawFriendRequest(request: OutgoingFriendRequest) {
-        const key = `outgoing:${request.id}:withdraw`;
-        updateRelationshipInFlight(key, "withdraw");
-        setRelationshipSuccess(null);
-        try {
-            const result = await withdrawOutgoingFriendRequest(request.id);
-            if (result.error) {
-                setRelationshipsError(result.error);
-                return;
-            }
-
-            setRelationshipSuccess(`Request to @${request.receiver.username} withdrawn.`);
-            await refreshRelationshipsAndSearch();
-        } finally {
-            updateRelationshipInFlight(key, null);
-        }
-    }
-
-    async function handleRemoveFriend(friend: IncomingFriendRequest["sender"]) {
-        const key = `friend:${friend.id}:remove`;
-        updateRelationshipInFlight(key, "remove");
-        setRelationshipSuccess(null);
-        try {
-            const result = await removeFriendById(friend.id);
-            if (result.error) {
-                setRelationshipsError(result.error);
-                return;
-            }
-
-            if (defaultVoucherId === friend.id) {
-                setDefaultVoucherId(profile.id);
-            }
-
-            setRelationshipSuccess(`Removed @${friend.username}.`);
-            await refreshRelationshipsAndSearch();
-        } finally {
-            updateRelationshipInFlight(key, null);
-        }
-    }
-
-    async function handleBlockRelationshipUser(
-        target: SearchCandidate | IncomingFriendRequest["sender"] | OutgoingFriendRequest["receiver"] | FriendProfile,
-        sourceKey: string
-    ) {
-        updateRelationshipInFlight(sourceKey, "block");
-        setRelationshipSuccess(null);
-        try {
-            const result = await blockRelationshipUser(target.id);
-            if (result.error) {
-                setRelationshipsError(result.error);
-                return;
-            }
-
-            if (defaultVoucherId === target.id) {
-                setDefaultVoucherId(profile.id);
-            }
-
-            setRelationshipSuccess(`Blocked @${target.username}.`);
-            await refreshRelationshipsAndSearch();
-        } finally {
-            updateRelationshipInFlight(sourceKey, null);
-        }
-    }
-
-    async function handleUnblockUser(userId: string, username: string) {
-        setUnblockingUserId(userId);
-        setBlockedUsersError(null);
-        setRelationshipSuccess(null);
-        try {
-            const result = await unblockRelationshipUser(userId);
-            if (result.error) {
-                setBlockedUsersError(result.error);
-                return;
-            }
-
-            setRelationshipSuccess(`Unblocked @${username}.`);
-            await refreshRelationshipsAndSearch();
-        } finally {
-            setUnblockingUserId(null);
-        }
-    }
+    const {
+        refreshRelationshipsAndSearch,
+        handleSendFriendRequest,
+        handleAcceptFriendRequest,
+        handleRejectFriendRequest,
+        handleWithdrawFriendRequest,
+        handleRemoveFriend,
+        handleBlockRelationshipUser,
+        handleUnblockUser,
+    } = useSettingsRelationships({
+        profile,
+        defaultVoucherId,
+        friendSearchQuery,
+        setDefaultVoucherId,
+        setFriends,
+        setRelationshipFriends,
+        setIncomingRequests,
+        setOutgoingRequests,
+        setRelationshipsLoading,
+        setRelationshipsError,
+        setRelationshipSuccess,
+        setRelationshipInFlight,
+        setFriendSearchResults,
+        setFriendSearchError,
+        setBlockedUsers,
+        setBlockedUsersLoading,
+        setBlockedUsersError,
+        setUnblockingUserId,
+    });
 
     async function handleAiFriendToggle(nextEnabled: boolean) {
         if (isAiFriendLoading) return;
@@ -815,7 +559,18 @@ export default function SettingsClient({
         const requestId = saveRequestIdRef.current + 1;
         saveRequestIdRef.current = requestId;
 
-        const validationError = validateDefaultsState();
+        const validationError = validateDefaultsState({
+            defaultPomoDurationMinutes,
+            defaultEventDurationMinutes,
+            defaultFailureCostEuros,
+            currency,
+            currencySymbol,
+            timeZone,
+            timeZoneOptions,
+            charityEnabled,
+            selectedCharityId,
+            selectedCharity,
+        });
         if (validationError) {
             setDefaultsError(validationError);
             setDefaultsSuccess(false);
@@ -828,7 +583,24 @@ export default function SettingsClient({
         setIsDefaultsLoading(true);
 
         const debounceTimer = window.setTimeout(async () => {
-            const result = await updateUserDefaults(buildDefaultsFormData());
+            const result = await updateUserDefaults(
+                buildDefaultsFormData({
+                    defaultPomoDurationMinutes,
+                    defaultEventDurationMinutes,
+                    defaultFailureCostEuros,
+                    effectiveDefaultVoucherId,
+                    deadlineOneHourWarningEnabled,
+                    deadlineFinalWarningEnabled,
+                    voucherCanViewActiveTasksEnabled,
+                    defaultRequiresProofForAllTasks,
+                    mobileNotificationsEnabled,
+                    currency,
+                    timeZone,
+                    timeZoneUserSet,
+                    charityEnabled,
+                    selectedCharityId,
+                })
+            );
 
             if (requestId !== saveRequestIdRef.current) {
                 return;
@@ -914,150 +686,25 @@ export default function SettingsClient({
             });
     }, [googleConnected]);
 
-    async function handleGoogleConnect() {
-        if (isGoogleActionLoading) return;
-        setIsGoogleActionLoading(true);
-        setGoogleActionSuccess(null);
-        setGoogleLastError(null);
-
-        try {
-            const result = await startGoogleCalendarConnect();
-            if ("error" in result && result.error) {
-                setGoogleLastError(result.error);
-                setIsGoogleActionLoading(false);
-                return;
-            }
-
-            if (!result.url) {
-                setGoogleLastError("Google OAuth URL could not be generated.");
-                setIsGoogleActionLoading(false);
-                return;
-            }
-
-            window.location.href = result.url;
-        } catch (error) {
-            console.error(error);
-            setGoogleLastError("Failed to start Google connection.");
-            setIsGoogleActionLoading(false);
-        }
-    }
-
-    async function handleGoogleConnectionToggle(enabled: boolean) {
-        if (enabled) {
-            if (googleConnected) return;
-            await handleGoogleConnect();
-            return;
-        }
-
-        if (!googleConnected) return;
-        await handleGoogleDisconnect();
-    }
-
-    async function handleGoogleDisconnect() {
-        if (isGoogleActionLoading) return;
-        const confirmed = window.confirm(
-            "Disconnect & Forget will revoke Google access and remove all Google sync data from this app. Existing tasks will remain. Continue?"
-        );
-        if (!confirmed) return;
-
-        setIsGoogleActionLoading(true);
-        setGoogleActionSuccess(null);
-        setGoogleLastError(null);
-
-        try {
-            const result = await disconnectGoogleCalendar();
-            if (result.error) {
-                setGoogleLastError(result.error);
-                return;
-            }
-
-            setGoogleConnected(false);
-            setGoogleSyncAppToGoogleEnabled(false);
-            setGoogleAccountEmail(null);
-            setGoogleSelectedCalendarId("");
-            setGoogleSelectedCalendarSummary(null);
-            setGoogleCalendars([]);
-            setGoogleLastError(null);
-            setGoogleActionSuccess("Google Calendar disconnected and forgotten.");
-        } catch (error) {
-            console.error(error);
-            setGoogleLastError("Failed to disconnect and forget Google Calendar.");
-        } finally {
-            setIsGoogleActionLoading(false);
-        }
-    }
-
-    async function handleGoogleRefreshCalendars() {
-        if (isGoogleActionLoading) return;
-        setIsGoogleActionLoading(true);
-        setGoogleActionSuccess(null);
-        setGoogleLastError(null);
-
-        try {
-            const result = await listGoogleCalendarsForSettings();
-            if (result.error) {
-                setGoogleLastError(result.error);
-                return;
-            }
-            setGoogleCalendars(result.calendars || []);
-            setGoogleActionSuccess("Calendars refreshed.");
-        } catch (error) {
-            console.error(error);
-            setGoogleLastError("Could not refresh Google calendars.");
-        } finally {
-            setIsGoogleActionLoading(false);
-        }
-    }
-
-    async function handleGoogleCalendarSelection(nextCalendarId: string) {
-        if (isGoogleActionLoading) return;
-        setIsGoogleActionLoading(true);
-        setGoogleActionSuccess(null);
-        setGoogleLastError(null);
-
-        try {
-            const result = await setGoogleCalendarCalendar(nextCalendarId);
-            if (result.error) {
-                setGoogleLastError(result.error);
-                return;
-            }
-
-            const selected = googleCalendars.find((calendar) => calendar.id === nextCalendarId);
-            setGoogleSelectedCalendarId(nextCalendarId);
-            setGoogleSelectedCalendarSummary(selected?.summary || null);
-            setGoogleActionSuccess("Google calendar selected.");
-        } catch (error) {
-            console.error(error);
-            setGoogleLastError("Could not set Google calendar.");
-        } finally {
-            setIsGoogleActionLoading(false);
-        }
-    }
-
-    async function handleGoogleAppToGoogleToggle(enabled: boolean) {
-        if (isGoogleActionLoading) return;
-        setIsGoogleActionLoading(true);
-        setGoogleActionSuccess(null);
-        setGoogleLastError(null);
-
-        try {
-            const result = await setGoogleCalendarAppToGoogleEnabled(enabled);
-            if (result.error) {
-                setGoogleLastError(result.error);
-                return;
-            }
-
-            setGoogleSyncAppToGoogleEnabled(enabled);
-            setGoogleActionSuccess(
-                enabled ? "Vouch to Google Calendar sync enabled." : "Vouch to Google Calendar sync disabled."
-            );
-        } catch (error) {
-            console.error(error);
-            setGoogleLastError("Could not update Vouch to Google sync setting.");
-        } finally {
-            setIsGoogleActionLoading(false);
-        }
-    }
+    const {
+        handleGoogleConnectionToggle,
+        handleGoogleRefreshCalendars,
+        handleGoogleCalendarSelection,
+        handleGoogleAppToGoogleToggle,
+    } = useSettingsGoogleCalendar({
+        googleConnected,
+        isGoogleActionLoading,
+        googleCalendars,
+        setGoogleConnected,
+        setGoogleSyncAppToGoogleEnabled,
+        setGoogleAccountEmail,
+        setGoogleSelectedCalendarId,
+        setGoogleSelectedCalendarSummary,
+        setGoogleCalendars,
+        setGoogleLastError,
+        setGoogleActionSuccess,
+        setIsGoogleActionLoading,
+    });
 
     async function handleExportData() {
         if (isExporting) return;
@@ -1933,80 +1580,14 @@ export default function SettingsClient({
                 ) : null}
             </section>
 
-            {showDeleteModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
-                    <div className="w-full max-w-xl border border-slate-700 bg-slate-900 p-6">
-                        <h3 className="text-lg font-semibold text-white">
-                            {voucherConflicts.length > 0
-                                ? "You are an active voucher"
-                                : "Delete account?"}
-                        </h3>
-
-                        {voucherConflicts.length > 0 ? (
-                            <div className="mt-4 space-y-4">
-                                <p className="text-sm text-slate-300">
-                                    Deleting your account will remove you as voucher for these tasks. The task owners will not be notified.
-                                </p>
-                                <ul className="max-h-56 overflow-auto border-y border-slate-800 py-3 text-sm text-slate-200">
-                                    {voucherConflicts.map((task) => (
-                                        <li key={task.id} className="border-b border-slate-900 py-2 last:border-b-0">
-                                            {"\u2022"} {task.title} {"\u2014"} owned by @{task.ownerUsername}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        ) : (
-                            <p className="mt-4 text-sm text-slate-300">
-                                This permanently deletes your account and all associated data. This action cannot be undone.
-                            </p>
-                        )}
-
-                        <div className="mt-6 flex justify-end gap-3">
-                            <Button
-                                type="button"
-                                onClick={() => setShowDeleteModal(false)}
-                                disabled={isDeletingAccount}
-                                className="bg-slate-800 text-slate-100 hover:bg-slate-700"
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                type="button"
-                                onClick={handleDeleteAccountConfirm}
-                                disabled={isDeletingAccount}
-                                className="bg-red-700 hover:bg-red-600 text-white"
-                            >
-                                {isDeletingAccount
-                                    ? "Deleting Account..."
-                                    : voucherConflicts.length > 0
-                                        ? "Delete Anyway"
-                                        : "Delete Account"}
-                            </Button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            <DeleteAccountModal
+                open={showDeleteModal}
+                voucherConflicts={voucherConflicts}
+                isDeletingAccount={isDeletingAccount}
+                onCancel={() => setShowDeleteModal(false)}
+                onConfirm={handleDeleteAccountConfirm}
+            />
 
         </div>
     );
-}
-
-function urlBase64ToUint8Array(base64String: string) {
-    const normalized = normalizeVapidPublicKey(base64String);
-    const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
-    const base64 = (normalized + padding).replace(/\-/g, "+").replace(/_/g, "/");
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-        outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-}
-
-function normalizeVapidPublicKey(value: string) {
-    return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, "");
-}
-
-function isLikelyValidVapidPublicKey(key: Uint8Array) {
-    return key.byteLength === 65 && key[0] === 0x04;
 }

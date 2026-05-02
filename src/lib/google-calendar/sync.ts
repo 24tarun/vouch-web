@@ -76,7 +76,7 @@ interface GoogleCalendarOutboxPayload {
 
 type GoogleSyncTaskSnapshot = Pick<
     Task,
-    "id" | "user_id" | "title" | "description" | "deadline" | "status" | "updated_at" | "google_sync_for_task" | "google_event_start_at" | "google_event_end_at" | "google_event_color_id"
+    "id" | "user_id" | "title" | "description" | "deadline" | "status" | "updated_at" | "google_sync_for_task" | "google_event_start_at" | "google_event_color_id"
 >;
 
 function getRequiredEnv(name: string): string {
@@ -345,12 +345,11 @@ function buildGoogleEventDescription(task: Pick<Task, "id" | "description">): st
 }
 
 export function buildGoogleEventPayload(
-    task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_start_at" | "google_event_end_at" | "google_event_color_id">,
+    task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_start_at" | "google_event_color_id">,
     defaultDurationMinutes: number = 60
 ): GoogleCalendarEvent {
     const deadlineAsEnd = new Date(task.deadline);
     const explicitStart = task.google_event_start_at ? new Date(task.google_event_start_at) : null;
-    const explicitLegacyEnd = task.google_event_end_at ? new Date(task.google_event_end_at) : null;
     const colorId = isGoogleEventColorId(task.google_event_color_id) ? task.google_event_color_id : undefined;
     const hasValidExplicitStart = Boolean(
         explicitStart &&
@@ -363,13 +362,7 @@ export function buildGoogleEventPayload(
         : deadlineAsEnd;
     const end = hasValidExplicitStart
         ? deadlineAsEnd
-        : Boolean(
-            explicitLegacyEnd &&
-            !Number.isNaN(explicitLegacyEnd.getTime()) &&
-            explicitLegacyEnd.getTime() > start.getTime()
-        )
-            ? (explicitLegacyEnd as Date)
-            : new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
+        : new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
 
     return {
         summary: task.title,
@@ -394,7 +387,7 @@ export function buildGoogleEventPayload(
 async function googleCreateOrUpdateEvent(
     accessToken: string,
     calendarId: string,
-    task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_start_at" | "google_event_end_at" | "google_event_color_id">,
+    task: Pick<Task, "id" | "title" | "description" | "deadline" | "google_event_start_at" | "google_event_color_id">,
     existingEventId?: string,
     defaultDurationMinutes: number = 60
 ): Promise<GoogleCalendarEvent> {
@@ -801,7 +794,7 @@ async function getTaskSnapshotForGoogleSync(
     userId: string
 ): Promise<GoogleSyncTaskSnapshot | null> {
     const { data } = await (supabase.from("tasks") as any)
-        .select("id, user_id, title, description, deadline, status, updated_at, google_sync_for_task, google_event_start_at, google_event_end_at, google_event_color_id")
+        .select("id, user_id, title, description, deadline, status, updated_at, google_sync_for_task, google_event_start_at, google_event_color_id")
         .eq("id", taskId as any)
         .eq("user_id", userId as any)
         .maybeSingle();

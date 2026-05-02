@@ -22,6 +22,7 @@ import {
     notifyCommitmentFailureIfNeeded,
     notifyCommitmentRevivedIfNeeded,
 } from "@/actions/commitments";
+import { revalidateTaskAndSocialSurfaces } from "@/actions/tasks/helpers";
 
 async function enqueueGoogleCalendarUpsert(userId: string, taskId: string) {
     try {
@@ -38,6 +39,18 @@ const PENDING_VOUCH_REQUEST_STATUSES: TaskStatus[] = [
     ...AWAITING_PENDING_STATUSES,
 ];
 const ACTIVE_PENDING_STATUS_SET = new Set<TaskStatus>(ACTIVE_PENDING_STATUSES);
+const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+type VoucherDecisionTask = {
+    id: string;
+    user_id: string;
+    voucher_id: string;
+    title?: string;
+    failure_cost_cents: number;
+    recurrence_rule_id?: string | null;
+    status: TaskStatus;
+    user?: { id?: string; email?: string | null; username?: string | null } | null;
+};
 
 
 function deriveAwaitingDeadline(task: { voucher_response_deadline: string | null; marked_completed_at: string | null }): string | null {
@@ -66,6 +79,31 @@ function getPendingDeadline(task: {
         : deriveAwaitingDeadline(task);
 }
 
+async function applyVoucherDecisionUpdate(
+    supabase: SupabaseClient<Database>,
+    taskId: string,
+    voucherId: string,
+    priorStatus: TaskStatus,
+    patch: Record<string, unknown>
+) {
+    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
+        .update(patch as any)
+        .eq("id", taskId as any)
+        .eq("voucher_id", voucherId as any)
+        .eq("status", priorStatus as any)
+        .select("id");
+
+    if (error) return { error: error.message };
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task is no longer awaiting voucher response." };
+    }
+    return { success: true as const };
+}
+
+function refreshVoucherDecisionSurfaces(taskId: string, ownerUserId: string, voucherId: string) {
+    revalidateTaskAndSocialSurfaces(taskId, ownerUserId, voucherId);
+}
+
 export async function voucherAccept(taskId: string) {
     const supabase = await createClient();
     const {
@@ -86,9 +124,10 @@ export async function voucherAccept(taskId: string) {
     if (!task) {
         return { error: "Task not found or you are not the voucher" };
     }
+    const typedTask = task as VoucherDecisionTask;
 
-    if (!canTransition((task as any).status as TaskStatus, "VOUCHER_ACCEPT")) {
-        return { error: `Cannot accept task in ${(task as any).status} status` };
+    if (!canTransition(typedTask.status, "VOUCHER_ACCEPT")) {
+        return { error: `Cannot accept task in ${typedTask.status} status` };
     }
 
     const cleanup = await deleteTaskProof(taskId, "voucher_accept");
@@ -96,21 +135,21 @@ export async function voucherAccept(taskId: string) {
         return { error: cleanup.error || "Could not remove proof media." };
     }
 
-    // @ts-ignore
-    const { error } = await (supabase.from("tasks") as any)
-        .update({
+    const priorStatus = typedTask.status;
+    const updateResult = await applyVoucherDecisionUpdate(
+        supabase,
+        taskId,
+        user.id,
+        priorStatus,
+        {
             status: "ACCEPTED",
             has_proof: cleanup.deleted,
             proof_request_open: false,
             proof_requested_at: null,
             proof_requested_by: null,
-        } as any)
-        .eq("id", (taskId as any))
-        .eq("voucher_id", user.id);
-
-    if (error) {
-        return { error: error.message };
-    }
+        }
+    );
+    if ("error" in updateResult) return { error: updateResult.error };
 
     // @ts-ignore
     await supabase.from("task_events").insert({
@@ -118,21 +157,16 @@ export async function voucherAccept(taskId: string) {
         event_type: "VOUCHER_ACCEPT",
         actor_id: (user as any).id,
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
+        from_status: priorStatus,
         to_status: "ACCEPTED",
     });
 
-    await enqueueGoogleCalendarUpsert((task as any).user_id, taskId);
+    await enqueueGoogleCalendarUpsert(typedTask.user_id, taskId);
 
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
     // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
-    invalidateActiveTasksCache((task as any).user_id);
-    invalidatePendingVoucherRequestsCache((user as any).id);
-    revalidatePath("/tasks");
-    revalidatePath("/stats");
-    revalidatePath("/friends");
-    revalidatePath(`/tasks/${taskId}`);
+    refreshVoucherDecisionSurfaces(taskId, typedTask.user_id, user.id);
     return { success: true };
 }
 
@@ -156,9 +190,10 @@ export async function voucherDeny(taskId: string) {
     if (!task) {
         return { error: "Task not found or you are not the voucher" };
     }
+    const typedTask = task as VoucherDecisionTask;
 
-    if (!canTransition((task as any).status as TaskStatus, "VOUCHER_DENY")) {
-        return { error: `Cannot deny task in ${(task as any).status} status` };
+    if (!canTransition(typedTask.status, "VOUCHER_DENY")) {
+        return { error: `Cannot deny task in ${typedTask.status} status` };
     }
 
     const cleanup = await deleteTaskProof(taskId, "voucher_deny");
@@ -168,21 +203,20 @@ export async function voucherDeny(taskId: string) {
 
     // Add to ledger
     const currentPeriod = new Date().toISOString().slice(0, 7);
-
-    // @ts-ignore
-    const { error } = await (supabase.from("tasks") as any)
-        .update({
+    const priorStatus = typedTask.status;
+    const updateResult = await applyVoucherDecisionUpdate(
+        supabase,
+        taskId,
+        user.id,
+        priorStatus,
+        {
             status: "DENIED",
             proof_request_open: false,
             proof_requested_at: null,
             proof_requested_by: null,
-        } as any)
-        .eq("id", (taskId as any))
-        .eq("voucher_id", user.id);
-
-    if (error) {
-        return { error: error.message };
-    }
+        }
+    );
+    if ("error" in updateResult) return { error: updateResult.error };
 
     // Create ledger entry (use admin client to bypass RLS — voucher's auth.uid() ≠ task owner)
     const adminForLedger = createAdminClient();
@@ -203,17 +237,17 @@ export async function voucherDeny(taskId: string) {
         event_type: "VOUCHER_DENY",
         actor_id: (user as any).id,
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
+        from_status: priorStatus,
         to_status: "DENIED",
     });
 
-    await enqueueGoogleCalendarUpsert((task as any).user_id, taskId);
+    await enqueueGoogleCalendarUpsert(typedTask.user_id, taskId);
 
-    if ((task as any).user?.id) {
+    if (typedTask.user?.id) {
         await sendNotification({
-            userId: (task as any).user.id,
+            userId: typedTask.user.id,
             title: "Task denied",
-            text: `Your voucher denied "${(task as any).title}". Failure cost applied.`,
+            text: `Your voucher denied "${typedTask.title}". Failure cost applied.`,
             email: false,
             push: true,
             url: `/tasks/${taskId}`,
@@ -222,17 +256,12 @@ export async function voucherDeny(taskId: string) {
         });
     }
 
-    await notifyCommitmentFailureIfNeeded(taskId, (task as any).recurrence_rule_id ?? null);
+    await notifyCommitmentFailureIfNeeded(taskId, typedTask.recurrence_rule_id ?? null);
 
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
     // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
-    invalidateActiveTasksCache((task as any).user_id);
-    invalidatePendingVoucherRequestsCache((user as any).id);
-    revalidatePath("/tasks");
-    revalidatePath("/stats");
-    revalidatePath("/friends");
-    revalidatePath(`/tasks/${taskId}`);
+    refreshVoucherDecisionSurfaces(taskId, typedTask.user_id, user.id);
     return { success: true };
 }
 
@@ -317,12 +346,7 @@ export async function voucherRequestProof(taskId: string) {
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
     // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
-    invalidateActiveTasksCache((task as any).user_id);
-    invalidatePendingVoucherRequestsCache(user.id);
-    revalidatePath("/tasks");
-    revalidatePath("/stats");
-    revalidatePath("/friends");
-    revalidatePath(`/tasks/${taskId}`);
+    revalidateTaskAndSocialSurfaces(taskId, (task as any).user_id, user.id);
     return { success: true };
 }
 
@@ -351,11 +375,14 @@ export async function authorizeRectify(taskId: string) {
         return { error: `Cannot rectify task in ${(task as any).status} status` };
     }
 
-    // Check rectify window: task must have failed in the current calendar month
+    // Check rectify window: task must have failed within the last 7 days.
     const currentPeriod = new Date().toISOString().slice(0, 7);
-    const failedPeriod = new Date((task as any).updated_at).toISOString().slice(0, 7);
-    if (failedPeriod !== currentPeriod) {
-        return { error: "Rectify window expired (task failed in a previous month)." };
+    const failedAtMs = new Date((task as any).updated_at).getTime();
+    if (!Number.isFinite(failedAtMs)) {
+        return { error: "Task failure timestamp is invalid." };
+    }
+    if ((Date.now() - failedAtMs) > RECTIFY_WINDOW_MS) {
+        return { error: "Rectify window expired (more than 7 days since failure)." };
     }
     const { count } = await supabase
         .from("rectify_passes" as any)
@@ -368,13 +395,19 @@ export async function authorizeRectify(taskId: string) {
     }
 
     // Update task
-    const { error } = await (supabase.from("tasks") as any)
+    const priorStatus = (task as any).status as TaskStatus;
+    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
         .update({ status: "RECTIFIED" } as any)
         .eq("id", (taskId as any))
-        .eq("voucher_id", user.id);
+        .eq("voucher_id", user.id)
+        .eq("status", priorStatus as any)
+        .select("id");
 
     if (error) {
         return { error: error.message };
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task is no longer eligible for rectify." };
     }
 
     // Create rectify pass record
@@ -405,7 +438,7 @@ export async function authorizeRectify(taskId: string) {
         event_type: "RECTIFY",
         actor_id: (user as any).id,
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
+        from_status: priorStatus,
         to_status: "RECTIFIED",
     });
 
@@ -427,8 +460,29 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
             // @ts-ignore
             const { data: tasks } = await (supabaseAdmin.from("tasks") as any)
                 .select(`
-                    *,
-                    user:profiles!tasks_user_id_fkey(*)
+                    id,
+                    user_id,
+                    voucher_id,
+                    title,
+                    description,
+                    deadline,
+                    status,
+                    marked_completed_at,
+                    voucher_response_deadline,
+                    failure_cost_cents,
+                    requires_proof,
+                    recurrence_rule_id,
+                    created_at,
+                    updated_at,
+                    google_sync_for_task,
+                    google_event_start_at,
+                    google_event_end_at,
+                    google_event_color_id,
+                    has_proof,
+                    proof_request_open,
+                    proof_requested_at,
+                    proof_requested_by,
+                    user:profiles!tasks_user_id_fkey(id, username, voucher_can_view_active_tasks)
                 `)
                 .eq("voucher_id", voucherId as any)
                 .neq("user_id", voucherId as any)
@@ -506,36 +560,6 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
     return loadPendingRequests();
 }
 
-export async function getCachedPendingVouchCountForVoucher(voucherId: string) {
-    if (!voucherId) return 0;
-
-    const loadPendingCount = unstable_cache(
-        async () => {
-            const supabaseAdmin = createAdminClient();
-
-            const { count, error } = await (supabaseAdmin.from("tasks") as any)
-                .select("*", { count: "exact", head: true })
-                .eq("voucher_id", voucherId as any)
-                .neq("user_id", voucherId as any)
-                .in("status", AWAITING_PENDING_STATUSES as any);
-
-            if (error) {
-                console.error("Failed to load pending vouch count:", error.message);
-                return 0;
-            }
-
-            return count || 0;
-        },
-        ["pending-vouch-count", voucherId],
-        {
-            tags: [pendingVoucherRequestsTag(voucherId)],
-            revalidate: 120,
-        }
-    );
-
-    return loadPendingCount();
-}
-
 export async function getPendingVouchRequests(): Promise<VoucherPendingTask[]> {
     const supabase = await createClient();
     const {
@@ -545,88 +569,6 @@ export async function getPendingVouchRequests(): Promise<VoucherPendingTask[]> {
     if (!user) return [];
 
     return getCachedPendingVouchRequestsForVoucher(user.id);
-}
-
-export async function getAssignedTasksForVoucher() {
-    const supabase = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return [];
-
-    // Include all non-final states; voucher can delete even active tasks
-    const allowedStatuses = [
-        "ACTIVE",
-        "POSTPONED",
-        "MARKED_COMPLETE",
-        "AWAITING_VOUCHER",
-        "AWAITING_AI",
-    ];
-
-    // @ts-ignore
-    const { data: tasks } = await (supabase.from("tasks") as any)
-        .select(`
-      *,
-      user:profiles!tasks_user_id_fkey(*)
-    `)
-        .eq("voucher_id", (user as any).id)
-        .neq("user_id", (user as any).id)
-        .in("status", allowedStatuses)
-        .order("deadline", { ascending: true });
-
-    const visibleTasks = ((tasks as any[]) || []).filter((task) =>
-        canVoucherSeeTask({
-            status: task.status as TaskStatus,
-            deadline: task.deadline,
-            user: task.user as { voucher_can_view_active_tasks?: boolean } | null,
-        })
-    );
-
-    return visibleTasks;
-}
-
-export async function getFailedTasks() {
-    const supabase = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return [];
-
-    const currentPeriod = new Date().toISOString().slice(0, 7);
-
-    // Get failed tasks
-    // @ts-ignore
-    const { data: tasks } = await (supabase.from("tasks") as any)
-        .select(`
-      *,
-      user:profiles!tasks_user_id_fkey(*)
-    `)
-        .eq("voucher_id", (user as any).id)
-        .neq("user_id", (user as any).id)
-        .in("status", ["DENIED", "MISSED"])
-        .order("updated_at", { ascending: false });
-
-    if (!tasks) return [];
-
-    // Batch pass counts by unique owner
-    const ownerIds = [...new Set((tasks as any[]).map((task) => task.user_id as string).filter(Boolean))];
-    const ownerCountEntries = await Promise.all(ownerIds.map(async (ownerId) => {
-        const { count } = await supabase
-            .from("rectify_passes" as any)
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", ownerId as any)
-            .eq("period", currentPeriod);
-
-        return [ownerId, count || 0] as const;
-    }));
-
-    const countsByOwner = new Map<string, number>(ownerCountEntries);
-    return (tasks as any[]).map((task) => ({
-        ...task,
-        rectify_passes_used: countsByOwner.get(task.user_id) || 0,
-    }));
 }
 
 const FINAL_HISTORY_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
@@ -825,83 +767,6 @@ export async function escalateToHumanVoucher(
     invalidatePendingVoucherRequestsCache((newVoucherId as any));
     revalidatePath("/tasks");
     revalidatePath("/voucher");
-    revalidatePath(`/tasks/${taskId}`);
-
-    return { success: true };
-}
-
-/**
- * Owner accepts an AI denial — AWAITING_USER -> DENIED.
- * Penalty is charged here (not at AI denial stage).
- */
-export async function acceptDenial(
-    taskId: string
-): Promise<{ success?: boolean; error?: string }> {
-    const supabase: SupabaseClient<Database> = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-        return { error: "Not authenticated" };
-    }
-
-    const { data: task } = await (supabase.from("tasks") as any)
-        .select("*, user:profiles!tasks_user_id_fkey(id, email, username)")
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any)
-        .single();
-
-    if (!task) {
-        return { error: "Task not found" };
-    }
-
-    if ((task as any).status !== "AWAITING_USER") {
-        return { error: `Cannot accept denial in ${(task as any).status} status` };
-    }
-
-    const nowIso = new Date().toISOString();
-    const currentPeriod = nowIso.slice(0, 7);
-
-    const { error: updateError } = await (supabase.from("tasks") as any)
-        .update({
-            status: "DENIED",
-            updated_at: nowIso,
-        } as any)
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any);
-
-    if (updateError) {
-        return { error: updateError.message };
-    }
-
-    // Charge failure cost on accept denial (use admin client — no INSERT RLS policy on ledger_entries)
-    const adminForLedger = createAdminClient();
-    const { error: ledgerError } = await (adminForLedger.from("ledger_entries" as any) as any).insert({
-        user_id: user.id,
-        task_id: taskId as any,
-        period: currentPeriod,
-        amount_cents: (task as any).failure_cost_cents,
-        entry_type: "failure",
-    });
-    if (ledgerError) {
-        console.error(`[acceptDenial] Failed to insert ledger entry for task ${taskId}:`, ledgerError);
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "ACCEPT_DENIAL",
-        actor_id: user.id as any,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: "AWAITING_USER",
-        to_status: "DENIED",
-    });
-
-    await notifyCommitmentFailureIfNeeded(taskId, (task as any).recurrence_rule_id ?? null);
-
-    invalidateActiveTasksCache(user.id);
-    revalidatePath("/tasks");
-    revalidatePath("/stats");
     revalidatePath(`/tasks/${taskId}`);
 
     return { success: true };

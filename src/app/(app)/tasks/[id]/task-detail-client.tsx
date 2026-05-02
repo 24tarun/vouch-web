@@ -1,26 +1,10 @@
 "use client";
 
-import { fireCompletionConfetti } from "@/lib/confetti";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-    addTaskSubtask,
-    cancelRepetition,
-    deleteTaskSubtask,
-    finalizeTaskProofUpload,
-    overrideTask,
-    initAwaitingVoucherProofUpload,
-    markTaskCompleteWithProofIntent,
-    ownerTempDeleteTask,
     postponeTask,
-    removeAwaitingVoucherProof,
-    renameTaskSubtask,
-    replaceTaskReminders,
-    revertTaskCompletionAfterProofFailure,
-    undoTaskComplete,
-    toggleTaskSubtask,
 } from "@/actions/tasks";
-import { escalateToHumanVoucher } from "@/actions/voucher";
 import { Button } from "@/components/ui/button";
 import { Camera, Check, Plus, Repeat, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -44,35 +28,24 @@ import {
 } from "@/components/ui/dialog";
 import type { TaskWithRelations, TaskEvent } from "@/lib/types";
 import { PomoButton } from "@/components/ui/PomoButton";
-import { localDateTimeToIso } from "@/lib/datetime-local";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { usePomodoro } from "@/components/PomodoroProvider";
 import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
-import { MAX_SUBTASKS_PER_TASK } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { formatCurrencyFromCents, normalizeCurrency, type SupportedCurrency } from "@/lib/currency";
-import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { formatRecurrenceSummary } from "@/lib/recurrence-display";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
-import {
-    getProofIntentFromPreparedProof,
-    prepareTaskProof,
-    type PreparedTaskProof,
-} from "@/lib/task-proof-client";
-import { getWarmProofSrc, purgeLocalProofMedia } from "@/lib/proof-media-warmup";
+import { getWarmProofSrc } from "@/lib/proof-media-warmup";
 import { ProofMedia } from "@/components/ProofMedia";
 import {
     isDefaultDeadlineReminderSource,
-    MANUAL_REMINDER_SOURCE,
 } from "@/lib/task-reminder-defaults";
 import { subscribeRealtimeTaskChanges } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
-import { getVoucherResponseDeadlineLocal } from "@/lib/voucher-deadline";
 import {
     buildBeforeStartSubmissionMessage,
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
-import type { TaskStatus } from "@/lib/xstate/task-machine";
 import {
     ACTIVITY_TIMELINE_META_TEXT_CLASS,
     ActivityEventBadge,
@@ -80,12 +53,24 @@ import {
     TaskStatusBadge,
 } from "@/design-system/badges";
 import { TASK_DETAIL_BUTTON_CLASSES } from "@/design-system/task_detail_buttons";
-import { WebcamCaptureModal, isMobileDevice } from "@/components/WebcamCaptureModal";
+import { WebcamCaptureModal } from "@/components/WebcamCaptureModal";
 import {
     getTaskDetailButtonVisibility,
     getTaskDetailReminderButtonVisibility,
     getTaskDetailSubtaskButtonVisibility,
 } from "@/lib/task-detail-button-visibility";
+import {
+    formatDateTimeDdMmYy,
+    formatFocusTime,
+    formatOrdinal,
+    sortTaskReminders,
+} from "@/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
+import { useTaskDetailActivitySteps } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-activity-steps";
+import { useTaskDetailReminders } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-reminders";
+import { useTaskDetailSubtasks } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-subtasks";
+import { useTaskDetailProof, type TaskProofDraft } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-proof";
+import { useTaskDetailActions } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-actions";
+import { TaskDetailStatsStrip } from "@/app/(app)/tasks/[id]/task-detail/sections/task-detail-stats-strip";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -103,69 +88,7 @@ interface TaskDetailClientProps {
     hasUsedOverrideThisMonth: boolean;
 }
 
-interface TaskProofDraft {
-    proof: PreparedTaskProof;
-    previewUrl: string;
-}
-
-type RestoredTaskStatus = "ACTIVE" | "POSTPONED";
-
-interface ActivityStep {
-    id: string;
-    tag:
-        | { kind: "status"; status: TaskStatus }
-        | { kind: "event"; eventType: string; elapsedSeconds?: number };
-    detail: string | null;
-    timestamp: string;
-    tone: "success" | "danger" | "warning" | "info" | "proof" | "neutral";
-}
-
-interface ProofUploadTarget {
-    bucket: string;
-    objectPath: string;
-    uploadToken?: string;
-}
-
 type ProofPickerMode = "draft" | "awaiting-upload";
-
-const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
-    "ACTIVE",
-    "POSTPONED",
-    "MARKED_COMPLETE",
-    "AWAITING_VOUCHER",
-    "AWAITING_AI",
-    "AI_DENIED",
-    "AWAITING_USER",
-    "ESCALATED",
-    "ACCEPTED",
-    "AUTO_ACCEPTED",
-    "AI_ACCEPTED",
-    "DENIED",
-    "MISSED",
-    "RECTIFIED",
-    "DELETED",
-    "SETTLED",
-]);
-
-function isTaskStatus(value: string | null | undefined): value is TaskStatus {
-    if (!value) return false;
-    return TASK_STATUS_VALUE_SET.has(value as TaskStatus);
-}
-
-function getRestoredStatusFromRevertResult(
-    result: Awaited<ReturnType<typeof revertTaskCompletionAfterProofFailure>>
-): RestoredTaskStatus | null {
-    if (!result || typeof result !== "object" || !("status" in result)) return null;
-    const status = (result as { status?: unknown }).status;
-    return status === "ACTIVE" || status === "POSTPONED" ? status : null;
-}
-
-function sortTaskReminders(reminders: TaskWithRelations["reminders"] | null | undefined) {
-    return (reminders || []).slice().sort((a, b) =>
-        new Date(a.reminder_at).getTime() - new Date(b.reminder_at).getTime()
-    );
-}
-
 
 export default function TaskDetailClient({
     task,
@@ -311,32 +234,6 @@ export default function TaskDetailClient({
     const denials = aiVouches.filter((v) => v.decision === "denied");
     const latestDenial = denials.at(-1) ?? null;
 
-    const formatDateDdMmYy = (value: Date | string) =>
-        new Date(value).toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "2-digit",
-        });
-
-    const formatTime24h = (value: Date | string) =>
-        new Date(value).toLocaleTimeString("en-GB", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-        });
-
-    const formatDateTimeDdMmYy = (value: Date | string) =>
-        `${formatDateDdMmYy(value)} ${formatTime24h(value)}`;
-    const formatOrdinal = (value: number) => {
-        const abs = Math.abs(Math.trunc(value));
-        const mod100 = abs % 100;
-        if (mod100 >= 11 && mod100 <= 13) return `${abs}th`;
-        const mod10 = abs % 10;
-        if (mod10 === 1) return `${abs}st`;
-        if (mod10 === 2) return `${abs}nd`;
-        if (mod10 === 3) return `${abs}rd`;
-        return `${abs}th`;
-    };
     const voucherDeadlineForDisplay = useMemo(() => {
         if (taskState.marked_completed_at) {
             const derived = new Date(taskState.marked_completed_at);
@@ -399,25 +296,6 @@ export default function TaskDetailClient({
     };
 
     const isActionPending = (action: string) => pendingActions.has(action);
-
-    const setSubtaskPending = (subtaskId: string, pending: boolean) => {
-        setPendingSubtaskIds((prev) => {
-            const next = new Set(prev);
-            if (pending) {
-                next.add(subtaskId);
-            } else {
-                next.delete(subtaskId);
-            }
-            return next;
-        });
-    };
-
-    const startEditingSubtask = (subtaskId: string, currentTitle: string) => {
-        if (!canManageActionChildren || pendingSubtaskIds.has(subtaskId)) return;
-        setSubtaskError(null);
-        setEditingSubtaskId(subtaskId);
-        setEditingSubtaskTitle(currentTitle);
-    };
 
     const setTaskProofDraft = (nextDraft: TaskProofDraft | null) => {
         setProofDraft((prev) => {
@@ -544,454 +422,53 @@ export default function TaskDetailClient({
         return unsubscribe;
     }, [task.id, router, startRefreshTransition]);
 
-    const toReminderIso = (value: string) => {
-        const parsed = new Date(value);
-        if (Number.isNaN(parsed.getTime())) return null;
-        return parsed.toISOString();
-    };
+    const { handleAddReminder, handleRemoveReminder } = useTaskDetailReminders({
+        reminders,
+        taskState,
+        newReminderLocal,
+        setReminders,
+        setTaskState,
+        setNewReminderLocal,
+        canManageActionChildren,
+        isActionPending,
+        setActionPending,
+        refreshInBackground,
+    });
 
-    const normalizeReminderIsos = (values: string[]) => {
-        const deduped = new Map<number, string>();
-        for (const value of values) {
-            const normalizedIso = toReminderIso(value);
-            if (!normalizedIso) continue;
-            deduped.set(new Date(normalizedIso).getTime(), normalizedIso);
-        }
-        return Array.from(deduped.values()).sort(
-            (a, b) => new Date(a).getTime() - new Date(b).getTime()
-        );
-    };
-
-    const splitCurrentRemindersByTime = (referenceNowMs: number) => {
-        const pastReminders: typeof reminders = [];
-        const futureReminders: typeof reminders = [];
-
-        for (const reminder of reminders || []) {
-            const reminderMs = new Date(reminder.reminder_at).getTime();
-            if (Number.isNaN(reminderMs)) continue;
-
-            if (reminderMs <= referenceNowMs) {
-                pastReminders.push(reminder);
-            } else {
-                futureReminders.push(reminder);
-            }
-        }
-
-        const sortByReminderAt = (a: { reminder_at: string }, b: { reminder_at: string }) =>
-            new Date(a.reminder_at).getTime() - new Date(b.reminder_at).getTime();
-
-        return {
-            pastReminders: pastReminders.slice().sort(sortByReminderAt),
-            futureReminders: futureReminders.slice().sort(sortByReminderAt),
-        };
-    };
-
-    const getCurrentFutureReminderIsos = (referenceNowMs: number = Date.now()) =>
-        normalizeReminderIsos(
-            splitCurrentRemindersByTime(referenceNowMs).futureReminders.map(
-                (reminder) => reminder.reminder_at
-            )
-        );
-
-    const hasInvalidFutureReminderForTask = (futureReminderIsos: string[]) => {
-        const deadlineDate = new Date(taskState.deadline);
-        return futureReminderIsos.some((reminderIso) => {
-            const reminderDate = new Date(reminderIso);
-            return reminderDate.getTime() <= Date.now() || reminderDate.getTime() > deadlineDate.getTime();
-        });
-    };
-
-    async function saveReminderSet(futureReminderIsos: string[], clearReminderInput: boolean) {
-        if (isActionPending("saveReminders")) return { ok: false as const };
-        if (!canManageActionChildren) {
-            toast.error("Reminders can only be edited for active tasks.");
-            return { ok: false as const };
-        }
-
-        if (hasInvalidFutureReminderForTask(futureReminderIsos)) {
-            toast.error("All reminders must be in the future and before or at the deadline.");
-            return { ok: false as const };
-        }
-
-        setActionPending("saveReminders", true);
-        const nowIso = new Date().toISOString();
-
-        const result = await runOptimisticMutation({
-            captureSnapshot: () => ({ reminders, taskState, newReminderLocal }),
-            applyOptimistic: () => {
-                const referenceNowMs = Date.now();
-                const { pastReminders } = splitCurrentRemindersByTime(referenceNowMs);
-                const existingByIso = new Map<string, (typeof reminders)[number]>();
-                for (const reminder of reminders || []) {
-                    const normalizedIso = toReminderIso(reminder.reminder_at);
-                    if (!normalizedIso) continue;
-                    existingByIso.set(normalizedIso, reminder);
-                }
-
-                const optimisticFutureReminders = futureReminderIsos.map((reminderIso, index) => {
-                    const existingReminder = existingByIso.get(reminderIso);
-                    if (existingReminder) {
-                        return {
-                            ...existingReminder,
-                            reminder_at: reminderIso,
-                        };
-                    }
-
-                    return {
-                        id: `temp-reminder-${index}-${Math.random().toString(36).slice(2, 8)}`,
-                        parent_task_id: taskState.id,
-                        user_id: taskState.user_id,
-                        reminder_at: reminderIso,
-                        source: MANUAL_REMINDER_SOURCE,
-                        notified_at: null,
-                        created_at: nowIso,
-                        updated_at: nowIso,
-                    };
-                });
-
-                const optimisticReminders = [...pastReminders, ...optimisticFutureReminders].sort(
-                    (a, b) => new Date(a.reminder_at).getTime() - new Date(b.reminder_at).getTime()
-                );
-                setReminders(optimisticReminders);
-                setTaskState((prev) => ({
-                    ...prev,
-                    reminders: optimisticReminders,
-                }));
-                if (clearReminderInput) {
-                    setNewReminderLocal("");
-                }
-            },
-            runMutation: () => replaceTaskReminders(taskState.id, futureReminderIsos),
-            rollback: (snapshot) => {
-                setReminders(snapshot.reminders);
-                setTaskState(snapshot.taskState);
-                setNewReminderLocal(snapshot.newReminderLocal);
-            },
-            getFailureMessage: (mutationResult) => mutationResult.error || null,
-            fallbackErrorMessage: "Could not save reminders.",
-            onSuccess: () => {
-                refreshInBackground();
-            },
-        });
-
-        if (!result.ok) {
-            refreshInBackground();
-        }
-
-        setActionPending("saveReminders", false);
-        return result;
-    }
-
-    async function handleAddReminder(e: React.FormEvent<HTMLFormElement>) {
-        e.preventDefault();
-        if (!canManageActionChildren || isActionPending("saveReminders")) return;
-        if (!newReminderLocal.trim()) return;
-
-        const reminderIso = localDateTimeToIso(newReminderLocal.trim());
-        if (!reminderIso) {
-            toast.error("Please choose a valid reminder.");
-            return;
-        }
-
-        const reminderDate = new Date(reminderIso);
-        const deadlineDate = new Date(taskState.deadline);
-        const now = Date.now();
-        if (reminderDate.getTime() <= now) {
-            toast.error("Reminder must be in the future.");
-            return;
-        }
-        if (reminderDate.getTime() > deadlineDate.getTime()) {
-            toast.error("Reminder must be before or at the deadline.");
-            return;
-        }
-
-        const nextFutureReminderIsos = normalizeReminderIsos([
-            ...getCurrentFutureReminderIsos(now),
-            reminderIso,
-        ]);
-        await saveReminderSet(nextFutureReminderIsos, true);
-    }
-
-    async function handleRemoveReminder(reminderIso: string) {
-        if (!canManageActionChildren || isActionPending("saveReminders")) return;
-        const reminderMs = new Date(reminderIso).getTime();
-        if (!Number.isNaN(reminderMs) && reminderMs <= Date.now()) {
-            toast.info("Past reminders are kept as history.");
-            return;
-        }
-        const nextFutureReminderIsos = getCurrentFutureReminderIsos().filter((value) => value !== reminderIso);
-        await saveReminderSet(nextFutureReminderIsos, false);
-    }
-
-    const processPickedProofFile = async (selectedFile: File) => {
-        try {
-            const prepared = await prepareTaskProof(selectedFile);
-            const previewUrl = URL.createObjectURL(prepared.file);
-            setTaskProofDraft({ proof: prepared, previewUrl });
-            setProofUploadError(null);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "Could not process proof file.";
-            toast.error(message);
-        }
-    };
-
-    const openProofPicker = async (mode: ProofPickerMode = "draft") => {
-        const canOpenForDraft = isOwner && isActiveParentTask && !isActionPending("markComplete");
-        const canOpenForAwaitingUpload =
-            isOwner &&
-            (
-                taskState.status === "AWAITING_VOUCHER" ||
-                taskState.status === "AWAITING_AI" ||
-                taskState.status === "AWAITING_USER" ||
-                taskState.status === "MARKED_COMPLETE"
-            ) &&
-            !isActionPending("awaitingProofUpload");
-        if ((mode === "draft" && !canOpenForDraft) || (mode === "awaiting-upload" && !canOpenForAwaitingUpload)) {
-            return;
-        }
-        if (proofDraft) {
-            const shouldReplace = window.confirm(
-                "A proof file is already attached. Press OK to replace it, or Cancel to remove it."
-            );
-            if (!shouldReplace) {
-                setTaskProofDraft(null);
-                setProofUploadError(null);
-                return;
-            }
-        }
-
-        proofPickerModeRef.current = mode;
-        if (isMobileDevice()) {
-            proofInputRef.current?.click();
-        } else {
-            setShowWebcamModal(true);
-        }
-    };
-
-    const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const pickerMode = proofPickerModeRef.current;
-        proofPickerModeRef.current = "draft";
-        const selectedFile = event.target.files?.[0];
-        event.target.value = "";
-        if (!selectedFile) return;
-        if (pickerMode === "awaiting-upload") {
-            setActionPending("awaitingProofUpload", true);
-            try {
-                const prepared = await prepareTaskProof(selectedFile);
-                const previewUrl = URL.createObjectURL(prepared.file);
-                const awaitingDraft = { proof: prepared, previewUrl };
-
-                // Optimistic UI: immediately show proof as uploaded
-                const optimisticProof = {
-                    media_kind: prepared.mediaKind,
-                    mime_type: prepared.mimeType,
-                    size_bytes: prepared.sizeBytes,
-                    duration_ms: prepared.durationMs,
-                    overlay_timestamp_text: prepared.overlayTimestampText,
-                    upload_state: "UPLOADED" as const,
-                    updated_at: new Date().toISOString(),
-                };
-                const snapshotCompletionProof = taskState.completion_proof;
-                setTaskState((prev) => ({
-                    ...prev,
-                    completion_proof: optimisticProof as any,
-                    proof_request_open: false,
-                    proof_requested_at: null,
-                    proof_requested_by: null,
-                    updated_at: new Date().toISOString(),
-                }));
-                setTaskProofDraft(null);
-                setProofUploadError(null);
-
-                // Run the real upload in background
-                try {
-                    await uploadAwaitingProofInBackground(taskState.id, awaitingDraft);
-                } catch (uploadErr) {
-                    // Revert optimistic state on failure
-                    setTaskState((prev) => ({
-                        ...prev,
-                        completion_proof: snapshotCompletionProof,
-                    }));
-                }
-            } catch (error) {
-                const message = error instanceof Error ? error.message : "Could not process proof file.";
-                toast.error(message);
-            } finally {
-                setActionPending("awaitingProofUpload", false);
-            }
-            return;
-        }
-        await processPickedProofFile(selectedFile);
-    };
-
-    const uploadProofInBackground = async (
-        taskId: string,
-        draft: TaskProofDraft,
-        uploadTarget: ProofUploadTarget
-    ) => {
-        const supabase = createBrowserSupabaseClient();
-        const uploadResponse = uploadTarget.uploadToken
-            ? await supabase.storage
-                .from(uploadTarget.bucket)
-                .uploadToSignedUrl(uploadTarget.objectPath, uploadTarget.uploadToken, draft.proof.file, {
-                    contentType: draft.proof.mimeType,
-                    upsert: true,
-                })
-            : await supabase.storage
-                .from(uploadTarget.bucket)
-                .upload(uploadTarget.objectPath, draft.proof.file, {
-                    upsert: true,
-                    contentType: draft.proof.mimeType,
-                    cacheControl: "120",
-                });
-
-        const uploadError = uploadResponse.error;
-
-        if (uploadError) {
-            console.error("Task proof upload failed (task detail):", uploadError);
-            const uploadMessage = uploadError.message || "Unknown upload error";
-            setProofUploadError(`Proof upload failed (${uploadMessage}). Task reverted to active state.`);
-            toast.error(`Proof upload failed: ${uploadMessage}`);
-            const reverted = await revertTaskCompletionAfterProofFailure(taskId);
-            if (reverted?.error) {
-                toast.error(reverted.error);
-            }
-            const restoredStatus = getRestoredStatusFromRevertResult(reverted);
-            if (reverted?.success && restoredStatus) {
-                setTaskState((prev) => ({
-                    ...prev,
-                    status: restoredStatus,
-                    marked_completed_at: null,
-                    voucher_response_deadline: null,
-                    updated_at: new Date().toISOString(),
-                }));
-            }
-            void purgeLocalProofMedia(taskId);
-            refreshInBackground();
-            return;
-        }
-
-        const finalize = await finalizeTaskProofUpload(taskId, {
-            mediaKind: draft.proof.mediaKind,
-            mimeType: draft.proof.mimeType,
-            sizeBytes: draft.proof.sizeBytes,
-            durationMs: draft.proof.durationMs,
-            overlayTimestampText: draft.proof.overlayTimestampText,
-            bucket: uploadTarget.bucket,
-            objectPath: uploadTarget.objectPath,
-        });
-
-        if (finalize?.error) {
-            setProofUploadError("Proof finalize failed. Task reverted to active state.");
-            toast.error(`Proof upload failed: ${finalize.error}`);
-            const reverted = await revertTaskCompletionAfterProofFailure(taskId);
-            if (reverted?.error) {
-                toast.error(reverted.error);
-            }
-            const restoredStatus = getRestoredStatusFromRevertResult(reverted);
-            if (reverted?.success && restoredStatus) {
-                setTaskState((prev) => ({
-                    ...prev,
-                    status: restoredStatus,
-                    marked_completed_at: null,
-                    voucher_response_deadline: null,
-                    updated_at: new Date().toISOString(),
-                }));
-            }
-            void purgeLocalProofMedia(taskId);
-            refreshInBackground();
-            return;
-        }
-
-        setTaskProofDraft(null);
-        setProofUploadError(null);
-        refreshInBackground();
-    };
-
-    const uploadAwaitingProofInBackground = async (
-        taskId: string,
-        draft: TaskProofDraft
-    ) => {
-        const init = await initAwaitingVoucherProofUpload(
-            taskId,
-            getProofIntentFromPreparedProof(draft.proof)
-        );
-        if (init?.error) {
-            setProofUploadError(init.error);
-            toast.error(init.error);
-            refreshInBackground();
-            return;
-        }
-
-        const uploadTarget = (init as { proofUploadTarget?: ProofUploadTarget } | undefined)?.proofUploadTarget;
-        if (!uploadTarget) {
-            const message = "Proof upload target missing.";
-            setProofUploadError(message);
-            toast.error(`Proof upload failed: ${message}`);
-            refreshInBackground();
-            return;
-        }
-
-        const supabase = createBrowserSupabaseClient();
-        const uploadResponse = uploadTarget.uploadToken
-            ? await supabase.storage
-                .from(uploadTarget.bucket)
-                .uploadToSignedUrl(uploadTarget.objectPath, uploadTarget.uploadToken, draft.proof.file, {
-                    contentType: draft.proof.mimeType,
-                    upsert: true,
-                })
-            : await supabase.storage
-                .from(uploadTarget.bucket)
-                .upload(uploadTarget.objectPath, draft.proof.file, {
-                    upsert: true,
-                    contentType: draft.proof.mimeType,
-                    cacheControl: "120",
-                });
-
-        const uploadError = uploadResponse.error;
-        if (uploadError) {
-            console.error("Awaiting-voucher proof upload failed (task detail):", uploadError);
-            const uploadMessage = uploadError.message || "Unknown upload error";
-            setProofUploadError(`Proof upload failed (${uploadMessage}). Task is still awaiting voucher.`);
-            toast.error(`Proof upload failed: ${uploadMessage}`);
-            refreshInBackground();
-            return;
-        }
-
-        const finalize = await finalizeTaskProofUpload(taskId, {
-            mediaKind: draft.proof.mediaKind,
-            mimeType: draft.proof.mimeType,
-            sizeBytes: draft.proof.sizeBytes,
-            durationMs: draft.proof.durationMs,
-            overlayTimestampText: draft.proof.overlayTimestampText,
-            bucket: uploadTarget.bucket,
-            objectPath: uploadTarget.objectPath,
-        });
-
-        if (finalize?.error) {
-            setProofUploadError(finalize.error);
-            toast.error(`Proof finalize failed: ${finalize.error}`);
-            refreshInBackground();
-            return;
-        }
-
-        setTaskState((prev) => ({
-            ...prev,
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: new Date().toISOString(),
-        }));
-        setTaskProofDraft(null);
-        setProofUploadError(null);
-        refreshInBackground();
-    };
-
-    const proofSummary = storedProof
-        ? `Uploaded (${storedProof.media_kind})`
-        : proofDraft
-            ? `Attached (${proofDraft.proof.mediaKind})`
-            : "None";
+    const {
+        processPickedProofFile,
+        openProofPicker,
+        handleProofInputChange,
+        handleMarkComplete,
+        handleUndoComplete,
+        handleRemoveStoredProof,
+    } = useTaskDetailProof({
+        taskState,
+        isOwner,
+        isActiveParentTask,
+        isSelfVouched,
+        isAiVouched,
+        requiresProofForCompletion,
+        isBeforeStart,
+        beforeStartMessage,
+        incompleteSubtasksCount,
+        hasIncompletePomoRequirement,
+        remainingRequiredPomoSeconds,
+        hasRunningPomoForTask,
+        userTimeZone,
+        potentialRp,
+        storedProof,
+        proofDraft,
+        setProofDraft: setTaskProofDraft,
+        setProofUploadError,
+        setTaskState,
+        setActionPending,
+        isActionPending,
+        refreshInBackground,
+        setShowWebcamModal,
+        proofInputRef,
+        proofPickerModeRef,
+    });
     const googleSyncDirectionLabel =
         taskState.google_sync_linked && taskState.google_sync_last_origin === "APP"
             ? "App -> Google Calendar"
@@ -1001,173 +478,6 @@ export default function TaskDetailClient({
     const googleSyncDirectionClassName =
         taskState.google_sync_last_origin === "APP" ? "text-emerald-300" : "text-cyan-300";
 
-    async function handleMarkComplete() {
-        if (isActionPending("markComplete")) return;
-        if (isBeforeStart) {
-            toast.error(beforeStartMessage);
-            return;
-        }
-        if (incompleteSubtasksCount > 0) {
-            toast.error("Complete all subtasks before marking this task complete.");
-            return;
-        }
-        if (hasIncompletePomoRequirement) {
-            const remainingMinutes = Math.ceil(remainingRequiredPomoSeconds / 60);
-            toast.error(`Log ${remainingMinutes} more focus minute${remainingMinutes === 1 ? "" : "s"} before marking this task complete.`);
-            return;
-        }
-        if (hasRunningPomoForTask) {
-            toast.error("Stop the running pomodoro for this task before marking it complete.");
-            return;
-        }
-        if (requiresProofForCompletion && !proofDraft && !storedProof) {
-            toast.error("Attach proof before marking this task complete.");
-            return;
-        }
-        setActionPending("markComplete", true);
-        setProofUploadError(null);
-        fireCompletionConfetti();
-
-        const now = new Date();
-        const voucherResponseDeadline = getVoucherResponseDeadlineLocal(now);
-        const draft = proofDraft;
-        const proofIntent = draft ? getProofIntentFromPreparedProof(draft.proof) : null;
-        if (proofIntent || storedProof) {
-            // Drop any previously warmed proof immediately when replacing/removing proof state.
-            void purgeLocalProofMedia(taskState.id);
-        }
-
-        const result = await runOptimisticMutation({
-            captureSnapshot: () => ({ taskState }),
-            applyOptimistic: () => {
-                setTaskState((prev) => ({
-                    ...prev,
-                    status: isSelfVouched
-                        ? "ACCEPTED"
-                        : (isAiVouched ? "AWAITING_AI" : "AWAITING_VOUCHER"),
-                    marked_completed_at: now.toISOString(),
-                    voucher_response_deadline:
-                        (isSelfVouched || isAiVouched) ? null : voucherResponseDeadline.toISOString(),
-                    proof_request_open: false,
-                    proof_requested_at: null,
-                    proof_requested_by: null,
-                    updated_at: now.toISOString(),
-                }));
-            },
-            runMutation: () => markTaskCompleteWithProofIntent(taskState.id, userTimeZone, proofIntent),
-            rollback: (snapshot) => {
-                setTaskState(snapshot.taskState);
-            },
-            onSuccess: () => {
-                if (isSelfVouched) {
-                    setTaskProofDraft(null);
-                    setProofUploadError(null);
-                    void purgeLocalProofMedia(taskState.id);
-                } else if (!proofIntent) {
-                    void purgeLocalProofMedia(taskState.id);
-                }
-                if (potentialRp !== null && potentialRp > 0) {
-                    toast.success(`You may earn +${potentialRp} RP`);
-                }
-                refreshInBackground();
-            },
-        });
-
-        if (result.ok && draft && !isSelfVouched) {
-            const mutationResult = result.result as { proofUploadTarget?: ProofUploadTarget } | undefined;
-            const uploadTarget = mutationResult?.proofUploadTarget;
-
-            if (!uploadTarget) {
-                setProofUploadError("Proof upload target missing. Task reverted to active state.");
-                toast.error("Proof upload failed: Upload target missing.");
-                const reverted = await revertTaskCompletionAfterProofFailure(taskState.id);
-                if (reverted?.error) {
-                    toast.error(reverted.error);
-                }
-                refreshInBackground();
-            } else {
-                void uploadProofInBackground(taskState.id, draft, uploadTarget);
-            }
-        }
-
-        setActionPending("markComplete", false);
-    }
-
-    async function handleUndoComplete() {
-        if (isActionPending("undoComplete")) return;
-        if (!isOwner || (taskState.status !== "AWAITING_VOUCHER" && taskState.status !== "AWAITING_AI" && taskState.status !== "MARKED_COMPLETE")) return;
-        if (new Date() >= new Date(taskState.deadline)) {
-            toast.error("Cannot undo completion after the deadline.");
-            return;
-        }
-
-        setActionPending("undoComplete", true);
-        const restoredStatus: "ACTIVE" | "POSTPONED" = taskState.postponed_at ? "POSTPONED" : "ACTIVE";
-        const nowIso = new Date().toISOString();
-
-        await runOptimisticMutation({
-            captureSnapshot: () => ({ taskState }),
-            applyOptimistic: () => {
-                setTaskState((prev) => ({
-                    ...prev,
-                    status: restoredStatus,
-                    marked_completed_at: null,
-                    voucher_response_deadline: null,
-                    proof_request_open: false,
-                    proof_requested_at: null,
-                    proof_requested_by: null,
-                    updated_at: nowIso,
-                }));
-            },
-            runMutation: () => undoTaskComplete(taskState.id),
-            rollback: (snapshot) => {
-                setTaskState(snapshot.taskState);
-            },
-            onSuccess: () => {
-                setTaskProofDraft(null);
-                setProofUploadError(null);
-                void purgeLocalProofMedia(taskState.id);
-                refreshInBackground();
-            },
-        });
-
-        setActionPending("undoComplete", false);
-    }
-
-    async function handleRemoveStoredProof() {
-        if (isActionPending("removeStoredProof")) return;
-        if (!isOwner || !storedProof) return;
-        if (!["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status)) {
-            toast.error("Proof can only be removed while awaiting voucher response.");
-            return;
-        }
-
-        setActionPending("removeStoredProof", true);
-        const nowIso = new Date().toISOString();
-
-        await runOptimisticMutation({
-            captureSnapshot: () => ({ taskState }),
-            applyOptimistic: () => {
-                setTaskState((prev) => ({
-                    ...prev,
-                    completion_proof: null,
-                    updated_at: nowIso,
-                }));
-                setProofUploadError(null);
-            },
-            runMutation: () => removeAwaitingVoucherProof(taskState.id),
-            rollback: (snapshot) => {
-                setTaskState(snapshot.taskState);
-            },
-            onSuccess: () => {
-                void purgeLocalProofMedia(taskState.id);
-                toast.success("Proof removed.");
-                refreshInBackground();
-            },
-        });
-
-        setActionPending("removeStoredProof", false);
-    }
 
     async function handlePostpone(newDeadlineIso: string): Promise<boolean> {
         if (isActionPending("postpone")) return false;
@@ -1221,476 +531,58 @@ export default function TaskDetailClient({
         return result.ok;
     }
 
-    async function handleAddSubtask(e: React.FormEvent<HTMLFormElement>) {
-        e.preventDefault();
-        if (!canManageActionChildren || isAddingSubtask) return;
-
-        const normalizedTitle = newSubtaskTitle.trim();
-        if (!normalizedTitle) {
-            setSubtaskError("Subtask title cannot be empty.");
-            return;
-        }
-
-        if (subtasks.length >= MAX_SUBTASKS_PER_TASK) {
-            setSubtaskError(`You can add up to ${MAX_SUBTASKS_PER_TASK} subtasks.`);
-            return;
-        }
-
-        setSubtaskError(null);
-        setIsAddingSubtask(true);
-
-        const nowIso = new Date().toISOString();
-        const optimisticId = `temp-subtask-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        const optimisticSubtask = {
-            id: optimisticId,
-            parent_task_id: taskState.id,
-            user_id: taskState.user_id,
-            title: normalizedTitle,
-            is_completed: false,
-            completed_at: null,
-            created_at: nowIso,
-            updated_at: nowIso,
-        };
-
-        const result = await runOptimisticMutation({
-            captureSnapshot: () => ({ subtasks, newSubtaskTitle }),
-            applyOptimistic: () => {
-                setSubtasks((prev) => [...prev, optimisticSubtask]);
-                setNewSubtaskTitle("");
-            },
-            runMutation: () => addTaskSubtask(taskState.id, normalizedTitle),
-            rollback: (snapshot) => {
-                setSubtasks(snapshot.subtasks);
-                setNewSubtaskTitle(snapshot.newSubtaskTitle);
-            },
-            onSuccess: (mutationResult) => {
-                if (mutationResult && "subtask" in mutationResult && mutationResult.subtask) {
-                    setSubtasks((prev) =>
-                        prev.map((subtask) =>
-                            subtask.id === optimisticId
-                                ? (mutationResult.subtask as typeof optimisticSubtask)
-                                : subtask
-                        )
-                    );
-                }
-            },
-        });
-
-        if (!result.ok && result.error) {
-            setSubtaskError(result.error);
-        } else if (!result.ok) {
-            setSubtaskError("Could not add subtask.");
-        } else if (subtasks.length + 1 < MAX_SUBTASKS_PER_TASK) {
-            shouldRestoreSubtaskInputFocusRef.current = true;
-        }
-
-        setIsAddingSubtask(false);
-    }
-
-    async function handleToggleSubtask(subtaskId: string) {
-        if (!canManageActionChildren || pendingSubtaskIds.has(subtaskId)) return;
-
-        const current = subtasks.find((subtask) => subtask.id === subtaskId);
-        if (!current) return;
-
-        const nextCompleted = !current.is_completed;
-        setSubtaskPending(subtaskId, true);
-        setSubtaskError(null);
-
-        const result = await runOptimisticMutation({
-            captureSnapshot: () => ({ subtasks }),
-            applyOptimistic: () => {
-                setSubtasks((prev) =>
-                    prev.map((subtask) =>
-                        subtask.id === subtaskId
-                            ? {
-                                ...subtask,
-                                is_completed: nextCompleted,
-                                completed_at: nextCompleted ? new Date().toISOString() : null,
-                                updated_at: new Date().toISOString(),
-                            }
-                            : subtask
-                    )
-                );
-            },
-            runMutation: () => toggleTaskSubtask(taskState.id, subtaskId, nextCompleted),
-            rollback: (snapshot) => {
-                setSubtasks(snapshot.subtasks);
-            },
-            onSuccess: () => {
-                // Local optimistic state is already updated.
-            },
-        });
-
-        if (!result.ok && result.error) {
-            setSubtaskError(result.error);
-        }
-
-        setSubtaskPending(subtaskId, false);
-    }
-
-    async function handleDeleteSubtask(subtaskId: string) {
-        if (!canManageActionChildren || pendingSubtaskIds.has(subtaskId)) return;
-
-        setSubtaskPending(subtaskId, true);
-        setSubtaskError(null);
-
-        const result = await runOptimisticMutation({
-            captureSnapshot: () => ({ subtasks }),
-            applyOptimistic: () => {
-                setSubtasks((prev) => prev.filter((subtask) => subtask.id !== subtaskId));
-            },
-            runMutation: () => deleteTaskSubtask(taskState.id, subtaskId),
-            rollback: (snapshot) => {
-                setSubtasks(snapshot.subtasks);
-            },
-            onSuccess: () => {
-                // Local optimistic state is already updated.
-            },
-        });
-
-        if (!result.ok && result.error) {
-            setSubtaskError(result.error);
-        }
-
-        setSubtaskPending(subtaskId, false);
-    }
-
-    async function handleRenameSubtask() {
-        if (!editingSubtaskId) return;
-        const targetId = editingSubtaskId;
-        const trimmed = editingSubtaskTitle.trim();
-        const currentSubtask = subtasks.find((subtask) => subtask.id === targetId);
-
-        setEditingSubtaskId(null);
-        setEditingSubtaskTitle("");
-
-        if (!currentSubtask) return;
-        if (!trimmed) {
-            setSubtaskError("Subtask title cannot be empty.");
-            return;
-        }
-        if (trimmed === currentSubtask.title) return;
-
-        setSubtaskPending(targetId, true);
-        setSubtaskError(null);
-        const nowIso = new Date().toISOString();
-
-        const result = await runOptimisticMutation({
-            captureSnapshot: () => ({ subtasks }),
-            applyOptimistic: () => {
-                setSubtasks((prev) =>
-                    prev.map((subtask) =>
-                        subtask.id === targetId
-                            ? { ...subtask, title: trimmed, updated_at: nowIso }
-                            : subtask
-                    )
-                );
-            },
-            runMutation: () => renameTaskSubtask(taskState.id, targetId, trimmed),
-            rollback: (snapshot) => {
-                setSubtasks(snapshot.subtasks);
-            },
-            onSuccess: (mutationResult) => {
-                if (mutationResult && "subtask" in mutationResult && mutationResult.subtask) {
-                    setSubtasks((prev) =>
-                        prev.map((subtask) =>
-                            subtask.id === targetId
-                                ? (mutationResult.subtask as typeof subtask)
-                                : subtask
-                        )
-                    );
-                }
-            },
-        });
-
-        if (!result.ok && result.error) {
-            setSubtaskError(result.error);
-        }
-
-        setSubtaskPending(targetId, false);
-    }
-
-    async function handleOverride() {
-        if (isActionPending("override")) return;
-        if (hasUsedOverrideThisMonth) {
-            toast.error("You have already used your override for this month");
-            return;
-        }
-        if (!confirm("Are you sure? This uses your 1 monthly Override pass and will settle the task without failure cost.")) return;
-
-        setActionPending("override", true);
-        const optimisticUpdatedAt = new Date().toISOString();
-
-        await runOptimisticMutation({
-            captureSnapshot: () => ({ taskState }),
-            applyOptimistic: () => {
-                setTaskState((prev) => ({
-                    ...prev,
-                    status: "SETTLED",
-                    updated_at: optimisticUpdatedAt,
-                }));
-            },
-            runMutation: () => overrideTask(taskState.id),
-            rollback: (snapshot) => {
-                setTaskState(snapshot.taskState);
-            },
-            onSuccess: () => {
-                refreshInBackground();
-            },
-        });
-
-        setActionPending("override", false);
-    }
-
-    async function handleCancelRepetition() {
-        if (isRepetitionStopped || isActionPending("cancelRepetition")) return;
-        if (!confirm("Are you sure you want to stop future repetitions? This task will remain, but no more will be created.")) return;
-
-        setActionPending("cancelRepetition", true);
-
-        await runOptimisticMutation({
-            captureSnapshot: () => ({ taskState, isRepetitionStopped }),
-            applyOptimistic: () => {
-                setIsRepetitionStopped(true);
-                setTaskState((prev) => ({
-                    ...prev,
-                    recurrence_rule_id: null,
-                    recurrence_rule: null,
-                }));
-            },
-            runMutation: () => cancelRepetition(taskState.id),
-            rollback: (snapshot) => {
-                setTaskState(snapshot.taskState);
-                setIsRepetitionStopped(snapshot.isRepetitionStopped);
-            },
-            onSuccess: () => {
-                refreshInBackground();
-            },
-        });
-
-        setActionPending("cancelRepetition", false);
-    }
-
-    async function handleTempDelete() {
-        if (isActionPending("tempDelete") || !canTempDelete) return;
-        setActionPending("tempDelete", true);
-
-        const result = await ownerTempDeleteTask(taskState.id);
-        if (result?.error) {
-            toast.error(result.error);
-            setActionPending("tempDelete", false);
-            return;
-        }
-
-        refreshInBackground();
-        router.push("/tasks");
-        setActionPending("tempDelete", false);
-    }
-
-    async function loadFriendsForEscalation() {
-        setFriendsLoading(true);
-        try {
-            const supabase = createBrowserSupabaseClient();
-            const { data, error } = await supabase
-                .from("friendships")
-                .select("friend_id, friend:profiles!friendships_friend_id_fkey(id, username, email)")
-                .eq("user_id", viewerId);
-
-            if (!error && data) {
-                const friendsList = data
-                    .map((f) => (f.friend as any))
-                    .filter((f) => f && f.id);
-                setFriends(friendsList);
-            }
-        } catch (error) {
-            console.error("Failed to load friends:", error);
-        } finally {
-            setFriendsLoading(false);
-        }
-    }
-
-    async function handleEscalateToFriend(friendId: string) {
-        if (escalationPending) return;
-        setEscalationPending(true);
-
-        const result = await escalateToHumanVoucher(taskState.id, friendId);
-
-        if (result?.error) {
-            toast.error(result.error);
-        } else if (result?.success) {
-            toast.success("Task escalated to friend for review");
-            setShowEscalationPicker(false);
-            refreshInBackground();
-        }
-
-        setEscalationPending(false);
-    }
-
-    const formatFocusTime = (seconds: number) => {
-        if (!seconds || seconds <= 0) return "0m";
-        if (seconds < 60) return `${seconds}s`;
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        if (hours > 0) return `${hours}h ${minutes}m`;
-        return `${minutes}m`;
-    };
-
-    const getPomoElapsedSeconds = (event: TaskEvent) => {
-        const elapsedRaw = event.metadata?.elapsed_seconds;
-        return typeof elapsedRaw === "number" ? elapsedRaw : Number(elapsedRaw ?? 0);
-    };
-
-    const formatDateDdMmYyyy = (value: Date | string) =>
-        new Date(value).toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-        });
-
-    const formatDateTimeDdMmYyyy24h = (value: Date | string) =>
-        `${formatDateDdMmYyyy(value)} ${formatTime24h(value)}`;
-
-    const formatEventTimestamp = (event: TaskEvent) => {
-        if (event.event_type !== "POMO_COMPLETED") {
-            return formatDateTimeDdMmYyyy24h(event.created_at);
-        }
-
-        const elapsedSeconds = getPomoElapsedSeconds(event);
-        const endDate = new Date(event.created_at);
-        if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0 || Number.isNaN(endDate.getTime())) {
-            return formatDateTimeDdMmYyyy24h(event.created_at);
-        }
-
-        const startDate = new Date(endDate.getTime() - elapsedSeconds * 1000);
-        return `${formatDateTimeDdMmYyyy24h(startDate)} -> ${formatDateTimeDdMmYyyy24h(endDate)}`;
-    };
-
-    const getActivityStepTone = (event: TaskEvent): ActivityStep["tone"] => {
-        const toStatus = event.to_status;
-        if (["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "RECTIFIED", "SETTLED"].includes(toStatus)) {
-            return "success";
-        }
-        if (["DENIED", "MISSED"].includes(toStatus)) {
-            return "danger";
-        }
-        if (event.event_type === "DEADLINE_WARNING_1H" || event.event_type === "DEADLINE_WARNING_10M") {
-            return "warning";
-        }
-        if (["PROOF_UPLOAD_FAILED_REVERT", "PROOF_REQUESTED", "PROOF_UPLOADED", "PROOF_REMOVED"].includes(event.event_type)) {
-            return "proof";
-        }
-        if (["POMO_COMPLETED", "REPETITION_STOPPED", "UNDO_COMPLETE"].includes(event.event_type)) {
-            return "info";
-        }
-        return "neutral";
-    };
-
-    const visibleEvents = useMemo(() => {
-        const seenSessionIds = new Set<string>();
-        const filtered = events.filter((event) => {
-            if (event.event_type !== "POMO_COMPLETED") return true;
-            const sessionIdRaw = event.metadata?.session_id;
-            const sessionId = typeof sessionIdRaw === "string" ? sessionIdRaw : "";
-            if (!sessionId) return true;
-            if (seenSessionIds.has(sessionId)) return false;
-            seenSessionIds.add(sessionId);
-            return true;
-        });
-
-        const minuteBucket = (iso: string) => {
-            const ms = new Date(iso).getTime();
-            return Number.isNaN(ms) ? Number.NaN : Math.floor(ms / 60000);
-        };
-
-        const isAwaitingTransition = (event: TaskEvent) =>
-            event.from_status !== event.to_status &&
-            typeof event.to_status === "string" &&
-            event.to_status.startsWith("AWAITING_");
-
-        return [...filtered].sort((a, b) => {
-            const aMinute = minuteBucket(a.created_at);
-            const bMinute = minuteBucket(b.created_at);
-
-            if (Number.isNaN(aMinute) || Number.isNaN(bMinute) || aMinute !== bMinute) {
-                return 0;
-            }
-
-            const aIsProofUploaded = a.event_type === "PROOF_UPLOADED";
-            const bIsProofUploaded = b.event_type === "PROOF_UPLOADED";
-            const aIsAwaiting = isAwaitingTransition(a);
-            const bIsAwaiting = isAwaitingTransition(b);
-
-            if (aIsProofUploaded && bIsAwaiting) return -1;
-            if (bIsProofUploaded && aIsAwaiting) return 1;
-            return 0;
-        });
-    }, [events]);
-
-    const activitySteps = useMemo<ActivityStep[]>(() => {
-        let aiEventCounter = 0;
-        return visibleEvents.flatMap((event) => {
-            const hasTransition = event.from_status !== event.to_status;
-            const toStatus = event.to_status;
-            const elapsedSeconds = event.event_type === "POMO_COMPLETED"
-                ? getPomoElapsedSeconds(event)
-                : undefined;
-            const tag: ActivityStep["tag"] =
-                event.event_type === "MARK_COMPLETE"
-                    ? { kind: "status", status: "MARKED_COMPLETE" }
-                    : event.event_type === "UNDO_COMPLETE"
-                    ? { kind: "event", eventType: event.event_type, elapsedSeconds }
-                    : hasTransition && isTaskStatus(toStatus)
-                    ? { kind: "status", status: toStatus }
-                    : { kind: "event", eventType: event.event_type, elapsedSeconds };
-
-            const detailParts: string[] = [];
-            if (event.event_type === "POSTPONE") {
-                const newDeadlineRaw = event.metadata?.new_deadline;
-                const newDeadlineIso = typeof newDeadlineRaw === "string" ? newDeadlineRaw : null;
-                if (newDeadlineIso) {
-                    detailParts.push(`new deadline: ${formatDateTimeDdMmYyyy24h(newDeadlineIso)}`);
-                }
-            }
-
-            if (event.event_type === "POMO_COMPLETED") {
-                detailParts.push(`focus duration: ${formatFocusTime(getPomoElapsedSeconds(event))}`);
-            }
-
-            if (event.event_type === "AI_APPROVE" || event.event_type === "AI_DENY") {
-                const vouch = aiVouches[aiEventCounter];
-                aiEventCounter += 1;
-                if (vouch?.reason) {
-                    detailParts.push(`"${vouch.reason}"`);
-                }
-            }
-
-            const detail = detailParts.length > 0 ? detailParts.join(" | ") : null;
-
-            const baseStep: ActivityStep = {
-                id: event.id,
-                tag,
-                detail,
-                timestamp: formatEventTimestamp(event),
-                tone: getActivityStepTone(event),
-            };
-
-            if (event.event_type === "UNDO_COMPLETE" && hasTransition && isTaskStatus(toStatus)) {
-                return [
-                    baseStep,
-                    {
-                        id: `${event.id}:restored-status`,
-                        tag: { kind: "status", status: toStatus },
-                        detail: null,
-                        timestamp: formatEventTimestamp(event),
-                        tone: "neutral",
-                    },
-                ];
-            }
-
-            return [baseStep];
-        });
-    }, [visibleEvents, aiVouches]);
+    const {
+        startEditingSubtask,
+        handleAddSubtask,
+        handleToggleSubtask,
+        handleDeleteSubtask,
+        handleRenameSubtask,
+    } = useTaskDetailSubtasks({
+        taskState,
+        subtasks,
+        newSubtaskTitle,
+        editingSubtaskId,
+        editingSubtaskTitle,
+        pendingSubtaskIds,
+        isAddingSubtask,
+        canManageActionChildren,
+        setSubtasks,
+        setNewSubtaskTitle,
+        setSubtaskError,
+        setPendingSubtaskIds,
+        setEditingSubtaskId,
+        setEditingSubtaskTitle,
+        setIsAddingSubtask,
+        shouldRestoreSubtaskInputFocusRef,
+    });
+
+    const {
+        handleOverride,
+        handleCancelRepetition,
+        handleTempDelete,
+        loadFriendsForEscalation,
+        handleEscalateToFriend,
+    } = useTaskDetailActions({
+        taskState,
+        viewerId,
+        canTempDelete,
+        hasUsedOverrideThisMonth,
+        isRepetitionStopped,
+        escalationPending,
+        setEscalationPending,
+        setShowEscalationPicker,
+        setFriends,
+        friendsLoading,
+        setFriendsLoading,
+        setIsRepetitionStopped,
+        setTaskState,
+        setActionPending,
+        isActionPending,
+        refreshInBackground,
+        pushToTasks: () => router.push("/tasks"),
+    });
+
+    const activitySteps = useTaskDetailActivitySteps(events, aiVouches);
 
     return (
         <>
@@ -1764,32 +656,14 @@ export default function TaskDetailClient({
             </div>
 
             {/* ② STATS STRIP */}
-            <div className="td-rise td-d2 rounded-xl border border-slate-800/80 bg-slate-950/40 px-4 py-4 sm:px-5">
-                <div className="space-y-2.5">
-                    <div className="flex items-center justify-between gap-3 min-h-[32px]">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Deadline</p>
-                        <p className="text-xs font-mono text-right text-slate-200">
-                            {formatDateTimeDdMmYy(deadline)}
-                        </p>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 min-h-[32px]">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Failure Cost</p>
-                        <p className="text-xs font-mono text-slate-200 text-right">{formattedFailureCost}</p>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 min-h-[32px]">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Voucher</p>
-                        <p className="text-xs font-mono text-slate-200 text-right truncate">
-                            {isAiVouched ? "AI" : (taskState.voucher?.username || "Unassigned")}
-                        </p>
-                    </div>
-                    <div className="flex items-center justify-between gap-3 min-h-[32px]">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Focused</p>
-                        <p className="text-xs font-mono text-slate-200 text-right">
-                            {`${formatFocusTime(totalPomoSeconds)}, ${pomoSummary?.sessionCount ?? 0} session${(pomoSummary?.sessionCount ?? 0) === 1 ? "" : "s"}`}
-                        </p>
-                    </div>
-                </div>
-            </div>
+            <TaskDetailStatsStrip
+                deadline={deadline}
+                formattedFailureCost={formattedFailureCost}
+                isAiVouched={isAiVouched}
+                voucherUsername={taskState.voucher?.username}
+                totalPomoSeconds={totalPomoSeconds}
+                sessionCount={pomoSummary?.sessionCount ?? 0}
+            />
 
             {/* Google Sync */}
             {googleSyncDirectionLabel && (
@@ -2372,7 +1246,7 @@ export default function TaskDetailClient({
                                 Escalate to a Friend
                             </DialogTitle>
                             <DialogDescription className="text-xs font-mono text-slate-600">
-                                Choose a friend to review AI's decision
+                                Choose a friend to review AI&apos;s decision
                             </DialogDescription>
                         </DialogHeader>
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">

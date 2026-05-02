@@ -12,6 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { notifyCommitmentFailureIfNeeded } from "@/actions/commitments";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
+import { claimTasksByIdsAndStatus } from "@/trigger/claim-utils";
 
 export const deadlineFail = schedules.task({
     id: "deadline-fail",
@@ -60,23 +61,29 @@ export const deadlineFail = schedules.task({
 
         const claimedIds: string[] = [];
         if (activeIds.length > 0) {
-            const { data: updatedActive } = await (supabase.from("tasks") as any)
-                .update({ status: "MISSED", updated_at: nowIso })
-                .in("id", activeIds as any)
-                .eq("status", "ACTIVE" as any)
-                .select("id");
-            for (const row of (updatedActive as Array<{ id: string }> | null) || []) {
-                claimedIds.push(row.id);
+            try {
+                const activeClaimed = await claimTasksByIdsAndStatus(
+                    supabase,
+                    activeIds,
+                    "ACTIVE",
+                    { status: "MISSED", updated_at: nowIso }
+                );
+                claimedIds.push(...activeClaimed);
+            } catch (claimError) {
+                console.error("Failed claiming ACTIVE overdue tasks:", claimError);
             }
         }
         if (postponedIds.length > 0) {
-            const { data: updatedPostponed } = await (supabase.from("tasks") as any)
-                .update({ status: "MISSED", updated_at: nowIso })
-                .in("id", postponedIds as any)
-                .eq("status", "POSTPONED" as any)
-                .select("id");
-            for (const row of (updatedPostponed as Array<{ id: string }> | null) || []) {
-                claimedIds.push(row.id);
+            try {
+                const postponedClaimed = await claimTasksByIdsAndStatus(
+                    supabase,
+                    postponedIds,
+                    "POSTPONED",
+                    { status: "MISSED", updated_at: nowIso }
+                );
+                claimedIds.push(...postponedClaimed);
+            } catch (claimError) {
+                console.error("Failed claiming POSTPONED overdue tasks:", claimError);
             }
         }
 

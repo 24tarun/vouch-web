@@ -25,7 +25,6 @@ const ATTACHABLE_PROOF_STATUSES = new Set([
   'ESCALATED',
 ]);
 
-const PROOF_FINALIZE_CLEAR_STATUSES = ['AWAITING_VOUCHER', 'AWAITING_AI', 'MARKED_COMPLETE'];
 const FINAL_TASK_STATUSES = new Set([
   'ACCEPTED',
   'AUTO_ACCEPTED',
@@ -57,6 +56,11 @@ interface ProofIntent {
 interface ProofMeta extends ProofIntent {
   bucket: string;
   objectPath: string;
+}
+
+interface FinalizeProofAtomicResult {
+  success: boolean;
+  error: string | null;
 }
 
 interface InitRequestBody {
@@ -410,65 +414,47 @@ Deno.serve(async (request) => {
       return json(400, { success: false, error: 'Proof upload target mismatch.' });
     }
 
-    const nowIso = new Date().toISOString();
-
-    const { error: updateError } = await adminClient
-      .from('task_completion_proofs')
-      .update({
-        media_kind: proofMeta.mediaKind,
-        mime_type: proofMeta.mimeType,
-        size_bytes: proofMeta.sizeBytes,
-        duration_ms: proofMeta.durationMs ?? null,
-        overlay_timestamp_text: proofMeta.overlayTimestampText,
-        upload_state: 'UPLOADED',
-        updated_at: nowIso,
-      })
-      .eq('id', (proofRow as { id: string }).id)
-      .eq('owner_id', user.id);
-
-    if (updateError) {
-      return json(400, { success: false, error: updateError.message });
-    }
-
-    await adminClient
-      .from('tasks')
-      .update({
-        has_proof: true,
-        updated_at: nowIso,
-      })
-      .eq('id', taskId)
-      .eq('user_id', user.id);
-
-    await adminClient
-      .from('tasks')
-      .update({
-        proof_request_open: false,
-        proof_requested_at: null,
-        proof_requested_by: null,
-        updated_at: nowIso,
-      })
-      .eq('id', taskId)
-      .eq('user_id', user.id)
-      .in('status', PROOF_FINALIZE_CLEAR_STATUSES as unknown as string[]);
-
-    const { error: eventError } = await adminClient
-      .from('task_events')
-      .insert({
-        task_id: taskId,
-        event_type: 'PROOF_UPLOADED',
-        actor_id: user.id,
-        from_status: (task as { status: string }).status,
-        to_status: (task as { status: string }).status,
-        metadata: {
-          media_kind: proofMeta.mediaKind,
-          mime_type: proofMeta.mimeType,
-          size_bytes: proofMeta.sizeBytes,
-          duration_ms: proofMeta.durationMs ?? null,
-        },
+    const { data: finalizeData, error: finalizeError } = await adminClient
+      .rpc('finalize_task_proof_atomic', {
+        p_task_id: taskId,
+        p_owner_id: user.id,
+        p_bucket: proofMeta.bucket,
+        p_object_path: proofMeta.objectPath,
+        p_media_kind: proofMeta.mediaKind,
+        p_mime_type: proofMeta.mimeType,
+        p_size_bytes: proofMeta.sizeBytes,
+        p_duration_ms: proofMeta.durationMs ?? null,
+        p_overlay_timestamp_text: proofMeta.overlayTimestampText,
+        p_task_status: (task as { status: string }).status,
       });
 
-    if (eventError) {
-      console.error('Failed to log PROOF_UPLOADED event:', eventError);
+    if (finalizeError) {
+      return json(400, { success: false, error: finalizeError.message });
+    }
+
+    const finalizeRow = Array.isArray(finalizeData)
+      ? (finalizeData[0] as FinalizeProofAtomicResult | undefined)
+      : (finalizeData as FinalizeProofAtomicResult | null);
+
+    if (!finalizeRow?.success) {
+      return json(400, { success: false, error: finalizeRow?.error || 'Could not finalize proof upload.' });
+    }
+
+    const AI_PROFILE_ID = '00000000-0000-0000-0000-000000000001';
+    if ((task as { voucher_id: string }).voucher_id === AI_PROFILE_ID) {
+      const triggerSecretKey = Deno.env.get('TRIGGER_SECRET_KEY');
+      if (triggerSecretKey) {
+        await fetch('https://api.trigger.dev/api/v3/tasks/ai-voucher-evaluate/trigger', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${triggerSecretKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ payload: { taskId } }),
+        }).catch((err) => console.error('Failed to queue AI voucher evaluation:', err));
+      } else {
+        console.error('TRIGGER_SECRET_KEY not set — AI voucher evaluation will not run');
+      }
     }
 
     return json(200, { success: true });

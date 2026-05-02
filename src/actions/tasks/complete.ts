@@ -17,9 +17,8 @@ import {
 } from "@/lib/task-submission-window";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 import {
-    invalidateActiveTasksCache,
-    invalidatePendingVoucherRequestsCache,
     enqueueGoogleCalendarUpsert,
+    revalidateTaskAndSocialSurfaces,
     validateProofIntent,
     getVoucherResponseDeadlineUtc,
     RecurrenceRuleTable,
@@ -30,6 +29,127 @@ import {
     INVALID_TASK_PROOF_ERROR,
     type MarkTaskCompleteWithProofResult,
 } from "./helpers";
+
+function buildBeforeStartSubmissionError(start: Date | null, end: Date | null): string {
+    const fmt = (d: Date) =>
+        d.toLocaleString(undefined, {
+            month: "short",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+        });
+    const window = start && end ? ` between ${fmt(start)} and ${fmt(end)}` : "";
+    return `This task can only be submitted${window}.`;
+}
+
+async function validateCompletionPreconditions(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    taskId: string,
+    userId: string,
+    task: any
+): Promise<{ error?: string }> {
+    const submissionWindow = getTaskSubmissionWindowState({
+        startAtIso: task.start_at ?? null,
+        deadlineIso: task.deadline,
+        isStrict: Boolean(task.is_strict),
+        now: new Date(),
+    });
+
+    if (submissionWindow.pastDeadline) return { error: "Deadline has passed" };
+    if (submissionWindow.beforeStart) {
+        return {
+            error: buildBeforeStartSubmissionError(submissionWindow.startDate, submissionWindow.deadlineDate),
+        };
+    }
+
+    const { count: incompleteSubtasksCount } = await (supabase.from("task_subtasks") as any)
+        .select("id", { count: "exact", head: true })
+        .eq("parent_task_id", taskId as any)
+        .eq("user_id", userId as any)
+        .eq("is_completed", false as any);
+
+    if ((incompleteSubtasksCount || 0) > 0) return { error: INCOMPLETE_SUBTASKS_ERROR };
+
+    const { data: pomoRows, error: pomoError } = await (supabase.from("pomo_sessions") as any)
+        .select("elapsed_seconds, status")
+        .eq("task_id", taskId as any)
+        .eq("user_id", userId as any)
+        .neq("status", "DELETED");
+
+    if (pomoError) return { error: pomoError.message };
+
+    const normalizedPomoRows = ((pomoRows as Array<{ elapsed_seconds: number; status: string }> | null) || []);
+    if (normalizedPomoRows.some((row) => row.status === "ACTIVE")) {
+        return { error: ACTIVE_POMO_RUNNING_ERROR };
+    }
+
+    const requiredPomoMinutes = Number(task.required_pomo_minutes || 0);
+    if (Number.isInteger(requiredPomoMinutes) && requiredPomoMinutes > 0) {
+        const totalPomoSeconds = normalizedPomoRows.reduce((sum, row) => sum + (row.elapsed_seconds || 0), 0);
+        const requiredPomoSeconds = requiredPomoMinutes * 60;
+        if (totalPomoSeconds < requiredPomoSeconds) {
+            const remainingSeconds = requiredPomoSeconds - totalPomoSeconds;
+            const remainingMinutes = Math.ceil(remainingSeconds / 60);
+            return {
+                error: `${INCOMPLETE_POMO_REQUIREMENT_ERROR} ${remainingMinutes} more minute${remainingMinutes === 1 ? "" : "s"} needed (${Math.floor(totalPomoSeconds / 60)}/${requiredPomoMinutes}m).`,
+            };
+        }
+    }
+
+    return {};
+}
+
+async function completeSelfVouchedTask(
+    supabase: Awaited<ReturnType<typeof createClient>>,
+    taskId: string,
+    userId: string,
+    priorStatus: TaskStatus,
+    voucherId: string,
+    nowIso: string
+): Promise<{ success?: true; error?: string }> {
+    const cleanup = await deleteTaskProof(taskId, "self_vouch_auto_accept");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not clear previous proof media." };
+    }
+
+    const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
+        .update({
+            status: "ACCEPTED",
+            marked_completed_at: nowIso,
+            voucher_response_deadline: null,
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
+            updated_at: nowIso,
+        } as any)
+        .eq("id", taskId as any)
+        .eq("user_id", userId as any)
+        .in("status", ["ACTIVE", "POSTPONED"] as any)
+        .gt("deadline", nowIso as any)
+        .select("id");
+
+    if (updateError) return { error: updateError.message };
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task can no longer be marked complete. Please refresh." };
+    }
+
+    await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "MARK_COMPLETE",
+        actor_id: userId as any,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(userId),
+        from_status: priorStatus,
+        to_status: "ACCEPTED",
+        metadata: {
+            self_vouched: true,
+            auto_accepted: true,
+        },
+    });
+
+    revalidateTaskAndSocialSurfaces(taskId, userId, voucherId);
+    return { success: true };
+}
 
 export async function cancelRepetition(taskId: string) {
     const supabase = await createClient();
@@ -121,65 +241,13 @@ export async function markTaskCompleteWithProofIntent(
         return { error: `Cannot mark complete from ${(task as any).status} status` };
     }
 
-    const submissionWindow = getTaskSubmissionWindowState({
-        startAtIso: (task as any).start_at ?? null,
-        deadlineIso: (task as any).deadline,
-        isStrict: Boolean((task as any).is_strict),
-        now: new Date(),
-    });
-
-    if (submissionWindow.pastDeadline) {
-        return { error: "Deadline has passed" };
-    }
-
-    if (submissionWindow.beforeStart) {
-        const start = submissionWindow.startDate;
-        const end = submissionWindow.deadlineDate;
-        const fmt = (d: Date) => d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
-        const window = start && end ? ` between ${fmt(start)} and ${fmt(end)}` : "";
-        return { error: `This task can only be submitted${window}.` };
-    }
-
-    const { count: incompleteSubtasksCount } = await (supabase.from("task_subtasks") as any)
-        .select("id", { count: "exact", head: true })
-        .eq("parent_task_id", taskId as any)
-        .eq("user_id", (user as any).id as any)
-        .eq("is_completed", false as any);
-
-    if ((incompleteSubtasksCount || 0) > 0) {
-        return { error: INCOMPLETE_SUBTASKS_ERROR };
-    }
-
-    const { data: pomoRows, error: pomoError } = await (supabase.from("pomo_sessions") as any)
-        .select("elapsed_seconds, status")
-        .eq("task_id", taskId as any)
-        .eq("user_id", (user as any).id as any)
-        .neq("status", "DELETED");
-
-    if (pomoError) {
-        return { error: pomoError.message };
-    }
-
-    const normalizedPomoRows = ((pomoRows as Array<{ elapsed_seconds: number; status: string }> | null) || []);
-    const hasRunningPomoForTask = normalizedPomoRows.some((row) => row.status === "ACTIVE");
-    if (hasRunningPomoForTask) {
-        return { error: ACTIVE_POMO_RUNNING_ERROR };
-    }
-
-    const requiredPomoMinutes = Number((task as any).required_pomo_minutes || 0);
-    if (Number.isInteger(requiredPomoMinutes) && requiredPomoMinutes > 0) {
-        const totalPomoSeconds = normalizedPomoRows
-            .reduce((sum, row) => sum + (row.elapsed_seconds || 0), 0);
-        const requiredPomoSeconds = requiredPomoMinutes * 60;
-
-        if (totalPomoSeconds < requiredPomoSeconds) {
-            const remainingSeconds = requiredPomoSeconds - totalPomoSeconds;
-            const remainingMinutes = Math.ceil(remainingSeconds / 60);
-            return {
-                error: `${INCOMPLETE_POMO_REQUIREMENT_ERROR} ${remainingMinutes} more minute${remainingMinutes === 1 ? "" : "s"} needed (${Math.floor(totalPomoSeconds / 60)}/${requiredPomoMinutes}m).`,
-            };
-        }
-    }
+    const preconditionResult = await validateCompletionPreconditions(
+        supabase,
+        taskId,
+        (user as any).id,
+        task
+    );
+    if (preconditionResult.error) return { error: preconditionResult.error };
 
     const isSelfVouched = (task as any).voucher_id === (user as any).id;
     const requiresProofForCompletion =
@@ -188,55 +256,14 @@ export async function markTaskCompleteWithProofIntent(
     const nowIso = new Date().toISOString();
 
     if (isSelfVouched) {
-        const cleanup = await deleteTaskProof(taskId, "self_vouch_auto_accept");
-        if (!cleanup.success) {
-            return { error: cleanup.error || "Could not clear previous proof media." };
-        }
-
-        const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
-            .update({
-                status: "ACCEPTED",
-                marked_completed_at: nowIso,
-                voucher_response_deadline: null,
-                proof_request_open: false,
-                proof_requested_at: null,
-                proof_requested_by: null,
-                updated_at: nowIso,
-            } as any)
-            .eq("id", taskId as any)
-            .eq("user_id", (user as any).id)
-            .in("status", ["ACTIVE", "POSTPONED"] as any)
-            .gt("deadline", nowIso)
-            .select("id");
-
-        if (updateError) {
-            return { error: updateError.message };
-        }
-
-        if (!updatedRows || updatedRows.length === 0) {
-            return { error: "Task can no longer be marked complete. Please refresh." };
-        }
-
-        await (supabase.from("task_events") as any).insert({
-            task_id: taskId as any,
-            event_type: "MARK_COMPLETE",
-            actor_id: (user as any).id,
-            actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-            from_status: (task as any).status,
-            to_status: "ACCEPTED",
-            metadata: {
-                self_vouched: true,
-                auto_accepted: true,
-            },
-        });
-
-        invalidateActiveTasksCache((user as any).id);
-        invalidatePendingVoucherRequestsCache((task as any).voucher_id);
-        revalidatePath("/tasks");
-        revalidatePath("/stats");
-        revalidatePath("/friends");
-        revalidatePath(`/tasks/${taskId}`);
-        return { success: true };
+        return completeSelfVouchedTask(
+            supabase,
+            taskId,
+            user.id,
+            (task as any).status as TaskStatus,
+            (task as any).voucher_id as string,
+            nowIso
+        );
     }
 
     const proofValidation = validateProofIntent(rawProofIntent);
@@ -384,12 +411,7 @@ export async function markTaskCompleteWithProofIntent(
             : null,
     });
 
-    invalidateActiveTasksCache((user as any).id);
-    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
-    revalidatePath("/tasks");
-    revalidatePath("/stats");
-    revalidatePath("/friends");
-    revalidatePath(`/tasks/${taskId}`);
+    revalidateTaskAndSocialSurfaces(taskId, (user as any).id, (task as any).voucher_id);
     return { success: true, proofUploadTarget };
 }
 
@@ -463,12 +485,7 @@ export async function undoTaskComplete(taskId: string) {
         to_status: restoredStatus,
     });
 
-    invalidateActiveTasksCache(user.id);
-    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
-    revalidatePath("/tasks");
-    revalidatePath("/stats");
-    revalidatePath("/friends");
-    revalidatePath(`/tasks/${taskId}`);
+    revalidateTaskAndSocialSurfaces(taskId, user.id, (task as any).voucher_id);
 
     return { success: true, status: restoredStatus };
 }

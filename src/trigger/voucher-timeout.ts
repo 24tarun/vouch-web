@@ -14,6 +14,7 @@ import { deleteTaskProof } from "@/lib/task-proof";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
+import { claimTasksByIdsAndStatus } from "@/trigger/claim-utils";
 
 const VOUCHER_TIMEOUT_PENALTY_CENTS = 30;
 
@@ -50,19 +51,18 @@ export const voucherTimeout = schedules.task({
 
         const byId = new Map(candidates.map((task) => [task.id, task]));
         const candidateIds = candidates.map((task) => task.id);
-        const { data: updatedRows, error: bulkUpdateError } = await (supabase
-            .from("tasks") as any)
-            .update({ status: "AUTO_ACCEPTED", voucher_timeout_auto_accepted: true, updated_at: now })
-            .in("id", candidateIds as any)
-            .eq("status", "AWAITING_VOUCHER" as any)
-            .select("id");
-
-        if (bulkUpdateError) {
-            console.error("Failed bulk update for voucher-timeout:", bulkUpdateError);
+        let claimedIds: string[] = [];
+        try {
+            claimedIds = await claimTasksByIdsAndStatus(
+                supabase,
+                candidateIds,
+                "AWAITING_VOUCHER",
+                { status: "AUTO_ACCEPTED", voucher_timeout_auto_accepted: true, updated_at: now }
+            );
+        } catch (claimError) {
+            console.error("Failed bulk update for voucher-timeout:", claimError);
             return;
         }
-
-        const claimedIds = ((updatedRows as Array<{ id: string }> | null) || []).map((row) => row.id);
         const claimedTasks = claimedIds
             .map((taskId) => byId.get(taskId))
             .filter((task): task is TimeoutTask => Boolean(task));
@@ -118,4 +118,3 @@ export const voucherTimeout = schedules.task({
         console.log(`Auto-accepted ${claimedTasks.length} tasks due to voucher timeout`);
     },
 });
-

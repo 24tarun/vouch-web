@@ -60,8 +60,8 @@ UI is implementation-flexible; backend behavior must match `SYSTEM_SPEC.md`.
 - Canonical lifecycle: `CREATED -> POSTPONED -> AWAITING_VOUCHER -> COMPLETED/FAILED -> RECTIFIED/SETTLED/DELETED` (runtime nuances in `SYSTEM_SPEC.md`).
 - Self-vouch completion skips voucher queue and transitions directly to `COMPLETED`.
 - Voucher timeout auto-accepts task and applies a voucher penalty of 30 cents.
-- Owner hard delete is allowed only for active tasks within 5 minutes of creation.
-- Event tasks use `google_event_end_at` as effective deadline for failure checks.
+- Owner hard delete is allowed only for active tasks within 10 minutes of creation.
+- `deadline` is the effective due-time for all tasks; `google_event_end_at` is legacy mirrored sync metadata.
 - Failure costs are cents-based; failures add ledger entries, rectify/force-majeure write negative offsets.
 - Supported currencies: `EUR`, `USD`, `INR`.
 - DB hard bounds for failure cost: `1..100000` cents.

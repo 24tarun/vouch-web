@@ -547,7 +547,7 @@
   (Source: `src/trigger/voucher-timeout.ts`)
 
 - `DEADLINE_FAIL` (`system job` and read-path side effect) **MUST** transition `CREATED|POSTPONED (effective due time passed) -> FAILED`.
-  - Effective due time **MUST** be `google_event_end_at` for event tasks (where `google_sync_for_task=true` and `google_event_end_at` is valid), otherwise `deadline`.
+  - Effective due time **MUST** always be `deadline`.
   - Writes: task status, owner failure ledger entry, `task_events.DEADLINE_MISSED`; enqueues Google Calendar outbox for failed event tasks.
   - Concurrency caveat: both read-path and cron can run; no uniqueness protection on ledger/event duplicates.
   (Source: `src/trigger/deadline-fail.ts`, `src/actions/tasks.ts::getTask`)
@@ -565,7 +565,7 @@
   - Writes: status + proof request clear + `updated_at`, proof cleanup, `task_events.VOUCHER_DELETE`, owner notification.
   (Source: `src/actions/voucher.ts::voucherDeleteTask`)
 
-- `OWNER_TEMP_DELETE_HARD` (`owner`) **MUST** physically delete task row (not status transition) only in `CREATED|POSTPONED` within 5-minute window from `created_at`.
+- `OWNER_TEMP_DELETE_HARD` (`owner`) **MUST** physically delete task row (not status transition) only in `CREATED|POSTPONED` within 10-minute window from `created_at`.
   - Writes: hard row delete via admin client.
   - Effect: cascading deletes remove subtasks/reminders/proofs/events/ledger links via FK.
   (Source: `src/actions/tasks.ts::ownerTempDeleteTask`, `src/lib/task-delete-window.ts`)
@@ -663,7 +663,7 @@
 
 #### 6.2.5 `tasks.ts`
 
-- `createTaskSimple(title,subtasksInput?)` **MUST** require auth, derive defaults from profile, insert `CREATED` task, seed default reminders, insert subtasks, add `CREATED` event, and invalidate/revalidate relevant caches/paths. Event tokens (`-event`, `-start HH:MM`, `-end HH:MM`, color tokens) **MUST** populate `google_sync_for_task`, `google_event_end_at`, `google_event_color_id`; event tasks bypass past-deadline validation when event start is in the future. Task state mutations **MUST** enqueue Google Calendar sync via `enqueueGoogleCalendarOutbox` when applicable. (Source: `src/actions/tasks.ts::createTaskSimple`)
+- `createTaskSimple(title,subtasksInput?)` **MUST** require auth, derive defaults from profile, insert `CREATED` task, seed default reminders, insert subtasks, add `CREATED` event, and invalidate/revalidate relevant caches/paths. Event tokens (`-event`, `-start HH:MM`, `-end HH:MM`, color tokens) **MUST** populate `google_sync_for_task` and `google_event_color_id`; `google_event_end_at` is legacy mirrored metadata and `deadline` remains the only due-time source of truth. Event tasks bypass past-deadline validation when event start is in the future. Task state mutations **MUST** enqueue Google Calendar sync via `enqueueGoogleCalendarOutbox` when applicable. (Source: `src/actions/tasks.ts::createTaskSimple`)
 - `markTaskCompleted` **MUST** alias `markTaskComplete`. (Source: `src/actions/tasks.ts::markTaskCompleted`)
 - `getCachedActiveTasksForUser(userId)` **MUST** return admin-cached active tasks tagged `tasks:active:{userId}` with TTL 60s. (Source: `src/actions/tasks.ts::getCachedActiveTasksForUser`)
 - `createTask(formData)` **MUST** validate required inputs, per-currency bounds, reminders, voucher relationship, recurrence payload; then write recurrence/task/reminders/subtasks/events in order and invalidate/revalidate. Event tokens (`-event`, `-start`, `-end`, color tokens) **MUST** be supported with the same semantics as `createTaskSimple`. (Source: `src/actions/tasks.ts::createTask`)
@@ -684,7 +684,7 @@
 - `renameTaskSubtask(parentTaskId,subtaskId,newTitle)` **MUST** enforce non-empty title and owner+active parent. (Source: `src/actions/tasks.ts::renameTaskSubtask`)
 - `deleteTaskSubtask(parentTaskId,subtaskId)` **MUST** enforce owner+active parent and return not-found when no deleted row. (Source: `src/actions/tasks.ts::deleteTaskSubtask`)
 - `postponeTask(taskId,newDeadlineIso)` **MUST** enforce one-time postpone and future deadlines, update task to `POSTPONED`, realign reminders, and emit `POSTPONE` event. (Source: `src/actions/tasks.ts::postponeTask`)
-- `ownerTempDeleteTask(taskId)` **MUST** hard-delete only owner tasks in active statuses within 5-minute window. (Source: `src/actions/tasks.ts::ownerTempDeleteTask`)
+- `ownerTempDeleteTask(taskId)` **MUST** hard-delete only owner tasks in active statuses within 10-minute window. (Source: `src/actions/tasks.ts::ownerTempDeleteTask`)
 - `forceMajeureTask(taskId)` **MUST** enforce failed-only and once-per-period, set `SETTLED`, insert force_majeure + negative ledger + event. (Source: `src/actions/tasks.ts::forceMajeureTask`)
 - `getTask(taskId)` **MUST** enforce owner/voucher visibility rules, block voucher active-view unless owner enabled, and may auto-fail overdue active tasks as read-side effect. (Source: `src/actions/tasks.ts::getTask`)
 - `getTaskEvents(taskId)` **MUST** return ordered events (RLS-gated). (Source: `src/actions/tasks.ts::getTaskEvents`)
@@ -704,12 +704,8 @@
 - `voucherRequestProof(taskId)` **MUST** reject self-vouched tasks, require awaiting status, set proof request flags, emit event, notify owner, and refresh caches. (Source: `src/actions/voucher.ts::voucherRequestProof`)
 - `authorizeRectify(taskId)` **MUST** require assigned failed task, valid rectify transition, within 7 days, and monthly pass count <5; then set `RECTIFIED`, insert pass, attempt negative ledger entry, and emit event. (Source: `src/actions/voucher.ts::authorizeRectify`)
 - `getCachedPendingVouchRequestsForVoucher(voucherId)` **MUST** admin-load pending statuses, filter active visibility by owner flag, enrich pomo/proof/derived-deadline fields, sort, and cache by pending tag. (Source: `src/actions/voucher.ts::getCachedPendingVouchRequestsForVoucher`)
-- `getCachedPendingVouchCountForVoucher(voucherId)` **MUST** cache count for statuses `AWAITING_VOUCHER|MARKED_COMPLETED`. (Source: `src/actions/voucher.ts::getCachedPendingVouchCountForVoucher`)
 - `getPendingVouchRequests()` **MUST** return current voucher cached pending list. (Source: `src/actions/voucher.ts::getPendingVouchRequests`)
-- `getAssignedTasksForVoucher()` **MUST** return assigned non-final tasks except self-vouch, filtered by active visibility preference. (Source: `src/actions/voucher.ts::getAssignedTasksForVoucher`)
-- `getFailedTasks()` **MUST** return assigned failed tasks enriched with owner current-period rectify pass usage count. (Source: `src/actions/voucher.ts::getFailedTasks`)
 - `getVouchHistoryPage(offset,limit)` **MUST** normalize paging, fetch final-status history page, add timeout-auto-accepted and pass-count enrichments, and return `{tasks,hasMore,nextOffset,error?}`. (Source: `src/actions/voucher.ts::getVouchHistoryPage`)
-- `getVouchHistory()` **MUST** return full final-status history with same enrichments. (Source: `src/actions/voucher.ts::getVouchHistory`)
 - `buildProofRequestCountByTaskId` is a pure utility (no `"use server"` boundary) extracted to `src/lib/voucher-proof-request.ts` and imported by `voucher.ts`; it aggregates `PROOF_REQUESTED` task-event rows into a `Map<taskId, count>` used to populate `?N` badges in the voucher UI. (Source: `src/lib/voucher-proof-request.ts`)
 
 #### 6.2.7 `google-calendar.ts`
@@ -733,10 +729,10 @@
 ### 7.1 `deadline-fail`
 
 - Schedule **MUST** be `*/5 * * * *`.
-- Selection query **MUST** load tasks in `CREATED|POSTPONED` with `deadline < now` OR `google_event_end_at < now`.
-- Effective due time **MUST** be `google_event_end_at` for event tasks (where `google_sync_for_task=true` and `google_event_end_at` is valid), otherwise `deadline`.
+- Selection query **MUST** load tasks in `CREATED|POSTPONED` with `deadline < now`.
+- Effective due time **MUST** be `deadline` for all task types.
 - Algorithm **MUST**:
-  1) load overdue active tasks (by effective due time)
+  1) load overdue active tasks (by `deadline`)
   2) set each to `FAILED`
   3) insert owner `ledger_entries.failure`
   4) insert `task_events.DEADLINE_MISSED`
@@ -798,8 +794,8 @@
   1) for each active rule, compute current local date in rule timezone
   2) skip when `last_generated_date == current_local_date`
   3) evaluate frequency/interval/day logic to decide `shouldRun`
-  4) if due, compute deadline from local date + `time_of_day` using iterative wall-time conversion
-  5) insert `tasks.CREATED` with `recurrence_rule_id`; for event rules, populate `google_sync_for_task`, `google_event_end_at` (computed as `deadline + google_event_duration_minutes`), `google_event_color_id`
+  4) if due, compute deadline from local date + `time_of_day` using deterministic timezone conversion
+  5) insert `tasks.CREATED` with `recurrence_rule_id`; for event rules, populate `google_sync_for_task`, `google_event_color_id`, and keep `google_event_end_at` mirrored to `deadline` for legacy compatibility
   6) insert `task_events.CREATED` (system)
   7) insert manual reminders from template/legacy copy
   8) seed default deadline reminders from owner profile toggles
@@ -872,7 +868,7 @@
 ### 8.3 Cache tags and invalidation contracts
 
 - `getCachedActiveTasksForUser` **MUST** cache with tag `tasks:active:{userId}` and TTL 60s; owner-visible task mutations **MUST** invalidate that tag. (Source: `src/actions/tasks.ts::{getCachedActiveTasksForUser,invalidateActiveTasksCache}`, `src/lib/cache-tags.ts::activeTasksTag`)
-- Voucher pending list/count loaders **MUST** cache on tag `voucher:pending:{voucherId}` with TTLs 300s (list) and 120s (count); voucher/owner mutations that change pending visibility **MUST** invalidate this tag. (Source: `src/actions/voucher.ts::{getCachedPendingVouchRequestsForVoucher,getCachedPendingVouchCountForVoucher,invalidatePendingVoucherRequestsCache}`, `src/lib/cache-tags.ts::pendingVoucherRequestsTag`)
+- Voucher pending list loader **MUST** cache on tag `voucher:pending:{voucherId}` with TTL 300s; voucher/owner mutations that change pending visibility **MUST** invalidate this tag. (Source: `src/actions/voucher.ts::{getCachedPendingVouchRequestsForVoucher,invalidatePendingVoucherRequestsCache}`, `src/lib/cache-tags.ts::pendingVoucherRequestsTag`)
 - Mutation handlers **MUST** revalidate key paths (`/dashboard`, `/dashboard/friends`, `/dashboard/stats`, `/dashboard/tasks/[id]`, `/dashboard/settings`, `/dashboard/ledger`, `/dashboard/tasks/new`) according to touched domain. (Source: `src/actions/{tasks,voucher,auth,friends}.ts`)
 
 ### 8.4 Service worker/browser cache semantics
@@ -908,7 +904,7 @@
 
 ### 9.2 Time windows and schedule boundaries
 
-- Owner temporary hard delete window **MUST** be 5 minutes from `tasks.created_at`. (Source: `src/lib/task-delete-window.ts::OWNER_TEMP_DELETE_WINDOW_MS`, `src/actions/tasks.ts::ownerTempDeleteTask`)
+- Owner temporary hard delete window **MUST** be 10 minutes from `tasks.created_at`. (Source: `src/lib/task-delete-window.ts::OWNER_TEMP_DELETE_WINDOW_MS`, `src/actions/tasks.ts::ownerTempDeleteTask`)
 - Voucher response deadline **MUST** be computed as end-of-day local time approximately +2 local days from completion mark (timezone-aware helper). (Source: `src/actions/tasks.ts::getVoucherResponseDeadlineUtc`)
 - Voucher timeout job **MUST** evaluate overdue awaiting tasks hourly (`0 * * * *`). (Source: `src/trigger/voucher-timeout.ts`)
 - Deadline fail job **MUST** evaluate overdue active tasks every 5 minutes. (Source: `src/trigger/deadline-fail.ts`)
@@ -928,7 +924,7 @@
 ### 9.4 Self-vouch, visibility, and policy quirks
 
 - Self-vouched completion **MUST** bypass awaiting-voucher and move directly to `COMPLETED`; proof request flow is not supported for self-vouch. (Source: `src/actions/tasks.ts::markTaskCompleteWithProofIntent`, `src/actions/voucher.ts::voucherRequestProof`)
-- Voucher pending/history queries **MUST** exclude self-vouch tasks (`user_id != voucher_id`). (Source: `src/actions/voucher.ts::{getCachedPendingVouchRequestsForVoucher,getCachedPendingVouchCountForVoucher,getAssignedTasksForVoucher,getFailedTasks,getVouchHistoryPage,getVouchHistory}`)
+- Voucher pending/history queries **MUST** exclude self-vouch tasks (`user_id != voucher_id`). (Source: `src/actions/voucher.ts::{getCachedPendingVouchRequestsForVoucher,getVouchHistoryPage}`)
 - Voucher visibility for owner active tasks **MUST** depend on owner profile toggle `voucher_can_view_active_tasks`; DB RLS may permit broader row visibility, but app read-path filters are runtime truth for product behavior. (Source: `src/actions/tasks.ts::{getTask,getTaskPomoSummary}`, `src/actions/voucher.ts::canVoucherSeeTask`, `supabase/migrations/023_profile_voucher_active_task_visibility.sql`)
 - Friend activity visibility **MUST** include only friends and only active/paused sessions via RLS policy. (Source: `supabase/migrations/020_friend_read_pomo_sessions.sql`, `src/actions/friends.ts::getWorkingFriendActivities`)
 - Event tasks with `-event` tag **MAY** be imported from Google Calendar; `import_only_tagged_google_events` toggle controls whether only `-event`-tagged events are imported. (Source: `src/actions/google-calendar.ts::setGoogleCalendarImportTaggedOnly`)
@@ -1109,12 +1105,8 @@
 | `voucherRequestProof` | `src/actions/voucher.ts` | `6.2.6`, `5.3`, `9.4` |
 | `authorizeRectify` | `src/actions/voucher.ts` | `6.2.6`, `5.1.2`, `9.2` |
 | `getCachedPendingVouchRequestsForVoucher` | `src/actions/voucher.ts` | `6.2.6`, `8.3` |
-| `getCachedPendingVouchCountForVoucher` | `src/actions/voucher.ts` | `6.2.6`, `8.3` |
 | `getPendingVouchRequests` | `src/actions/voucher.ts` | `6.2.6` |
-| `getAssignedTasksForVoucher` | `src/actions/voucher.ts` | `6.2.6`, `9.4` |
-| `getFailedTasks` | `src/actions/voucher.ts` | `6.2.6` |
 | `getVouchHistoryPage` | `src/actions/voucher.ts` | `6.2.6` |
-| `getVouchHistory` | `src/actions/voucher.ts` | `6.2.6` |
 | `startGoogleCalendarConnect` | `src/actions/google-calendar.ts` | `6.2.7` |
 | `getGoogleCalendarIntegrationState` | `src/actions/google-calendar.ts` | `6.2.7` |
 | `listGoogleCalendarsForSettings` | `src/actions/google-calendar.ts` | `6.2.7` |

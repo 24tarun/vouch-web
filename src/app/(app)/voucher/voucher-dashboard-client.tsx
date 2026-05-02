@@ -466,8 +466,8 @@ export default function VoucherDashboardClient({
                 <HardRefreshButton />
             </div>
 
-            {workingFriends.length > 0 && (
-                <section className="space-y-3">
+            <section className="space-y-3">
+                {workingFriends.length > 0 ? (
                     <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3">
                         <div className="space-y-2">
                             {workingFriends.map((friend) => (
@@ -484,17 +484,17 @@ export default function VoucherDashboardClient({
                             ))}
                         </div>
                     </div>
-                </section>
-            )}
+                ) : (
+                    <p className="text-xl font-semibold text-slate-500">No Activity from friends...</p>
+                )}
+            </section>
 
             <section className="space-y-4">
                 <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
                     Pending
                 </h2>
                 {pendingState.length === 0 ? (
-                    <div className="bg-slate-900/40 border border-slate-800/20 rounded-xl py-12 text-center">
-                        <p className="text-slate-500 text-sm">No pending vouch requests</p>
-                    </div>
+                    <p className="text-xl font-semibold text-slate-500">No pending requests</p>
                 ) : (
                     <div className="flex flex-col" ref={pendingListRef}>
                         {pendingState.map((task) => (
@@ -526,9 +526,7 @@ export default function VoucherDashboardClient({
                         {historyLoading && !historyLoaded ? (
                             <div className="py-8 text-center text-slate-500 text-sm">Loading history...</div>
                         ) : historyState.length === 0 ? (
-                            <div className="py-8 text-center">
-                                <p className="text-slate-600 text-sm">No history yet</p>
-                            </div>
+                            <p className="py-4 text-xl font-semibold text-slate-500">No History yet</p>
                         ) : (
                             <>
                                 {historyState.map((task) => (

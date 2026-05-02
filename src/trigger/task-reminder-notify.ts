@@ -3,11 +3,8 @@
  * Runs: Every minute (`* * * * *`).
  * What it does when it runs:
  * 1) Finds due task reminders that were not notified yet.
- * 2) Sends owner notifications for active tasks.
- *    - MANUAL reminders: push + email
- *    - DEFAULT_DEADLINE_1H / DEFAULT_DEADLINE_10M reminders: push only
- * 3) Writes deadline warning task events for seeded default reminders.
- * 4) Marks reminders as notified to avoid duplicate sends.
+ * 2) Writes deadline warning task events for seeded default reminders.
+ * 3) Marks reminders as notified to avoid duplicate sends.
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -19,6 +16,7 @@ import {
     MANUAL_REMINDER_SOURCE,
 } from "@/lib/task-reminder-defaults";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
+import { claimRowsByIdsWithTimestamp, rollbackClaimByTimestamp } from "@/trigger/claim-utils";
 
 interface DueReminder {
     id: string;
@@ -35,12 +33,6 @@ interface ReminderTask {
     user_id: string;
 }
 
-interface ReminderUser {
-    id: string;
-    email: string;
-    username: string | null;
-}
-
 const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
 const ONE_HOUR_REMINDER_EVENT = "DEADLINE_WARNING_1H";
 const TEN_MIN_REMINDER_EVENT = "DEADLINE_WARNING_10M";
@@ -52,34 +44,34 @@ function getReminderEventType(source: string): string | null {
     return null;
 }
 
-function expoNeedsRetry(expoResult: {
+function webNeedsRetry(webResult: {
     total: number;
     delivered: number;
     failed: number;
     skipped?: boolean;
 } | null | undefined): boolean {
-    if (!expoResult) return true;
-    if (expoResult.skipped) return false;
-    if (expoResult.total <= 0) return false;
-    return expoResult.delivered < expoResult.total || expoResult.failed > 0;
+    if (!webResult) return true;
+    if (webResult.skipped) return false;
+    if (webResult.total <= 0) return false;
+    return webResult.delivered < webResult.total || webResult.failed > 0;
 }
 
-async function sendWithExpoRetry(params: Parameters<typeof sendNotification>[0]) {
+async function sendWithWebRetry(params: Parameters<typeof sendNotification>[0]) {
     let result = await sendNotification(params);
 
-    if (!expoNeedsRetry(result.push.expo)) {
+    if (!webNeedsRetry(result.push.web)) {
         return result;
     }
 
-    // Best-effort immediate retries for Expo channel only.
+    // Best-effort immediate retries for Web Push channel only.
     for (let attempt = 0; attempt < 2; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 750));
         result = await sendNotification({
             ...params,
-            pushChannels: ["expo"],
+            pushChannels: ["web"],
         });
 
-        if (!expoNeedsRetry(result.push.expo)) {
+        if (!webNeedsRetry(result.push.web)) {
             return result;
         }
     }
@@ -142,42 +134,35 @@ async function processDueTaskReminders(
 
     const dueReminderIds = dueReminders.map((reminder) => reminder.id);
     const claimIso = new Date().toISOString();
-    const taskReminders = supabase.from("task_reminders") as any;
-    const claimResponse = await taskReminders
-        .update({ notified_at: claimIso } as any)
-        .in("id", dueReminderIds as any)
-        .is("notified_at", null)
-        .select("id, parent_task_id, user_id, reminder_at, source");
-
-    if (claimResponse.error) {
-        console.error("Failed to claim due task reminders:", claimResponse.error);
+    let claimedReminderIds: string[] = [];
+    try {
+        const claimedRows = await claimRowsByIdsWithTimestamp("task_reminders", supabase, dueReminderIds, claimIso);
+        claimedReminderIds = claimedRows.map((row) => row.id);
+    } catch (error) {
+        console.error("Failed to claim due task reminders:", error);
         return;
     }
-
-    const claimedReminders = ((claimResponse.data as DueReminder[] | null) || []);
+    if (claimedReminderIds.length === 0) return;
+    const claimedReminders = dueReminders.filter((row) => claimedReminderIds.includes(row.id));
     if (claimedReminders.length === 0) {
         return;
     }
 
     const taskIds = Array.from(new Set(claimedReminders.map((reminder) => reminder.parent_task_id)));
-    const userIds = Array.from(new Set(claimedReminders.map((reminder) => reminder.user_id)));
 
-    const [tasksResponse, usersResponse] = await Promise.all([
-        supabase.from("tasks")
-            .select("id, title, status, user_id")
-            .in("id", taskIds),
-        supabase.from("profiles")
-            .select("id, email, username")
-            .in("id", userIds),
-    ]);
+    const tasksResponse = await supabase.from("tasks")
+        .select("id, title, status, user_id")
+        .in("id", taskIds);
 
     if (tasksResponse.error) {
         console.error("Failed to load tasks for due reminders:", tasksResponse.error);
-        return;
-    }
-
-    if (usersResponse.error) {
-        console.error("Failed to load users for due reminders:", usersResponse.error);
+        if (claimedReminderIds.length > 0) {
+            try {
+                await rollbackClaimByTimestamp("task_reminders", supabase, claimedReminderIds, claimIso);
+            } catch (rollbackError) {
+                console.error("Failed to rollback claimed reminders after task lookup error:", rollbackError);
+            }
+        }
         return;
     }
 
@@ -186,17 +171,11 @@ async function processDueTaskReminders(
         tasksById.set(task.id, task);
     }
 
-    const usersById = new Map<string, ReminderUser>();
-    for (const user of ((usersResponse.data as ReminderUser[] | null) || [])) {
-        usersById.set(user.id, user);
-    }
-
-    const remindersToRetry = new Set<string>();
     const nowMs = Date.now();
+    const remindersToRetry = new Set<string>();
 
     for (const reminder of claimedReminders) {
         const task = tasksById.get(reminder.parent_task_id);
-        const owner = usersById.get(reminder.user_id);
         const reminderAtMs = new Date(reminder.reminder_at).getTime();
         const isExpired = !Number.isFinite(reminderAtMs) || (nowMs - reminderAtMs) > NOTIFICATION_TTL_MS;
         if (isExpired) {
@@ -206,25 +185,25 @@ async function processDueTaskReminders(
         try {
             if (task && ACTIVE_STATUSES.includes(task.status)) {
                 const reminderEventType = getReminderEventType(reminder.source);
-
                 if (reminder.source === MANUAL_REMINDER_SOURCE) {
-                    const sendResult = await sendWithExpoRetry({
+                    const sendResult = await sendWithWebRetry({
                         userId: reminder.user_id,
                         title: "Task reminder",
                         text: `Reminder for "${task.title}".`,
                         email: false,
                         push: true,
+                        pushChannels: ["web"],
                         url: `/tasks/${task.id}`,
                         tag: `task-reminder-${reminder.id}`,
                         data: {
                             taskId: task.id,
                             reminderId: reminder.id,
                             kind: "TASK_REMINDER",
+                            category: "DEADLINE_REMINDER",
                             reminderAt: reminder.reminder_at,
                         },
                     });
-
-                    if (expoNeedsRetry(sendResult.push.expo)) {
+                    if (webNeedsRetry(sendResult.push.web)) {
                         remindersToRetry.add(reminder.id);
                     }
                 } else {
@@ -234,50 +213,48 @@ async function processDueTaskReminders(
                         ? `1 hour left for ${task.title}`
                         : `10 minutes left for ${task.title}`;
 
-                    const sendResult = await sendWithExpoRetry({
+                    const sendResult = await sendWithWebRetry({
                         userId: reminder.user_id,
                         subject: title,
                         title,
                         text,
                         email: false,
                         push: true,
+                        pushChannels: ["web"],
                         url: `/tasks/${task.id}`,
                         tag: `deadline-reminder-${reminder.id}`,
                         data: {
                             taskId: task.id,
                             reminderId: reminder.id,
                             kind: reminderEventType || "DEADLINE_WARNING",
+                            category: "DEADLINE_REMINDER",
                             reminderAt: reminder.reminder_at,
                             source: reminder.source,
                         },
                     });
 
-                    if (expoNeedsRetry(sendResult.push.expo)) {
+                    if (webNeedsRetry(sendResult.push.web)) {
                         remindersToRetry.add(reminder.id);
                     }
+                }
 
-                    if (reminderEventType) {
-                        await logDefaultReminderEvent(supabase, task, reminder, reminderEventType);
-                    }
+                if (reminder.source !== MANUAL_REMINDER_SOURCE && reminderEventType) {
+                    await logDefaultReminderEvent(supabase, task, reminder, reminderEventType);
                 }
             }
         } catch (error) {
-            console.error(`Failed to send task reminder ${reminder.id}:`, error);
+            console.error(`Failed to process task reminder ${reminder.id}:`, error);
             remindersToRetry.add(reminder.id);
         }
     }
 
     if (remindersToRetry.size > 0) {
         const retryIds = Array.from(remindersToRetry);
-        const revertResponse = await (supabase.from("task_reminders") as any)
-            .update({ notified_at: null } as any)
-            .in("id", retryIds as any)
-            .eq("notified_at", claimIso as any);
-
-        if (revertResponse.error) {
-            console.error("Failed to requeue reminders for Expo retry:", revertResponse.error);
-        } else {
-            console.warn(`Requeued ${retryIds.length} reminder(s) for Expo retry.`);
+        try {
+            await rollbackClaimByTimestamp("task_reminders", supabase, retryIds, claimIso);
+            console.warn(`Requeued ${retryIds.length} reminder(s) for Web Push retry.`);
+        } catch (error) {
+            console.error("Failed to requeue reminders for Web Push retry:", error);
         }
     }
 }

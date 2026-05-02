@@ -1,7 +1,6 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { createTask } from "@/actions/tasks";
 import { Calendar, CalendarDays, Camera, Check, Loader2, Repeat, User } from "lucide-react";
 import {
     Select,
@@ -69,42 +68,26 @@ import {
     WEEKDAY_TOKEN_REGEX,
 } from "@/lib/task-title-parser";
 import {
+    buildReminderDateOnDeadlineDay,
+    formatCustomDaysLabel,
+    formatDeadlineLabel,
+    formatDeadlineTitle,
+    formatReminderLabel,
+    formatTimeUntilDeadline,
+    getSelectedWeekday,
+} from "@/components/task-input/utils/task-input-formatters";
+import {
     hasParserDrivenDeadlineHint,
     resolveTaskDeadline,
     stripMetadata,
     parseTaskTitleAndSubtasks,
 } from "@/lib/parser_keyword_resolver";
 import type { ParserKeywordCompletion } from "@/lib/task-title-parser";
+import { useTaskInputSubmit } from "@/components/task-input/hooks/use-task-input-submit";
 
 const TIME_TOKEN_REGEX = /(?:^|\s)@(\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?)\b/i;
 const TITLE_TEXT_METRICS_CLASS =
     "text-base sm:text-lg font-medium leading-normal [font-kerning:none] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'clig'_0]";
-
-
-function formatTimeUntilDeadline(deadline: Date, now: Date = new Date()): string {
-    const diffMs = deadline.getTime() - now.getTime();
-    if (diffMs <= 0) {
-        return "Deadline passed";
-    }
-    const totalMinutes = Math.max(1, Math.floor(diffMs / (1000 * 60)));
-    const days = Math.floor(totalMinutes / (24 * 60));
-    const remainingAfterDays = totalMinutes % (24 * 60);
-    const hours = Math.floor(remainingAfterDays / 60);
-    const minutes = remainingAfterDays % 60;
-    const parts: string[] = [];
-
-    if (days > 0) {
-        parts.push(`${days} ${days === 1 ? "day" : "days"}`);
-    }
-    if (hours > 0) {
-        parts.push(`${hours} ${hours === 1 ? "hour" : "hours"}`);
-    }
-    if (minutes > 0 || parts.length === 0) {
-        parts.push(`${minutes} ${minutes === 1 ? "min" : "mins"}`);
-    }
-
-    return `${parts.join(" ")} until deadline`;
-}
 
 interface TaskInputProps {
     friends: Profile[];
@@ -496,75 +479,12 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setIsColorPickerDismissed(false);
     }, [title, titleCaretIndex, isTitleFocused]);
 
-    const getSelectedWeekday = () => {
-        return selectedDate?.getDay() ?? new Date().getDay();
-    };
-
-    const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
-    const weekdayShort: Record<number, string> = {
-        1: "M",
-        2: "T",
-        3: "W",
-        4: "T",
-        5: "F",
-        6: "S",
-        0: "S",
-    };
-
-    const formatCustomDaysLabel = (days: number[]) => {
-        const ordered = weekdayOrder.filter((day) => days.includes(day));
-        return ordered.map((day) => weekdayShort[day]).join(" ");
-    };
-
-    const formatDeadlineLabel = (date: Date | null) => {
-        if (!hasMounted) return "Set date";
-        if (!date) return "Set date";
-        const dd = String(date.getDate()).padStart(2, "0");
-        const mm = String(date.getMonth() + 1).padStart(2, "0");
-        const yyyy = date.getFullYear();
-        const time = date.toLocaleTimeString("en-GB", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-        });
-        return `${dd}/${mm}/${yyyy} at ${time}`;
-    };
-
-    const formatDeadlineTitle = (date: Date | null) => {
-        if (!hasMounted || !date) return "Set Date";
-        const dd = String(date.getDate()).padStart(2, "0");
-        const mm = String(date.getMonth() + 1).padStart(2, "0");
-        const yyyy = date.getFullYear();
-        const time = date.toLocaleTimeString("en-GB", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-        });
-        return `${dd}/${mm}/${yyyy} at ${time}`;
-    };
-
-    const formatReminderLabel = (date: Date) => {
-        return date.toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
-    };
+    const selectedWeekday = getSelectedWeekday(selectedDate);
 
     const getDraftDeadline = () => {
         if (!deadlineDraftValue) return null;
         return fromDateTimeLocalValue(deadlineDraftValue);
     };
-
-    const buildReminderDateOnDeadlineDay = (deadlineDate: Date, hours: number, minutes: number) => {
-        const reminderDate = new Date(deadlineDate);
-        reminderDate.setHours(hours, minutes, 0, 0);
-        return reminderDate;
-    };
-
-
-
 
     const resetDeadlineToDefault = () => {
         setDeadlineError(null);
@@ -744,228 +664,35 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
 
 
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        let effectiveIsDeadlineManuallyPicked = isDeadlineManuallyPicked;
-        let effectiveSelectedDate = selectedDate;
-        let effectiveReminders = reminders;
-
-        if (isDateSheetOpen) {
-            const draftResult = resolveDateSheetDraftSubmission({
-                deadlineDraftValue,
-                reminderDraftValue,
-                remindersDraft,
-            });
-            if ("error" in draftResult) {
-                setDeadlineError(draftResult.error);
-                return;
-            }
-
-            setDeadlineError(null);
-            setIsDeadlineManuallyPicked(true);
-            setSelectedDate(draftResult.deadline);
-            setReminders(draftResult.reminders);
-            setReminderDraftValue("");
-            setIsDateSheetOpen(false);
-
-            effectiveIsDeadlineManuallyPicked = true;
-            effectiveSelectedDate = draftResult.deadline;
-            effectiveReminders = draftResult.reminders;
-        }
-
-        const { title: taskTitle, subtasks } = parseTaskTitleAndSubtasks(title);
-        const requiredPomoParse = parseRequiredPomoFromTitle(title);
-        const requiredPomoMinutes = requiredPomoParse.requiredPomoMinutes;
-        const titleRequiresProof = parseProofRequiredFromTitle(title);
-        const parsedRepeatType = parseRepeatTokenFromTitle(title);
-        const effectiveRecurrenceType = parsedRepeatType ?? (recurrenceType || null);
-
-        if (!taskTitle || isLoading) return;
-
-        if (!selectedVoucherId) {
-            setShowShake(true);
-            setTimeout(() => setShowShake(false), 500);
-            return;
-        }
-
-        const isEventTask = EVENT_TOKEN_REGEX.test(title);
-        const isStrict = /(^|\s)-strict(?=\s|$)/i.test(title);
-        if (isStrict && !isEventTask) {
-            setDeadlineError("-strict requires an event. Add -event to the title.");
-            return;
-        }
-        const colorValidation = validateEventColorUsage(title, isEventTask);
-        if (colorValidation.error) {
-            setDeadlineError(colorValidation.error);
-            return;
-        }
-        if (requiredPomoParse.error) {
-            setDeadlineError(requiredPomoParse.error);
-            return;
-        }
-
-        const shouldApplyParserDeadline =
-            !effectiveIsDeadlineManuallyPicked || hasParserDrivenDeadlineHint(title);
-        const parserResolution = shouldApplyParserDeadline
-            ? resolveTaskDeadline(title, new Date(), normalizedDefaultEventDurationMinutes)
-            : null;
-        if (parserResolution?.error) {
-            setDeadlineError(parserResolution.error);
-            return;
-        }
-
-        let deadlineToSubmit = parserResolution?.deadline ?? effectiveSelectedDate ?? getDefaultDeadline();
-        let eventStartDate: Date | null = null;
-        let eventEndDate: Date | null = null;
-
-        if (isEventTask) {
-            const anchorDateResolution = effectiveIsDeadlineManuallyPicked
-                ? {
-                    anchorDate: effectiveSelectedDate ?? getDefaultDeadline(),
-                    error: null as string | null,
-                }
-                : resolveEventAnchorDate(title);
-
-            if (anchorDateResolution.error) {
-                setDeadlineError(anchorDateResolution.error);
-                return;
-            }
-
-            const eventResolution = resolveEventSchedule({
-                rawTitle: title,
-                anchorDate: anchorDateResolution.anchorDate,
-                defaultDurationMinutes: normalizedDefaultEventDurationMinutes,
-            });
-
-            if (eventResolution.error || !eventResolution.startDate || !eventResolution.endDate) {
-                setDeadlineError(eventResolution.error || "Event time is invalid.");
-                return;
-            }
-
-            eventStartDate = eventResolution.startDate;
-            eventEndDate = eventResolution.endDate;
-            deadlineToSubmit = eventResolution.endDate;
-        } else {
-            if (deadlineToSubmit.getTime() <= Date.now()) {
-                setDeadlineError("Deadline must be in the future.");
-                return;
-            }
-        }
-
-        const parsedReminderTimes = parseReminderTimesFromTitle(title);
-        const parserReminderDates = parsedReminderTimes.map(({ hours, minutes }) =>
-            buildReminderDateOnDeadlineDay(deadlineToSubmit, hours, minutes)
-        );
-        const remindersToSubmit = normalizeReminderDates([...effectiveReminders, ...parserReminderDates]);
-
-        const hasPastReminder = remindersToSubmit.some((reminder) => reminder.getTime() <= Date.now());
-        if (hasPastReminder) {
-            setDeadlineError("All reminders must be in the future.");
-            return;
-        }
-
-        const hasReminderAfterDeadline = remindersToSubmit.some(
-            (reminder) => reminder.getTime() > deadlineToSubmit.getTime()
-        );
-        if (hasReminderAfterDeadline) {
-            setDeadlineError("Reminders must be before or at the deadline.");
-            return;
-        }
-
-        setDeadlineError(null);
-
-        const recurrenceDaysToUse =
-            effectiveRecurrenceType === "WEEKLY"
-                ? (customDays.length > 0 ? customDays : [getSelectedWeekday()])
-                : [];
-
-        const payload: TaskInputCreatePayload = {
-            title: taskTitle,
-            rawTitle: title,
-            subtasks,
-            requiredPomoMinutes,
-            requiresProof: requiresProof || titleRequiresProof,
-            deadlineIso: deadlineToSubmit.toISOString(),
-            eventStartIso: eventStartDate ? eventStartDate.toISOString() : null,
-            eventEndIso: eventEndDate ? eventEndDate.toISOString() : null,
-            reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
-            voucherId: selectedVoucherId,
-            failureCost,
-            recurrenceType: effectiveRecurrenceType,
-            recurrenceDays: recurrenceDaysToUse,
-            userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-            isStrict,
-        };
-        const timeUntilDeadline = formatTimeUntilDeadline(deadlineToSubmit);
-
-        if (onCreateTaskOptimistic) {
-            onCreateTaskOptimistic(payload);
-            toast.success(timeUntilDeadline);
-            setTitle("");
-            setRecurrenceType("");
-            setRecurrenceLabel("");
-            setShowCustomRecurrenceInline(false);
-            setRequiresProof(defaultRequiresProofForAllTasks);
-            resetDeadlineToDefault();
-            return;
-        }
-
-        setIsLoading(true);
-        try {
-            const formData = new FormData();
-            formData.append("title", payload.title);
-            formData.append("rawTitle", payload.rawTitle);
-            formData.append("deadline", payload.deadlineIso);
-            if (payload.eventStartIso) {
-                formData.append("eventStartIso", payload.eventStartIso);
-            }
-            if (payload.eventEndIso) {
-                formData.append("eventEndIso", payload.eventEndIso);
-            }
-            formData.append("voucherId", payload.voucherId);
-            formData.append("failureCost", payload.failureCost);
-            if (payload.subtasks.length > 0) {
-                formData.append("subtasks", JSON.stringify(payload.subtasks));
-            }
-            if (payload.requiredPomoMinutes != null) {
-                formData.append("requiredPomoMinutes", String(payload.requiredPomoMinutes));
-            }
-            formData.append("requiresProof", payload.requiresProof ? "true" : "false");
-            if (payload.isStrict) {
-                formData.append("isStrict", "true");
-            }
-            if (payload.reminderIsos.length > 0) {
-                formData.append("reminders", JSON.stringify(payload.reminderIsos));
-            }
-
-            if (payload.recurrenceType) {
-                formData.append("recurrenceType", payload.recurrenceType);
-                formData.append("userTimezone", payload.userTimezone);
-                formData.append("recurrenceInterval", "1");
-
-                if (payload.recurrenceType === "WEEKLY" && payload.recurrenceDays.length > 0) {
-                    formData.append("recurrenceDays", JSON.stringify(payload.recurrenceDays));
-                }
-            }
-
-            const result = await createTask(formData);
-            if (result?.error) {
-                console.error("Failed to create task", result.error);
-            } else {
-                toast.success(timeUntilDeadline);
-                setTitle("");
-                setRecurrenceType("");
-                setRecurrenceLabel("");
-                setShowCustomRecurrenceInline(false);
-                setRequiresProof(defaultRequiresProofForAllTasks);
-                resetDeadlineToDefault();
-            }
-        } catch (error) {
-            console.error("Failed to create task", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    const handleSubmit = useTaskInputSubmit({
+        title,
+        recurrenceType,
+        customDays,
+        selectedWeekday,
+        selectedVoucherId,
+        failureCost,
+        requiresProof,
+        defaultRequiresProofForAllTasks,
+        normalizedDefaultEventDurationMinutes,
+        isLoading,
+        isDateSheetOpen,
+        deadlineDraftValue,
+        reminderDraftValue,
+        remindersDraft,
+        reminders,
+        selectedDate,
+        isDeadlineManuallyPicked,
+        onCreateTaskOptimistic,
+        setIsLoading,
+        setDeadlineError,
+        setShowShake,
+        setTitle,
+        setRecurrenceType,
+        setRecurrenceLabel,
+        setShowCustomRecurrenceInline,
+        setRequiresProof,
+        resetDeadlineToDefault,
+    });
 
     const isEventTask = EVENT_TOKEN_REGEX.test(title);
 
@@ -1132,11 +859,11 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     "h-9 max-w-[180px] shrink-0 px-2.5 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 text-slate-400 hover:text-slate-200 rounded-lg transition-all flex items-center justify-start gap-1.5",
                                     selectedDate && "text-blue-400 border-blue-500/30 bg-blue-500/5"
                                 )}
-                                title={formatDeadlineTitle(selectedDate)}
+                                title={formatDeadlineTitle(selectedDate, hasMounted)}
                             >
                                 <Calendar className="h-3.5 w-3.5 shrink-0" />
                                 <span className="text-[10px] font-mono truncate">
-                                    {formatDeadlineLabel(selectedDate)}
+                                    {formatDeadlineLabel(selectedDate, hasMounted)}
                                     {reminders.length > 0 ? ` • ${reminders.length}R` : ""}
                                 </span>
                             </button>
@@ -1195,7 +922,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                         onClick={() => {
                                             setRecurrenceType("WEEKLY");
                                             setRecurrenceLabel("Weekly");
-                                            setCustomDays([getSelectedWeekday()]);
+                                            setCustomDays([selectedWeekday]);
                                             setShowCustomRecurrenceInline(false);
                                         }}
                                         className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
@@ -1226,7 +953,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     <DropdownMenuItem
                                         onSelect={(e) => {
                                             e.preventDefault();
-                                            const initialDays = customDays.length > 0 ? customDays : [getSelectedWeekday()];
+                                            const initialDays = customDays.length > 0 ? customDays : [selectedWeekday];
                                             setCustomDays(initialDays);
                                             setRecurrenceType("WEEKLY");
                                             setRecurrenceLabel(`Custom: ${formatCustomDaysLabel(initialDays)}`);

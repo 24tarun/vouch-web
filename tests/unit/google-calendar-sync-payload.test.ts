@@ -19,7 +19,6 @@ test("buildGoogleEventPayload uses start_at + deadline(end) for new event rows",
         description: "focus block",
         deadline: "2026-03-17T16:00:00.000Z",
         google_event_start_at: "2026-03-17T11:00:00.000Z",
-        google_event_end_at: "2026-03-17T16:00:00.000Z",
         google_event_color_id: "3",
     });
 
@@ -28,16 +27,16 @@ test("buildGoogleEventPayload uses start_at + deadline(end) for new event rows",
     assert.equal(payload.colorId, "3");
 });
 
-test("buildGoogleEventPayload preserves legacy rows without google_event_start_at", () => {
+test("buildGoogleEventPayload falls back to default duration when no explicit start exists", () => {
     /*
      * What and why this test checks:
-     * Legacy rows stored deadline as start and google_event_end_at as end, and must remain sync-compatible after migration.
+     * Deadline is now the only due-time source, and legacy end timestamps are ignored in payload shaping.
      *
      * Passing scenario:
-     * Payload start falls back to deadline and payload end falls back to google_event_end_at when it is after start.
+     * Payload start falls back to deadline and payload end uses default duration after start.
      *
      * Failing scenario:
-     * If fallback is removed, legacy rows lose correct event windows in Google Calendar.
+     * If fallback regresses to a legacy field, payload behavior drifts from the new deadline-only contract.
      */
     const payload = buildGoogleEventPayload({
         id: "task-legacy",
@@ -45,11 +44,9 @@ test("buildGoogleEventPayload preserves legacy rows without google_event_start_a
         description: null,
         deadline: "2026-03-17T11:00:00.000Z",
         google_event_start_at: null,
-        google_event_end_at: "2026-03-17T16:00:00.000Z",
         google_event_color_id: null,
     });
 
     assert.equal(payload.start?.dateTime, "2026-03-17T11:00:00.000Z");
-    assert.equal(payload.end?.dateTime, "2026-03-17T16:00:00.000Z");
+    assert.equal(payload.end?.dateTime, "2026-03-17T12:00:00.000Z");
 });
-

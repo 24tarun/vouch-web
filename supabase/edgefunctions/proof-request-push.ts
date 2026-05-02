@@ -44,6 +44,17 @@ interface ExpoTicket {
   details?: { error?: string };
 }
 
+const FINAL_TASK_STATUSES = new Set([
+  "ACCEPTED",
+  "AUTO_ACCEPTED",
+  "AI_ACCEPTED",
+  "DENIED",
+  "MISSED",
+  "RECTIFIED",
+  "SETTLED",
+  "DELETED",
+]);
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -70,13 +81,36 @@ Deno.serve(async (request) => {
   // Verify caller is the task's voucher and recipient is the task owner
   const { data: task, error: taskError } = await adminSupabase
     .from("tasks")
-    .select("id, title, user_id, voucher_id")
+    .select("id, title, user_id, voucher_id, status, proof_request_open, has_proof")
     .eq("id", taskId)
     .maybeSingle();
 
   if (taskError || !task) return json({ error: "Task not found." }, 404);
   if (task.user_id !== recipientUserId) return json({ error: "Recipient mismatch." }, 403);
   if (task.voucher_id !== actorId) return json({ error: "Only the voucher can request proof." }, 403);
+
+  const isTaskFinal = FINAL_TASK_STATUSES.has(String(task.status ?? "").toUpperCase());
+  if (isTaskFinal || task.proof_request_open !== true || task.has_proof === true) {
+    const reason = isTaskFinal
+      ? "task_final_state"
+      : task.has_proof === true
+        ? "proof_already_uploaded"
+        : "proof_request_closed";
+    console.log("[proof-request-push] skipped unresolved-state check", {
+      taskId,
+      recipientUserId,
+      reason,
+      status: task.status,
+      proof_request_open: task.proof_request_open,
+      has_proof: task.has_proof,
+    });
+    return json({
+      success: true,
+      skipped: true,
+      reason: "resolved_state",
+      detail: reason,
+    });
+  }
 
   const { data: actorProfile } = await adminSupabase
     .from("profiles")
@@ -245,5 +279,13 @@ Deno.serve(async (request) => {
   const overallSuccess =
     (results.expo?.success === true) || (results.webPush?.success === true);
 
-  return json({ success: overallSuccess, expo: results.expo, webPush: results.webPush });
+  console.log("[proof-request-push] dispatch summary", {
+    taskId,
+    recipientUserId,
+    kind: "PROOF_REQUESTED",
+    expo: results.expo,
+    webPush: results.webPush,
+  });
+
+  return json({ success: overallSuccess, expo: results.expo, webPush: results.webPush, kind: "PROOF_REQUESTED" });
 });
