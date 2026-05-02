@@ -94,12 +94,18 @@ interface RemoveCurrentRequestBody {
   taskId: string;
 }
 
+interface QueueAiEvalRequestBody {
+  action: 'queue-ai-eval';
+  taskId: string;
+}
+
 type RequestBody =
   | InitRequestBody
   | FinalizeRequestBody
   | FailRequestBody
   | PurgeFinalRequestBody
-  | RemoveCurrentRequestBody;
+  | RemoveCurrentRequestBody
+  | QueueAiEvalRequestBody;
 
 function json(status: number, payload: Record<string, unknown>) {
   return new Response(JSON.stringify(payload), {
@@ -440,23 +446,6 @@ Deno.serve(async (request) => {
       return json(400, { success: false, error: finalizeRow?.error || 'Could not finalize proof upload.' });
     }
 
-    const AI_PROFILE_ID = '11111111-1111-1111-1111-111111111111';
-    if ((task as { voucher_id: string }).voucher_id === AI_PROFILE_ID) {
-      const triggerSecretKey = Deno.env.get('TRIGGER_SECRET_KEY');
-      if (triggerSecretKey) {
-        await fetch('https://api.trigger.dev/api/v3/tasks/ai-voucher-evaluate/trigger', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${triggerSecretKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ payload: { taskId } }),
-        }).catch((err) => console.error('Failed to queue AI voucher evaluation:', err));
-      } else {
-        console.error('TRIGGER_SECRET_KEY not set — AI voucher evaluation will not run');
-      }
-    }
-
     return json(200, { success: true });
   }
 
@@ -581,6 +570,51 @@ Deno.serve(async (request) => {
       .eq('id', taskId)
       .eq('user_id', user.id);
 
+    return json(200, { success: true });
+  }
+
+  if (action === 'queue-ai-eval') {
+    const AI_PROFILE_ID = '11111111-1111-1111-1111-111111111111';
+    const taskStatus = (task as { status: string }).status;
+    const taskVoucherId = (task as { voucher_id: string }).voucher_id;
+
+    if (taskVoucherId !== AI_PROFILE_ID) {
+      return json(400, { success: false, error: 'Task is not assigned to AI voucher.' });
+    }
+
+    if (taskStatus !== 'AWAITING_AI') {
+      return json(400, { success: false, error: `Task must be in AWAITING_AI status to queue evaluation (currently ${taskStatus}).` });
+    }
+
+    const triggerSecretKey = Deno.env.get('TRIGGER_SECRET_KEY');
+    if (!triggerSecretKey) {
+      console.error('TRIGGER_SECRET_KEY not set — AI voucher evaluation will not run');
+      return json(500, { success: false, error: 'AI evaluation service not configured.' });
+    }
+
+    const triggerRes = await fetch('https://api.trigger.dev/api/v1/tasks/ai-voucher-evaluate/trigger', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${triggerSecretKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ payload: { taskId } }),
+    }).catch((err) => {
+      console.error('AI voucher evaluation: network error for task', taskId, err);
+      return null;
+    });
+
+    if (!triggerRes) {
+      return json(500, { success: false, error: 'AI evaluation service unavailable.' });
+    }
+
+    if (!triggerRes.ok) {
+      const responseBody = await triggerRes.text().catch(() => '');
+      console.error(`AI voucher evaluation: HTTP ${triggerRes.status} for task ${taskId}:`, responseBody);
+      return json(500, { success: false, error: `AI evaluation trigger failed (HTTP ${triggerRes.status}).` });
+    }
+
+    console.log('AI voucher evaluation queued for task', taskId);
     return json(200, { success: true });
   }
 
