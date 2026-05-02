@@ -19,10 +19,18 @@ export default async function DashboardLayout({
     }
 
     const { data: { session } } = await supabase.auth.getSession();
-    const amr = (session?.user as unknown as { amr?: { method: string }[] })?.amr;
-    if (amr?.some((m) => m.method === "recovery")) {
-        await supabase.auth.signOut();
-        redirect("/");
+    if (session?.access_token) {
+        try {
+            const payload = JSON.parse(
+                Buffer.from(session.access_token.split(".")[1], "base64").toString()
+            );
+            const isRecovery = (payload.amr as { method: string }[] | undefined)
+                ?.some((m) => m.method === "recovery");
+            if (isRecovery) {
+                await supabase.auth.signOut();
+                redirect("/");
+            }
+        } catch {}
     }
 
     const { count: statsBadgeCountRaw } = await supabase
