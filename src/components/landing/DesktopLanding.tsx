@@ -282,7 +282,7 @@ export function DesktopLanding() {
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {[
-                  { badge: "badge-cyan",    label: "Strict Mode",        desc: "Early stop voids the session — only completed timers count." },
+                  { badge: "badge-cyan",    label: "Completed Sessions", desc: "Only completed timers are counted and logged to the task." },
                   { badge: "badge-emerald", label: "Session Logging",    desc: "Every completed session is logged to the task and contributes to your RP." },
                   { badge: "badge-amber",   label: "Required Minutes",   desc: "Set minimum pomo minutes per task via the `pomo N` token at creation." },
                   { badge: "badge-purple",  label: "Auto-end",           desc: "Background job ends abandoned sessions automatically." },

@@ -2,6 +2,7 @@ import { fromDateTimeLocalValue } from "@/lib/datetime-local";
 
 export interface ResolvedDateSheetDraft {
     deadline: Date;
+    eventStart: Date | null;
     reminders: Date[];
 }
 
@@ -16,12 +17,14 @@ export function normalizeReminderDates(values: Date[]): Date[] {
 
 export function resolveDateSheetDraftSubmission(params: {
     deadlineDraftValue: string;
+    eventStartDraftValue?: string;
     reminderDraftValue: string;
     remindersDraft: Date[];
     nowMs?: number;
 }): ResolvedDateSheetDraft | { error: string } {
     const {
         deadlineDraftValue,
+        eventStartDraftValue = "",
         reminderDraftValue,
         remindersDraft,
         nowMs = Date.now(),
@@ -34,6 +37,20 @@ export function resolveDateSheetDraftSubmission(params: {
 
     if (parsedDeadline.getTime() <= nowMs) {
         return { error: "Deadline must be in the future." };
+    }
+
+    const trimmedEventStartDraft = eventStartDraftValue.trim();
+    const parsedEventStart =
+        trimmedEventStartDraft.length > 0
+            ? fromDateTimeLocalValue(eventStartDraftValue)
+            : null;
+
+    if (trimmedEventStartDraft.length > 0 && !parsedEventStart) {
+        return { error: "Please choose a valid start time." };
+    }
+
+    if (parsedEventStart && parsedDeadline.getTime() <= parsedEventStart.getTime()) {
+        return { error: "End time must be after start time." };
     }
 
     const trimmedReminderDraft = reminderDraftValue.trim();
@@ -59,6 +76,7 @@ export function resolveDateSheetDraftSubmission(params: {
 
     return {
         deadline: parsedDeadline,
+        eventStart: parsedEventStart,
         reminders: remindersToApply,
     };
 }

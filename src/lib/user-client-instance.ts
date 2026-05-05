@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const CLIENT_NAME = "vouch-web";
 const INSTANCE_COOKIE = "vouch_web_client_instance_key";
+type UserClientInstanceIdRow = { id: string };
 
 function randomKey(): string {
   const rand = Math.random().toString(36).slice(2, 12);
@@ -35,7 +36,7 @@ export async function resolveWebUserClientInstanceId(userId: string): Promise<st
     const userAgent = headerStore.get("user-agent");
     const metadata = { instance_key: instanceKey };
 
-    const { data: existing, error: selectError } = await (supabase.from("user_client_instances") as any)
+    const { data: existing, error: selectError } = await (supabase.from("user_client_instances" as any) as any)
       .select("id")
       .eq("user_id", userId)
       .eq("platform", "web")
@@ -46,20 +47,21 @@ export async function resolveWebUserClientInstanceId(userId: string): Promise<st
       .maybeSingle();
 
     if (selectError) return null;
+    const existingRow = (existing as UserClientInstanceIdRow | null);
 
-    if (existing?.id) {
-      await (supabase.from("user_client_instances") as any)
+    if (existingRow?.id) {
+      await (supabase.from("user_client_instances" as any) as any)
         .update({
           last_seen_at: nowIso,
           device_label: userAgent,
           metadata,
         })
-        .eq("id", existing.id)
+        .eq("id", existingRow.id)
         .eq("user_id", userId);
-      return existing.id as string;
+      return existingRow.id;
     }
 
-    const { data: created, error: createError } = await (supabase.from("user_client_instances") as any)
+    const { data: created, error: createError } = await (supabase.from("user_client_instances" as any) as any)
       .insert({
         user_id: userId,
         platform: "web",
@@ -72,9 +74,69 @@ export async function resolveWebUserClientInstanceId(userId: string): Promise<st
       .select("id")
       .single();
 
-    if (createError || !created?.id) return null;
-    return created.id as string;
+    const createdRow = (created as UserClientInstanceIdRow | null);
+    if (createError || !createdRow?.id) return null;
+    return createdRow.id;
   } catch {
     return null;
+  }
+}
+
+export async function resolveWebUserClientInstanceStatus(
+  userId: string
+): Promise<{ id: string | null; isNew: boolean }> {
+  if (!userId) return { id: null, isNew: false };
+
+  try {
+    const supabase = await createClient();
+    const instanceKey = await getOrCreateInstanceKey();
+    const nowIso = new Date().toISOString();
+    const headerStore = await headers();
+    const userAgent = headerStore.get("user-agent");
+    const metadata = { instance_key: instanceKey };
+
+    const { data: existing, error: selectError } = await (supabase.from("user_client_instances" as any) as any)
+      .select("id")
+      .eq("user_id", userId)
+      .eq("platform", "web")
+      .eq("client_name", CLIENT_NAME)
+      .contains("metadata", metadata)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (selectError) return { id: null, isNew: false };
+    const existingRow = (existing as UserClientInstanceIdRow | null);
+
+    if (existingRow?.id) {
+      await (supabase.from("user_client_instances" as any) as any)
+        .update({
+          last_seen_at: nowIso,
+          device_label: userAgent,
+          metadata,
+        })
+        .eq("id", existingRow.id)
+        .eq("user_id", userId);
+      return { id: existingRow.id, isNew: false };
+    }
+
+    const { data: created, error: createError } = await (supabase.from("user_client_instances" as any) as any)
+      .insert({
+        user_id: userId,
+        platform: "web",
+        client_name: CLIENT_NAME,
+        device_label: userAgent,
+        app_version: null,
+        metadata,
+        last_seen_at: nowIso,
+      })
+      .select("id")
+      .single();
+
+    const createdRow = (created as UserClientInstanceIdRow | null);
+    if (createError || !createdRow?.id) return { id: null, isNew: false };
+    return { id: createdRow.id, isNew: true };
+  } catch {
+    return { id: null, isNew: false };
   }
 }

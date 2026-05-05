@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { saveSubscription } from "@/actions/push";
 import { haptics } from "@/lib/haptics";
 
 const VAPID_PUBLIC_KEY = normalizeVapidPublicKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "");
 
-export function PushInitializer() {
+interface PushInitializerProps {
+    autoPrompt?: boolean;
+}
+
+export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
     const hasVapidKey = VAPID_PUBLIC_KEY.length > 0;
     const supportsPush =
         hasVapidKey &&
@@ -23,6 +27,7 @@ export function PushInitializer() {
         return Notification.permission;
     });
     const [error, setError] = useState<string | null>(null);
+    const [isSubscribing, setIsSubscribing] = useState(false);
 
     useEffect(() => {
         if (!supportsPush) return;
@@ -41,21 +46,29 @@ export function PushInitializer() {
         };
     }, [supportsPush]);
 
-    const subscribe = async () => {
+    const subscribe = useCallback(async (options?: { silent?: boolean; skipHaptics?: boolean }) => {
+        if (isSubscribing) return;
         try {
+            setIsSubscribing(true);
             setError(null);
-            haptics.light();
+            if (!options?.skipHaptics) {
+                haptics.light();
+            }
             const status = await Notification.requestPermission();
             setPermission(status);
 
             if (status === "denied") {
-                haptics.error();
-                setError("Notification permission denied. Enable notifications in browser settings.");
+                if (!options?.skipHaptics) haptics.error();
+                if (!options?.silent) {
+                    setError("Notification permission denied. Enable notifications in browser settings.");
+                }
                 return;
             }
 
             if (status !== "granted") {
-                setError("Notification permission was dismissed.");
+                if (!options?.silent) {
+                    setError("Notification permission was dismissed.");
+                }
                 return;
             }
 
@@ -89,23 +102,35 @@ export function PushInitializer() {
             if (result.success) {
                 setIsSubscribed(true);
                 setError(null);
-                haptics.medium();
+                if (!options?.skipHaptics) haptics.medium();
             } else if (result.error) {
-                haptics.error();
+                if (!options?.skipHaptics) haptics.error();
                 setError(result.error);
             }
         } catch (err) {
             console.error("Subscription failed:", err);
-            haptics.error();
+            if (!options?.skipHaptics) haptics.error();
             if (err instanceof DOMException && err.name === "AbortError") {
-                setError(
-                    "Push registration failed. Check VAPID key pair/environment variables and browser push service availability."
-                );
+                if (!options?.silent) {
+                    setError(
+                        "Push registration failed. Check VAPID key pair/environment variables and browser push service availability."
+                    );
+                }
                 return;
             }
-            setError(err instanceof Error ? err.message : "Subscription failed.");
+            if (!options?.silent) {
+                setError(err instanceof Error ? err.message : "Subscription failed.");
+            }
+        } finally {
+            setIsSubscribing(false);
         }
-    };
+    }, [hasVapidKey, isSubscribing]);
+
+    useEffect(() => {
+        if (!autoPrompt || !supportsPush || isSubscribed || isSubscribing) return;
+        if (permission !== "default") return;
+        void subscribe({ silent: true, skipHaptics: true });
+    }, [autoPrompt, isSubscribed, isSubscribing, permission, subscribe, supportsPush]);
 
     if (!hasVapidKey) {
         return (
@@ -139,7 +164,7 @@ export function PushInitializer() {
                     <p className="text-xs text-slate-500 font-mono mt-1">Get updates on your phone for task deadlines and voucher actions.</p>
                 </div>
                 <button
-                    onClick={subscribe}
+                    onClick={() => void subscribe()}
                     className="px-4 py-2 bg-slate-200 hover:bg-white text-slate-900 text-[10px] font-bold uppercase tracking-widest rounded transition-colors"
                 >
                     Enable

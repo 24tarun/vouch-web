@@ -195,7 +195,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
         const interval = window.setInterval(() => {
             void refreshSession();
-        }, 15_000);
+        }, 60_000);
 
         return () => window.clearInterval(interval);
     }, [session, refreshSession]);

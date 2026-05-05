@@ -39,7 +39,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, username, hide_tips")
+            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, username, hide_tips")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => result.data),
@@ -61,6 +61,8 @@ export default async function DashboardPage() {
         default_requires_proof_for_all_tasks: boolean | null;
         default_pomo_duration_minutes: number | null;
         default_event_duration_minutes: number | null;
+        deadline_one_hour_warning_enabled: boolean | null;
+        deadline_final_warning_enabled: boolean | null;
         username: string | null;
         hide_tips: boolean | null;
     } | null;
@@ -80,6 +82,8 @@ export default async function DashboardPage() {
     const defaultVoucherId = profileDefaults?.default_voucher_id ?? userId ?? null;
     const currency = normalizeCurrency(profileDefaults?.currency);
     const defaultRequiresProofForAllTasks = profileDefaults?.default_requires_proof_for_all_tasks ?? false;
+    const deadlineOneHourWarningEnabled = profileDefaults?.deadline_one_hour_warning_enabled ?? true;
+    const deadlineFinalWarningEnabled = profileDefaults?.deadline_final_warning_enabled ?? true;
     const username =
         profileDefaults?.username?.trim() ||
         ((user?.user_metadata as { username?: string } | undefined)?.username?.trim() ?? "") ||
@@ -154,6 +158,8 @@ export default async function DashboardPage() {
             defaultPomoDurationMinutes={defaultPomoDurationMinutes}
             defaultEventDurationMinutes={defaultEventDurationMinutes}
             defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
+            deadlineOneHourWarningEnabled={deadlineOneHourWarningEnabled}
+            deadlineFinalWarningEnabled={deadlineFinalWarningEnabled}
             userId={userId || ""}
             username={username}
             initialHideTips={initialHideTips}

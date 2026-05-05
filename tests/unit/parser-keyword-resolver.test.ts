@@ -36,7 +36,7 @@ test("tmr and tmrw resolve to next-day deadline", () => {
      * It guarantees both `tmr` and `tmrw` resolve to tomorrow at end-of-day when no explicit time is provided.
      *
      * Passing scenario:
-     * Both inputs resolve with no error to April 25, 2026 at 23:59 local time.
+     * Both inputs resolve with no error to April 25, 2026 at 23:00 local time.
      *
      * Failing scenario:
      * If either keyword falls back to today/default or errors, tomorrow parsing is broken.
@@ -46,14 +46,14 @@ test("tmr and tmrw resolve to next-day deadline", () => {
     assert.equal(tmrResolution.deadline.getMonth(), 3);
     assert.equal(tmrResolution.deadline.getDate(), 25);
     assert.equal(tmrResolution.deadline.getHours(), 23);
-    assert.equal(tmrResolution.deadline.getMinutes(), 59);
+    assert.equal(tmrResolution.deadline.getMinutes(), 0);
 
     assert.equal(tmrwResolution.error, null);
     assert.equal(tmrwResolution.deadline.getFullYear(), 2026);
     assert.equal(tmrwResolution.deadline.getMonth(), 3);
     assert.equal(tmrwResolution.deadline.getDate(), 25);
     assert.equal(tmrwResolution.deadline.getHours(), 23);
-    assert.equal(tmrwResolution.deadline.getMinutes(), 59);
+    assert.equal(tmrwResolution.deadline.getMinutes(), 0);
 });
 
 test("weekday variants and @14 parse to future deadlines", () => {

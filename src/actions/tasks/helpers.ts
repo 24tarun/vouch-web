@@ -168,10 +168,10 @@ export async function enqueueGoogleCalendarDelete(
 
 export function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTitle: string; googleSyncForTask: boolean; isStrict: boolean } {
     const hasEventToken = /(^|\s)-event(?=\s|$)/i.test(rawTitle);
-    const hasStrictToken = /(^|\s)-strict(?=\s|$)/i.test(rawTitle);
+    const hasBoundToken = /(^|\s)-bound(?=\s|$)/i.test(rawTitle);
     const normalizedTitle = stripProofRequiredTokens(stripEventColorTokens(rawTitle)
         .replace(/(^|\s)-event(?=\s|$)/gi, " ")
-        .replace(/(^|\s)-strict(?=\s|$)/gi, " ")
+        .replace(/(^|\s)-bound(?=\s|$)/gi, " ")
         .replace(/(?:^|\s)-start\s*(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
         .replace(/(?:^|\s)-end\s*(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")
         .replace(/\s+/g, " ")
@@ -180,7 +180,7 @@ export function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTit
     return {
         normalizedTitle,
         googleSyncForTask: hasEventToken,
-        isStrict: hasStrictToken,
+        isStrict: hasBoundToken,
     };
 }
 

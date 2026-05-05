@@ -70,6 +70,8 @@ interface DashboardClientProps {
     defaultPomoDurationMinutes: number;
     defaultEventDurationMinutes: number;
     defaultRequiresProofForAllTasks: boolean;
+    deadlineOneHourWarningEnabled: boolean;
+    deadlineFinalWarningEnabled: boolean;
     userId: string;
     username: string;
     initialHideTips: boolean;
@@ -174,6 +176,8 @@ export default function DashboardClient({
     defaultPomoDurationMinutes,
     defaultEventDurationMinutes,
     defaultRequiresProofForAllTasks,
+    deadlineOneHourWarningEnabled,
+    deadlineFinalWarningEnabled,
     userId,
     username,
     initialHideTips,
@@ -1096,6 +1100,8 @@ export default function DashboardClient({
                 defaultVoucherId={defaultVoucherId}
                 defaultEventDurationMinutes={defaultEventDurationMinutes}
                 defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
+                deadlineOneHourWarningEnabled={deadlineOneHourWarningEnabled}
+                deadlineFinalWarningEnabled={deadlineFinalWarningEnabled}
                 selfUserId={userId}
                 onCreateTaskOptimistic={handleCreateTaskOptimistic}
             />

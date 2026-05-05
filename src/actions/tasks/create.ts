@@ -284,7 +284,7 @@ export async function createTask(formData: FormData) {
         return { error: PAST_DEADLINE_ERROR };
     }
     if (titleSelection.isStrict && !titleSelection.googleSyncForTask) {
-        return { error: "-strict requires an event. Add -event to the title." };
+        return { error: "-bound requires an event. Add -event to the title." };
     }
     const validatedDeadline = parsedDeadline;
     let eventStartAtIso: string | null = null;

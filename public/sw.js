@@ -165,16 +165,14 @@ self.addEventListener('push', (event) => {
         actions: [{ action: 'open', title: 'Open' }],
     });
 
-    const soundPromise = payload.sound
-        ? clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
-            windowClients.forEach((client) => {
-                client.postMessage({
-                    type: 'tas-play-sound',
-                    sound: payload.sound,
-                });
+    const soundPromise = clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+        windowClients.forEach((client) => {
+            client.postMessage({
+                type: 'tas-play-sound',
+                sound: payload.sound || 'default',
             });
-        })
-        : Promise.resolve();
+        });
+    });
 
     event.waitUntil(Promise.all([notifyPromise, soundPromise]));
 });

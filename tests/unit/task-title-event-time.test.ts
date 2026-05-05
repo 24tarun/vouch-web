@@ -336,17 +336,17 @@ test("11) non-event title with @930 remains outside event resolver scope", () =>
     assert.equal(result.error, undefined);
 });
 
-test("12) -event with @930 but no -start/-end still fails mandatory-token rule", () => {
+test("12) -event with @930 but no -start still fails mandatory-token rule", () => {
     /*
      * What and why this test checks:
-     * This enforces the explicit product decision that @ is non-event-only.
-     * Event timing must come from -start/-end, even when @ appears in title text.
+     * This verifies @time is now treated as an end-time alias for event tasks.
+     * Event tasks still require a start token, so @time alone cannot produce a full window.
      *
      * Passing scenario:
-     * "-event @930" fails with mixed-syntax error.
+     * "-event @930" fails with the missing-time error because -start is absent.
      *
      * Failing scenario:
-     * If this passed, event parser would silently accept legacy @ syntax and violate migration intent.
+     * If this returns a mixed-syntax error, the resolver is still applying the old @ rejection logic.
      */
     const result = resolveEventSchedule({
         rawTitle: "planning -event @930",
@@ -355,21 +355,21 @@ test("12) -event with @930 but no -start/-end still fails mandatory-token rule",
         now: buildNowBeforeAnchorDay(),
     });
 
-    assert.equal(result.error, "Event tasks cannot use @time. Use -start/-end only.");
+    assert.equal(result.error, "Event tasks require both -startHHMM and -endHHMM.");
     assert.equal(result.startDate, null);
     assert.equal(result.endDate, null);
 });
 
-test("13) -event with -start/-end plus @930 is rejected as mixed syntax", () => {
+test("13) -event with -start/-end plus @930 is rejected as duplicate end", () => {
     /*
      * What and why this test checks:
-     * This ensures @time is always rejected for event titles, even when valid -start/-end tokens are present.
+     * This ensures @time maps to event end-time semantics and conflicts with explicit -end.
      *
      * Passing scenario:
-     * Resolver rejects mixed syntax with the explicit @time conflict error and does not resolve a schedule.
+     * Resolver rejects title with duplicate end specification and does not resolve a schedule.
      *
      * Failing scenario:
-     * If resolver accepts this title, users can submit conflicting time syntaxes and create ambiguous events.
+     * If resolver accepts this title, users can submit conflicting end-times and create ambiguous events.
      */
     const result = resolveEventSchedule({
         rawTitle: "planning -event -start930 -end1030 @930",
@@ -378,7 +378,7 @@ test("13) -event with -start/-end plus @930 is rejected as mixed syntax", () => 
         now: buildNowBeforeAnchorDay(),
     });
 
-    assert.equal(result.error, "Event tasks cannot use @time. Use -start/-end only.");
+    assert.equal(result.error, "Use only one -end token.");
     assert.equal(result.startDate, null);
     assert.equal(result.endDate, null);
 });

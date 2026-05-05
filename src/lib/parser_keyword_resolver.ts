@@ -109,7 +109,7 @@ export function resolveTaskDeadline(
             month - 1,
             day,
             parsedTime?.hours ?? 23,
-            parsedTime?.minutes ?? 59,
+            parsedTime?.minutes ?? 0,
             0,
             0
         );
@@ -124,7 +124,7 @@ export function resolveTaskDeadline(
     if (parsedWeekdayTokens.length === 1) {
         const weekdayToken = parsedWeekdayTokens[0];
         const deadline = resolveUpcomingWeekdayDate(weekdayToken.weekday, now);
-        deadline.setHours(parsedTime?.hours ?? 23, parsedTime?.minutes ?? 59, 0, 0);
+        deadline.setHours(parsedTime?.hours ?? 23, parsedTime?.minutes ?? 0, 0, 0);
 
         if (deadline.getTime() <= now.getTime()) {
             return { deadline, error: "Deadline must be in the future." };
@@ -136,7 +136,7 @@ export function resolveTaskDeadline(
     if (hasTomorrowKeyword) {
         const deadline = new Date(now);
         deadline.setDate(deadline.getDate() + 1);
-        deadline.setHours(parsedTime?.hours ?? 23, parsedTime?.minutes ?? 59, 0, 0);
+        deadline.setHours(parsedTime?.hours ?? 23, parsedTime?.minutes ?? 0, 0, 0);
 
         return { deadline, error: null };
     }
@@ -170,7 +170,7 @@ export function stripMetadata(text: string): string {
         .replace(/(?:^|\s)-proof(?=\s|$)/gi, " ")
         .replace(/\bpomo\s+\d+\b/gi, "")
         .replace(/\btimer\s+\d+\b/gi, "")
-        .replace(/(^|\s)-strict(?=\s|$)/gi, " ")
+        .replace(/(^|\s)-bound(?=\s|$)/gi, " ")
         .replace(/\s+/g, " ")
         .trim();
 

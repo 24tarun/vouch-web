@@ -176,6 +176,7 @@ const EVENT_ONLY_COMPLETION_TOKENS = new Set<string>([
 ]);
 const PARSER_KEYWORD_COMPLETION_TOKENS = Array.from(new Set([
     "-event",
+    "-bound",
     "-start",
     "-end",
     "-color",
@@ -535,7 +536,7 @@ export function isValidCalendarDate(year: number, month: number, day: number): b
 
 export function getDefaultDeadline(now: Date = new Date()): Date {
     const deadline = new Date(now);
-    deadline.setHours(23, 59, 0, 0);
+    deadline.setHours(23, 0, 0, 0);
     if (deadline.getTime() <= now.getTime()) {
         deadline.setDate(deadline.getDate() + 1);
     }

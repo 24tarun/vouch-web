@@ -82,8 +82,8 @@ export function TaskRow({
             ].includes(task.status),
         [task.status]
     );
-    const deadline = new Date(task.deadline);
     const deadlineLabel = useMemo(() => {
+        const deadline = new Date(task.deadline);
         if (Number.isNaN(deadline.getTime())) return "Invalid date";
         return `${deadline.toLocaleTimeString("en-GB", {
             hour: "2-digit",
@@ -91,7 +91,7 @@ export function TaskRow({
             hour12: false,
         })} ${deadline.toLocaleDateString("en-GB", { day: "2-digit" })} ${deadline
             .toLocaleDateString("en-GB", { month: "short" })
-            .toLowerCase()}`;
+            }`;
     }, [task.deadline]);
     const submissionWindow = useMemo(
         () => getTaskSubmissionWindowState({
@@ -479,7 +479,7 @@ export function TaskRow({
                 aria-label="Attach proof"
                 title={hasProofAttached ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
             >
-                <Camera className="h-[18px] w-[18px]" />
+                <Camera className="size-4" />
             </Button>
 
             <Button
@@ -652,7 +652,7 @@ export function TaskRow({
                                 aria-label="Attach proof"
                                 title={hasProofAttached ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
                             >
-                                <Camera className="h-[18px] w-[18px]" />
+                                <Camera className="size-4" />
                             </Button>
                         )}
 
@@ -800,7 +800,7 @@ export function TaskRow({
                                     aria-label="Attach proof"
                                     title={hasProofAttached ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
                                 >
-                                    <Camera className="h-[18px] w-[18px]" />
+                                    <Camera className="size-4" />
                                 </button>
 
                                 <button

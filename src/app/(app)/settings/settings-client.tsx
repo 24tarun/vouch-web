@@ -787,7 +787,7 @@ export default function SettingsClient({
     }
 
     return (
-        <div className="max-w-3xl mx-auto space-y-8 pb-20 px-4 md:px-0">
+        <div className="max-w-4xl mx-auto space-y-8 pb-20 px-4 md:px-0">
             <div className="flex items-start justify-between gap-3">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Settings</h1>

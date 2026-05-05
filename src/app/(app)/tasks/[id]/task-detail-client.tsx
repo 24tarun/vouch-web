@@ -600,7 +600,7 @@ export default function TaskDetailClient({
             .td-d5 { animation-delay: 0.56s; }
         `}</style>
 
-        <div className="max-w-3xl mx-auto px-4 md:px-0 pb-12 space-y-7">
+        <div className="max-w-4xl mx-auto px-4 md:px-0 pb-12 space-y-7">
 
             {/* Hidden proof file input */}
             <input ref={proofInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleProofInputChange} />

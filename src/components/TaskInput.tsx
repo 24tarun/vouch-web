@@ -12,8 +12,6 @@ import {
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
-    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
@@ -43,6 +41,7 @@ import {
     fromDateTimeLocalValue,
     toDateTimeLocalValue,
 } from "@/lib/datetime-local";
+import { TaskDateTimePicker } from "@/components/ui/task-date-time-picker";
 import { parseRequiredPomoFromTitle } from "@/lib/pomodoro";
 import {
     normalizeReminderDates,
@@ -98,6 +97,8 @@ interface TaskInputProps {
     defaultVoucherId: string | null;
     defaultEventDurationMinutes: number;
     defaultRequiresProofForAllTasks: boolean;
+    deadlineOneHourWarningEnabled?: boolean;
+    deadlineFinalWarningEnabled?: boolean;
     selfUserId: string;
     onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
 }
@@ -131,6 +132,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     defaultVoucherId,
     defaultEventDurationMinutes,
     defaultRequiresProofForAllTasks,
+    deadlineOneHourWarningEnabled = true,
+    deadlineFinalWarningEnabled = true,
     selfUserId,
     onCreateTaskOptimistic,
 }: TaskInputProps, ref) {
@@ -151,7 +154,10 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const [isDeadlineManuallyPicked, setIsDeadlineManuallyPicked] = useState(false);
 
     const [isDateSheetOpen, setIsDateSheetOpen] = useState(false);
+    const [dateSheetNowMs, setDateSheetNowMs] = useState(0);
     const [deadlineDraftValue, setDeadlineDraftValue] = useState("");
+    const [eventStartValue, setEventStartValue] = useState("");
+    const [eventStartDraftValue, setEventStartDraftValue] = useState("");
     const [reminders, setReminders] = useState<Date[]>([]);
     const [remindersDraft, setRemindersDraft] = useState<Date[]>([]);
     const [reminderDraftValue, setReminderDraftValue] = useState("");
@@ -495,14 +501,18 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setReminders([]);
         setRemindersDraft([]);
         setReminderDraftValue("");
+        setEventStartValue("");
+        setEventStartDraftValue("");
     };
 
     const openDateSheet = () => {
         setDeadlineDraftValue(
             toDateTimeLocalValue(selectedDate ?? getDefaultDeadline())
         );
+        setEventStartDraftValue(eventStartValue);
         setRemindersDraft(reminders.slice().sort((a, b) => a.getTime() - b.getTime()));
         setReminderDraftValue("");
+        setDateSheetNowMs(Date.now());
         setIsDateSheetOpen(true);
     };
 
@@ -522,6 +532,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const commitDateSheetDraft = (closeSheet: boolean) => {
         const result = resolveDateSheetDraftSubmission({
             deadlineDraftValue,
+            eventStartDraftValue,
             reminderDraftValue,
             remindersDraft,
         });
@@ -533,6 +544,9 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setDeadlineError(null);
         setIsDeadlineManuallyPicked(true);
         setSelectedDate(result.deadline);
+        const nextEventStartValue = result.eventStart ? toDateTimeLocalValue(result.eventStart) : "";
+        setEventStartValue(nextEventStartValue);
+        setEventStartDraftValue(nextEventStartValue);
         setReminders(result.reminders);
         setReminderDraftValue("");
         if (closeSheet) {
@@ -545,6 +559,52 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const applyDateSheet = () => {
         commitDateSheetDraft(true);
     };
+
+    const scheduledReminderPreview = useMemo(() => {
+        const deadline = fromDateTimeLocalValue(deadlineDraftValue);
+        if (!deadline) return [];
+
+        const nowMs = dateSheetNowMs || 0;
+        const deadlineMs = deadline.getTime();
+        if (Number.isNaN(deadlineMs)) return [];
+
+        const rows: Array<{ key: string; label: string; reminder: Date }> = [];
+        const addDefaultReminder = (enabled: boolean, offsetMs: number, label: string, key: string) => {
+            if (!enabled) return;
+            const reminder = new Date(deadlineMs - offsetMs);
+            if (reminder.getTime() <= nowMs) return;
+            rows.push({ key, label, reminder });
+        };
+
+        addDefaultReminder(deadlineOneHourWarningEnabled, 60 * 60 * 1000, "1h", "default-1h");
+        addDefaultReminder(deadlineFinalWarningEnabled, 10 * 60 * 1000, "10m", "default-10m");
+
+        const pendingReminder = reminderDraftValue.trim()
+            ? fromDateTimeLocalValue(reminderDraftValue)
+            : null;
+        const manualReminders = normalizeReminderDates(
+            pendingReminder ? [...remindersDraft, pendingReminder] : remindersDraft
+        );
+
+        for (const reminder of manualReminders) {
+            const reminderMs = reminder.getTime();
+            if (reminderMs <= nowMs || reminderMs > deadlineMs) continue;
+            rows.push({
+                key: `manual-${reminder.toISOString()}`,
+                label: "Manual",
+                reminder,
+            });
+        }
+
+        return rows.sort((a, b) => a.reminder.getTime() - b.reminder.getTime());
+    }, [
+        deadlineDraftValue,
+        deadlineFinalWarningEnabled,
+        deadlineOneHourWarningEnabled,
+        dateSheetNowMs,
+        reminderDraftValue,
+        remindersDraft,
+    ]);
 
     const handleDateSheetCreate = () => {
         if (isLoading) return;
@@ -679,6 +739,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         isLoading,
         isDateSheetOpen,
         deadlineDraftValue,
+        eventStartValue,
+        eventStartDraftValue,
         reminderDraftValue,
         remindersDraft,
         reminders,
@@ -1034,24 +1096,63 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             </div>
 
             <Dialog open={isDateSheetOpen} onOpenChange={setIsDateSheetOpen}>
-                <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 [&>[data-slot='dialog-close']]:text-slate-300 [&>[data-slot='dialog-close']]:opacity-100 [&>[data-slot='dialog-close']]:hover:text-white">
+                <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 sm:max-w-[640px] [&>[data-slot='dialog-close']]:text-slate-300 [&>[data-slot='dialog-close']]:opacity-100 [&>[data-slot='dialog-close']]:hover:text-white">
                     <DialogHeader>
                         <DialogTitle className="text-white">Set deadline</DialogTitle>
-                        <DialogDescription className="text-slate-400">
-                            Pick date and time for this task.
-                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-3">
-                        <div className="space-y-1.5">
-                            <label className="text-xs uppercase tracking-wide text-slate-400">Deadline</label>
-                            <input
-                                type="datetime-local"
-                                value={deadlineDraftValue}
-                                onChange={(e) => setDeadlineDraftValue(e.target.value)}
-                                className="h-9 w-full px-3 bg-slate-800/70 border border-slate-600 rounded-md text-white [color-scheme:dark] focus:outline-none focus:border-slate-400"
-                            />
-                        </div>
+                        <TaskDateTimePicker
+                            deadlineValue={deadlineDraftValue}
+                            eventStartValue={eventStartDraftValue}
+                            onDeadlineValueChange={setDeadlineDraftValue}
+                            onEventStartValueChange={setEventStartDraftValue}
+                            actions={
+                                <>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDateSheetOpen(false)}
+                                            className="h-9 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                resetDeadlineToDefault();
+                                                setIsDateSheetOpen(false);
+                                            }}
+                                            className="h-9 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800"
+                                        >
+                                            Reset
+                                        </button>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={applyDateSheet}
+                                        disabled={!deadlineDraftValue}
+                                        className="h-9 w-full rounded-md bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30 disabled:opacity-50"
+                                    >
+                                        Apply
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleDateSheetCreate}
+                                        disabled={isLoading || !deadlineDraftValue}
+                                        aria-label="Apply deadline and create task"
+                                        title="Apply deadline and create task"
+                                        className="h-9 w-full shrink-0 rounded-md border border-blue-500/30 bg-blue-600/20 text-blue-300 transition-colors hover:bg-blue-600/30 disabled:opacity-50 flex items-center justify-center"
+                                    >
+                                        {isLoading ? (
+                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                                        ) : (
+                                            <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                                        )}
+                                    </button>
+                                </>
+                            }
+                        />
 
                         <div className="space-y-2">
                             <label className="text-xs uppercase tracking-wide text-slate-400">Reminders</label>
@@ -1071,68 +1172,34 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     Add
                                 </button>
                             </div>
-                            <p className="text-xs text-slate-400">Click Add or just Apply to include this reminder.</p>
+
+                            {scheduledReminderPreview.length > 0 && (
+                                <div className="space-y-1.5">
+                                    {scheduledReminderPreview.map(({ key, label, reminder }) => (
+                                        <div key={key} className="flex items-center justify-between gap-2">
+                                            <span className="text-xs text-slate-300">{formatReminderLabel(reminder)}</span>
+                                            <span className="text-[10px] uppercase tracking-wide text-slate-500">{label}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
 
                             {remindersDraft.length > 0 && (
-                                <div className="space-y-1.5 rounded-md border border-slate-800 bg-slate-950/40 p-2">
+                                <div className="flex flex-wrap gap-1.5">
                                     {remindersDraft.map((reminder) => (
-                                        <div key={reminder.toISOString()} className="flex items-center justify-between gap-2">
-                                            <span className="text-xs text-slate-300">{formatReminderLabel(reminder)}</span>
-                                            <button
-                                                type="button"
-                                                onClick={() => handleRemoveReminderDraft(reminder.toISOString())}
-                                                className="text-xs text-red-300 hover:text-red-200"
-                                            >
-                                                Remove
-                                            </button>
-                                        </div>
+                                        <button
+                                            key={reminder.toISOString()}
+                                            type="button"
+                                            onClick={() => handleRemoveReminderDraft(reminder.toISOString())}
+                                            className="h-7 rounded-md border border-slate-700 bg-slate-950/50 px-2 text-[11px] text-slate-400 transition-colors hover:border-red-400/40 hover:text-red-300"
+                                        >
+                                            Remove {formatReminderLabel(reminder)}
+                                        </button>
                                     ))}
                                 </div>
                             )}
                         </div>
                     </div>
-
-                    <DialogFooter>
-                        <button
-                            type="button"
-                            onClick={() => setIsDateSheetOpen(false)}
-                            className="h-9 px-3 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                resetDeadlineToDefault();
-                                setIsDateSheetOpen(false);
-                            }}
-                            className="h-9 px-3 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800"
-                        >
-                            Reset
-                        </button>
-                        <button
-                            type="button"
-                            onClick={applyDateSheet}
-                            disabled={!deadlineDraftValue}
-                            className="h-9 px-3 rounded-md bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30 disabled:opacity-50"
-                        >
-                            Apply
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleDateSheetCreate}
-                            disabled={isLoading || !deadlineDraftValue}
-                            aria-label="Apply deadline and create task"
-                            title="Apply deadline and create task"
-                            className="h-9 w-9 shrink-0 rounded-md border border-blue-500/30 bg-blue-600/20 text-blue-300 transition-colors hover:bg-blue-600/30 disabled:opacity-50 flex items-center justify-center"
-                        >
-                            {isLoading ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
-                            ) : (
-                                <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                            )}
-                        </button>
-                    </DialogFooter>
                 </DialogContent>
             </Dialog>
             {deadlineError && (

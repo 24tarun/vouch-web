@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type FormEvent, type SetStateAction } from "react";
 import { toast } from "sonner";
 import { createTask } from "@/actions/tasks";
+import { fromDateTimeLocalValue } from "@/lib/datetime-local";
 import { resolveEventSchedule } from "@/lib/task-title-event-time";
 import { EVENT_TOKEN_REGEX, getDefaultDeadline, parseReminderTimesFromTitle, parseRepeatTokenFromTitle, resolveEventAnchorDate } from "@/lib/task-title-parser";
 import { hasParserDrivenDeadlineHint, parseTaskTitleAndSubtasks, resolveTaskDeadline } from "@/lib/parser_keyword_resolver";
@@ -23,6 +24,8 @@ interface UseTaskInputSubmitArgs {
     isLoading: boolean;
     isDateSheetOpen: boolean;
     deadlineDraftValue: string;
+    eventStartValue: string;
+    eventStartDraftValue: string;
     reminderDraftValue: string;
     remindersDraft: Date[];
     reminders: Date[];
@@ -54,6 +57,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         isLoading,
         isDateSheetOpen,
         deadlineDraftValue,
+        eventStartValue,
+        eventStartDraftValue,
         reminderDraftValue,
         remindersDraft,
         reminders,
@@ -75,11 +80,13 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         e.preventDefault();
         let effectiveIsDeadlineManuallyPicked = isDeadlineManuallyPicked;
         let effectiveSelectedDate = selectedDate;
+        let effectiveEventStartDate = fromDateTimeLocalValue(eventStartValue);
         let effectiveReminders = reminders;
 
         if (isDateSheetOpen) {
             const draftResult = resolveDateSheetDraftSubmission({
                 deadlineDraftValue,
+                eventStartDraftValue,
                 reminderDraftValue,
                 remindersDraft,
             });
@@ -90,6 +97,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
 
             effectiveIsDeadlineManuallyPicked = true;
             effectiveSelectedDate = draftResult.deadline;
+            effectiveEventStartDate = draftResult.eventStart;
             effectiveReminders = draftResult.reminders;
         }
 
@@ -109,7 +117,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         }
 
         const isEventTask = EVENT_TOKEN_REGEX.test(title);
-        const isStrict = /(^|\s)-strict(?=\s|$)/i.test(title);
+        const isStrict = /(^|\s)-bound(?=\s|$)/i.test(title);
         const colorValidation = validateEventColorUsage(title, isEventTask);
         if (colorValidation.error) {
             setDeadlineError(colorValidation.error);
@@ -120,7 +128,10 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             return;
         }
 
-        const shouldApplyParserDeadline = !effectiveIsDeadlineManuallyPicked || hasParserDrivenDeadlineHint(title);
+        const manuallyPickedEventWindow = effectiveIsDeadlineManuallyPicked && Boolean(effectiveEventStartDate);
+        const shouldApplyParserDeadline =
+            !effectiveIsDeadlineManuallyPicked ||
+            (hasParserDrivenDeadlineHint(title) && !manuallyPickedEventWindow);
         const parserResolution = shouldApplyParserDeadline
             ? resolveTaskDeadline(title, new Date(), normalizedDefaultEventDurationMinutes)
             : null;
@@ -134,29 +145,39 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         let eventEndDate: Date | null = null;
 
         if (isEventTask) {
-            const anchorDateResolution = effectiveIsDeadlineManuallyPicked
-                ? { anchorDate: effectiveSelectedDate ?? getDefaultDeadline(), error: null as string | null }
-                : resolveEventAnchorDate(title);
+            if (effectiveIsDeadlineManuallyPicked && effectiveEventStartDate) {
+                eventStartDate = effectiveEventStartDate;
+                eventEndDate = deadlineToSubmit;
+                if (eventEndDate.getTime() <= eventStartDate.getTime()) {
+                    setDeadlineError("End time must be after start time.");
+                    return;
+                }
+                deadlineToSubmit = eventEndDate;
+            } else {
+                const anchorDateResolution = effectiveIsDeadlineManuallyPicked
+                    ? { anchorDate: effectiveSelectedDate ?? getDefaultDeadline(), error: null as string | null }
+                    : resolveEventAnchorDate(title);
 
-            if (anchorDateResolution.error) {
-                setDeadlineError(anchorDateResolution.error);
-                return;
+                if (anchorDateResolution.error) {
+                    setDeadlineError(anchorDateResolution.error);
+                    return;
+                }
+
+                const eventResolution = resolveEventSchedule({
+                    rawTitle: title,
+                    anchorDate: anchorDateResolution.anchorDate,
+                    defaultDurationMinutes: normalizedDefaultEventDurationMinutes,
+                });
+
+                if (eventResolution.error || !eventResolution.startDate || !eventResolution.endDate) {
+                    setDeadlineError(eventResolution.error || "Event time is invalid.");
+                    return;
+                }
+
+                eventStartDate = eventResolution.startDate;
+                eventEndDate = eventResolution.endDate;
+                deadlineToSubmit = eventResolution.endDate;
             }
-
-            const eventResolution = resolveEventSchedule({
-                rawTitle: title,
-                anchorDate: anchorDateResolution.anchorDate,
-                defaultDurationMinutes: normalizedDefaultEventDurationMinutes,
-            });
-
-            if (eventResolution.error || !eventResolution.startDate || !eventResolution.endDate) {
-                setDeadlineError(eventResolution.error || "Event time is invalid.");
-                return;
-            }
-
-            eventStartDate = eventResolution.startDate;
-            eventEndDate = eventResolution.endDate;
-            deadlineToSubmit = eventResolution.endDate;
         } else if (deadlineToSubmit.getTime() <= Date.now()) {
             setDeadlineError("Deadline must be in the future.");
             return;
@@ -262,6 +283,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         customDays,
         deadlineDraftValue,
         defaultRequiresProofForAllTasks,
+        eventStartValue,
+        eventStartDraftValue,
         failureCost,
         isDateSheetOpen,
         isDeadlineManuallyPicked,
