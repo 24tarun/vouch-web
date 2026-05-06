@@ -15,6 +15,25 @@ interface WebcamCaptureModalProps {
 type CaptureMode = "photo" | "video";
 const MAX_VIDEO_RECORDING_SECONDS = 15;
 
+const TARGET_RATIO = 4 / 3;
+
+function get43CropParams(videoWidth: number, videoHeight: number) {
+    const videoRatio = videoWidth / videoHeight;
+    let srcX: number, srcY: number, srcW: number, srcH: number;
+    if (videoRatio > TARGET_RATIO) {
+        srcH = videoHeight;
+        srcW = videoHeight * TARGET_RATIO;
+        srcX = (videoWidth - srcW) / 2;
+        srcY = 0;
+    } else {
+        srcW = videoWidth;
+        srcH = videoWidth / TARGET_RATIO;
+        srcX = 0;
+        srcY = (videoHeight - srcH) / 2;
+    }
+    return { srcX, srcY, srcW, srcH };
+}
+
 function detectBrave(): boolean {
     // navigator.brave is a Brave-specific property
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,6 +63,8 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
     const videoRef = useRef<HTMLVideoElement>(null);
     const streamRef = useRef<MediaStream | null>(null);
     const recorderRef = useRef<MediaRecorder | null>(null);
+    const mirrorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const mirrorFrameRef = useRef<number | null>(null);
     const recordedChunksRef = useRef<Blob[]>([]);
     const discardRecordingRef = useRef(false);
     const autoStopTimeoutRef = useRef<number | null>(null);
@@ -68,6 +89,41 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
         }
     }, []);
 
+    const stopMirrorRenderLoop = useCallback(() => {
+        if (mirrorFrameRef.current != null) {
+            window.cancelAnimationFrame(mirrorFrameRef.current);
+            mirrorFrameRef.current = null;
+        }
+    }, []);
+
+    const startMirrorRenderLoop = useCallback((): MediaStream | null => {
+        const video = videoRef.current;
+        if (!video || !video.videoWidth || !video.videoHeight) return null;
+
+        const { srcX, srcY, srcW, srcH } = get43CropParams(video.videoWidth, video.videoHeight);
+        const canvas = mirrorCanvasRef.current ?? document.createElement("canvas");
+        canvas.width = srcW;
+        canvas.height = srcH;
+        mirrorCanvasRef.current = canvas;
+
+        const context = canvas.getContext("2d");
+        if (!context) return null;
+
+        stopMirrorRenderLoop();
+        const drawFrame = () => {
+            context.save();
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.translate(canvas.width, 0);
+            context.scale(-1, 1);
+            context.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+            context.restore();
+            mirrorFrameRef.current = window.requestAnimationFrame(drawFrame);
+        };
+        drawFrame();
+
+        return canvas.captureStream(30);
+    }, [stopMirrorRenderLoop]);
+
     const stopRecording = useCallback((saveRecording: boolean) => {
         const recorder = recorderRef.current;
         if (!recorder) return;
@@ -81,18 +137,20 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
             recorder.stop();
         } else {
             recorderRef.current = null;
+            stopMirrorRenderLoop();
         }
-    }, [clearRecordingTimers]);
+    }, [clearRecordingTimers, stopMirrorRenderLoop]);
 
     const stopStream = useCallback(() => {
         stopRecording(false);
+        stopMirrorRenderLoop();
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         if (videoRef.current) {
             videoRef.current.srcObject = null;
         }
         setReady(false);
-    }, [stopRecording]);
+    }, [stopMirrorRenderLoop, stopRecording]);
 
     const startVideoRecording = useCallback(() => {
         if (!ready || !streamRef.current) return;
@@ -107,7 +165,9 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
         discardRecordingRef.current = false;
         recordedChunksRef.current = [];
 
-        const recorder = new MediaRecorder(streamRef.current, { mimeType: supportedMimeType });
+        const mirroredStream = startMirrorRenderLoop();
+        const recordingStream = mirroredStream ?? streamRef.current;
+        const recorder = new MediaRecorder(recordingStream, { mimeType: supportedMimeType });
         recorderRef.current = recorder;
 
         recorder.ondataavailable = (event) => {
@@ -120,6 +180,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
             setError("video_unsupported");
             recorderRef.current = null;
             recordedChunksRef.current = [];
+            stopMirrorRenderLoop();
             clearRecordingTimers();
             setIsRecording(false);
             setRecordingSeconds(0);
@@ -131,6 +192,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
 
             recorderRef.current = null;
             recordedChunksRef.current = [];
+            stopMirrorRenderLoop();
             clearRecordingTimers();
             setIsRecording(false);
             setRecordingSeconds(0);
@@ -164,7 +226,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
         autoStopTimeoutRef.current = window.setTimeout(() => {
             stopRecording(true);
         }, MAX_VIDEO_RECORDING_SECONDS * 1000);
-    }, [clearRecordingTimers, onCapture, onClose, ready, stopRecording, stopStream]);
+    }, [clearRecordingTimers, onCapture, onClose, ready, startMirrorRenderLoop, stopMirrorRenderLoop, stopRecording, stopStream]);
 
     const toggleVideoRecording = useCallback(() => {
         if (isRecording) {
@@ -177,8 +239,9 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
     useEffect(() => {
         return () => {
             clearRecordingTimers();
+            stopMirrorRenderLoop();
         };
-    }, [clearRecordingTimers]);
+    }, [clearRecordingTimers, stopMirrorRenderLoop]);
 
     const handlePhotoCapture = () => {
         if (isRecording) return;
@@ -187,10 +250,17 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
         const video = videoRef.current;
         if (!video || !ready) return;
 
+        const { srcX, srcY, srcW, srcH } = get43CropParams(video.videoWidth, video.videoHeight);
         const canvas = document.createElement("canvas");
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext("2d")?.drawImage(video, 0, 0);
+        canvas.width = srcW;
+        canvas.height = srcH;
+        const context = canvas.getContext("2d");
+        if (!context) return;
+        context.save();
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+        context.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+        context.restore();
 
         canvas.toBlob(
             (blob) => {
@@ -253,7 +323,14 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                 // `facingMode: "environment"` (rear camera) does not exist on desktop
                 // webcams and causes OverconstrainedError/NotFoundError even when
                 // the browser has camera permission.
-                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        aspectRatio: { ideal: 4 / 3 },
+                        width: { ideal: 1280 },
+                        height: { ideal: 960 },
+                    },
+                    audio: false,
+                });
             } catch {
                 stream = null;
             }
@@ -287,7 +364,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
 
     return (
         <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-            <DialogContent className="max-w-lg p-0 overflow-hidden bg-slate-900 border-slate-800 text-slate-200 [&>[data-slot='dialog-close']]:text-slate-400 [&>[data-slot='dialog-close']]:hover:text-slate-200">
+            <DialogContent className="w-[96vw] max-w-5xl p-0 overflow-hidden bg-slate-900 border-slate-800 text-slate-200 [&>[data-slot='dialog-close']]:text-slate-400 [&>[data-slot='dialog-close']]:hover:text-slate-200">
                 <div className="px-5 pt-5 pb-4 border-b border-slate-800">
                     <DialogTitle className="text-sm font-semibold text-slate-100">Capture Proof</DialogTitle>
                 </div>
@@ -343,14 +420,16 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                     </div>
                 ) : (
                     <div>
-                        <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            muted
-                            className="w-full bg-black"
-                            style={{ maxHeight: "60vh", objectFit: "contain" }}
-                        />
+                        <div className="mx-auto bg-black overflow-hidden" style={{ aspectRatio: "4 / 3", maxHeight: "72vh", width: "min(100%, calc(72vh * 4 / 3))" }}>
+                            <video
+                                ref={videoRef}
+                                autoPlay
+                                playsInline
+                                muted
+                                className="w-full h-full bg-black -scale-x-100"
+                                style={{ objectFit: "cover" }}
+                            />
+                        </div>
                         {captureMode === "video" && (
                             <div className="px-4 pt-2 text-xs text-slate-400">
                                 {isRecording

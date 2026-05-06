@@ -156,7 +156,7 @@ const HIGHLIGHT_POMO_TOKEN_REGEX = /\b(pomo)\s+(\d+)\b/gi;
 const HIGHLIGHT_REMIND_TOKEN_REGEX = /(^|\s)(remind@(\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?))\b/gi;
 const HIGHLIGHT_REPEAT_TOKEN_REGEX = /\b(repeat)\s+(daily|weekly|monthly|yearly)\b/gi;
 const HIGHLIGHT_TOMORROW_TOKEN_REGEX = /\b(tmr|tmrw|tomorrow)\b/gi;
-const HIGHLIGHT_VOUCH_TOKEN_REGEX = /(^|\s)(vouch|\.v)\s+(me|self|myself|[^\s/]+)(?=\s|$|\/)/gi;
+const HIGHLIGHT_VOUCH_TOKEN_REGEX = /(^|\s)(vouch|\.v)\s+(me|self|[^\s/]+)(?=\s|$|\/)/gi;
 const HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
 const HIGHLIGHT_SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
 const VALUE_EXPECTING_KEYWORDS = new Set(["-start", "-end", "-color", "timer", "pomo", "vouch", ".v", "repeat"]);
@@ -426,7 +426,7 @@ export function getParserKeywordCompletion(
     if (voucherMatch) {
         const nameFragment = voucherMatch[1];
         const normalized = nameFragment.toLowerCase();
-        if (!["me", "self", "myself"].includes(normalized)) {
+        if (!["me", "self"].includes(normalized)) {
             const match = friends.find(
                 (f) => f.username.toLowerCase().startsWith(normalized) && f.username.toLowerCase() !== normalized
             );

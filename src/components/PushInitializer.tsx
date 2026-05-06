@@ -19,7 +19,7 @@ export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
         "PushManager" in window &&
         "Notification" in window;
 
-    const [isSubscribed, setIsSubscribed] = useState(false);
+    const [isSubscribed, setIsSubscribed] = useState<boolean | null>(null);
     const [permission, setPermission] = useState<NotificationPermission>(() => {
         if (typeof window === "undefined" || !("Notification" in window)) {
             return "default";
@@ -35,10 +35,15 @@ export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
         let cancelled = false;
 
         navigator.serviceWorker.ready.then(async (reg) => {
-            const sub = await reg.pushManager.getSubscription();
-            if (cancelled) return;
-            setIsSubscribed(!!sub);
-            setPermission(Notification.permission);
+            try {
+                const sub = await reg.pushManager.getSubscription();
+                if (cancelled) return;
+                setIsSubscribed(!!sub);
+                setPermission(Notification.permission);
+            } catch {
+                if (cancelled) return;
+                setIsSubscribed(false);
+            }
         });
 
         return () => {
@@ -127,7 +132,7 @@ export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
     }, [hasVapidKey, isSubscribing]);
 
     useEffect(() => {
-        if (!autoPrompt || !supportsPush || isSubscribed || isSubscribing) return;
+        if (!autoPrompt || !supportsPush || isSubscribed !== false || isSubscribing) return;
         if (permission !== "default") return;
         void subscribe({ silent: true, skipHaptics: true });
     }, [autoPrompt, isSubscribed, isSubscribing, permission, subscribe, supportsPush]);
@@ -154,6 +159,7 @@ export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
         );
     }
 
+    if (isSubscribed === null) return null;
     if (isSubscribed || permission === "denied") return null;
 
     return (

@@ -652,7 +652,7 @@ export async function updateUserDefaults(formData: FormData) {
     if (resolvedCharityEnabled && !selectedCharityId) {
         const { data: defaultCharity } = await (supabase.from("charities") as any)
             .select("id")
-            .eq("key", "donate_to_developer")
+            .eq("key", "charity1")
             .eq("is_active", true)
             .maybeSingle();
 

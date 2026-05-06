@@ -1,9 +1,13 @@
 import { formatDateTimeDdMmYy, formatFocusTime } from "@/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
+import { TaskStatusBadge } from "@/design-system";
+import type { TaskStatus } from "@/lib/xstate/task-machine";
 
 interface TaskDetailStatsStripProps {
     deadline: Date;
+    status: TaskStatus;
     formattedFailureCost: string;
     isAiVouched: boolean;
+    isSelfVouched: boolean;
     voucherUsername: string | null | undefined;
     totalPomoSeconds: number;
     sessionCount: number;
@@ -11,8 +15,10 @@ interface TaskDetailStatsStripProps {
 
 export function TaskDetailStatsStrip({
     deadline,
+    status,
     formattedFailureCost,
     isAiVouched,
+    isSelfVouched,
     voucherUsername,
     totalPomoSeconds,
     sessionCount,
@@ -20,6 +26,10 @@ export function TaskDetailStatsStrip({
     return (
         <div className="td-rise td-d2 rounded-xl border border-slate-800/80 bg-slate-950/40 px-4 py-4 sm:px-5">
             <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-3 min-h-[32px]">
+                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Status</p>
+                    <TaskStatusBadge status={status} />
+                </div>
                 <div className="flex items-center justify-between gap-3 min-h-[32px]">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Deadline</p>
                     <p className="text-xs font-mono text-right text-slate-200">{formatDateTimeDdMmYy(deadline)}</p>
@@ -31,7 +41,7 @@ export function TaskDetailStatsStrip({
                 <div className="flex items-center justify-between gap-3 min-h-[32px]">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">Voucher</p>
                     <p className="text-xs font-mono text-slate-200 text-right truncate">
-                        {isAiVouched ? "AI" : (voucherUsername || "Unassigned")}
+                        {isAiVouched ? "AI" : (isSelfVouched ? "Self" : (voucherUsername || "Unassigned"))}
                     </p>
                 </div>
                 <div className="flex items-center justify-between gap-3 min-h-[32px]">

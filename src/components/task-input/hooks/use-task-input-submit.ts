@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { createTask } from "@/actions/tasks";
 import { fromDateTimeLocalValue } from "@/lib/datetime-local";
 import { resolveEventSchedule } from "@/lib/task-title-event-time";
-import { EVENT_TOKEN_REGEX, getDefaultDeadline, parseReminderTimesFromTitle, parseRepeatTokenFromTitle, resolveEventAnchorDate } from "@/lib/task-title-parser";
+import { EVENT_TOKEN_REGEX, getDefaultDeadline, parseProofRequiredFromTitle, parseReminderTimesFromTitle, parseRepeatTokenFromTitle, resolveEventAnchorDate } from "@/lib/task-title-parser";
 import { hasParserDrivenDeadlineHint, parseTaskTitleAndSubtasks, resolveTaskDeadline } from "@/lib/parser_keyword_resolver";
 import { normalizeReminderDates, resolveDateSheetDraftSubmission } from "@/lib/task-deadline-sheet";
 import { validateEventColorUsage } from "@/lib/task-title-event-color";
@@ -102,7 +102,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         }
 
         const { title: taskTitle, subtasks } = parseTaskTitleAndSubtasks(title);
-        const titleRequiresProof = false;
+        const titleRequiresProof = parseProofRequiredFromTitle(title);
         const requiredPomoParse = parseRequiredPomoFromTitle(title);
         const requiredPomoMinutes = requiredPomoParse.requiredPomoMinutes;
         const parsedRepeatType = parseRepeatTokenFromTitle(title);

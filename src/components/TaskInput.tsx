@@ -701,7 +701,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     }, [title, isDeadlineManuallyPicked, normalizedDefaultEventDurationMinutes]);
 
     useEffect(() => {
-        if (/(?:\bvouch|\.v)\s+(me|self|myself)(?=\s|$|\/)/i.test(title)) {
+        if (/(?:\bvouch|\.v)\s+(me|self)(?=\s|$|\/)/i.test(title)) {
             setSelectedVoucherId(selfUserId);
         } else {
             const vouchMatch = title.match(/(?:\bvouch|\.v)\s+([^\s/]+)/i);
@@ -899,7 +899,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     >
                                         {selfUserId && (
                                             <SelectItem value={selfUserId} className="text-[11px] font-mono focus:bg-slate-800 focus:text-white">
-                                                Myself
+                                                Self
                                             </SelectItem>
                                         )}
                                         {friends.map((friend) => (

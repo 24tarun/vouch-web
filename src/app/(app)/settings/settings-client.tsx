@@ -160,7 +160,6 @@ export default function SettingsClient({
     const [timeZoneUserSet, setTimeZoneUserSet] = useState(profile.timezone_user_set ?? false);
     const [charityEnabled, setCharityEnabled] = useState(profile.charity_enabled ?? false);
     const [selectedCharityId, setSelectedCharityId] = useState(profile.selected_charity_id ?? "");
-    const [isCharitySelectOpen, setIsCharitySelectOpen] = useState(false);
     const [isDefaultsLoading, setIsDefaultsLoading] = useState(false);
     const [defaultsError, setDefaultsError] = useState<string | null>(null);
     const [defaultsSuccess, setDefaultsSuccess] = useState(false);
@@ -220,7 +219,7 @@ export default function SettingsClient({
     );
     const defaultCharityId = useMemo(() => {
         const donateToDeveloper = charities.find(
-            (charity) => charity.key === "donate_to_developer" && charity.is_active
+            (charity) => charity.key === "charity1" && charity.is_active
         );
         if (donateToDeveloper) {
             return donateToDeveloper.id;
@@ -369,21 +368,14 @@ export default function SettingsClient({
         setCharityEnabled(nextEnabled);
         if (!nextEnabled) {
             setSelectedCharityId("");
-            setIsCharitySelectOpen(false);
             return;
         }
         if (!selectedCharityId || !selectedCharity || !selectedCharity.is_active) {
             setSelectedCharityId(defaultCharityId);
         }
-        setIsCharitySelectOpen(true);
     }
 
     function handleCharitySelect(value: string) {
-        if (value === "__none__") {
-            setSelectedCharityId("");
-            setCharityEnabled(false);
-            return;
-        }
         setSelectedCharityId(value);
         if (!charityEnabled) {
             setCharityEnabled(true);
@@ -538,10 +530,7 @@ export default function SettingsClient({
         if (!selectedCharityId || !selectedCharity || !selectedCharity.is_active) {
             if (defaultCharityId) {
                 setSelectedCharityId(defaultCharityId);
-                return;
             }
-            setCharityEnabled(false);
-            setSelectedCharityId("");
         }
     }, [charityEnabled, defaultCharityId, selectedCharity, selectedCharityId]);
 
@@ -1186,7 +1175,7 @@ export default function SettingsClient({
                                 <SelectValue placeholder="Select default voucher" />
                             </SelectTrigger>
                             <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                                <SelectItem value={profile.id}>Myself</SelectItem>
+                                <SelectItem value={profile.id}>Self</SelectItem>
                                 {friends.map((friend) => (
                                     <SelectItem key={friend.id} value={friend.id}>
                                         {friend.username} ({friend.email})
@@ -1556,10 +1545,8 @@ export default function SettingsClient({
                             Charity
                         </Label>
                         <Select
-                            value={selectedCharityId || "__none__"}
+                            value={selectedCharityId || undefined}
                             onValueChange={handleCharitySelect}
-                            open={isCharitySelectOpen}
-                            onOpenChange={setIsCharitySelectOpen}
                         >
                             <SelectTrigger
                                 id="selectedCharityId"
@@ -1568,7 +1555,6 @@ export default function SettingsClient({
                                 <SelectValue placeholder="Select one charity" />
                             </SelectTrigger>
                             <SelectContent className="bg-slate-900 border-slate-800 text-white">
-                                <SelectItem value="__none__">No charity selected</SelectItem>
                                 {charities.map((charity) => (
                                     <SelectItem key={charity.id} value={charity.id} disabled={!charity.is_active}>
                                         {charity.name}{charity.is_active ? "" : " (Unavailable)"}

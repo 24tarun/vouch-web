@@ -145,7 +145,7 @@ export default function TaskDetailClient({
     const deadline = new Date(taskState.deadline);
     const isOverdue =
         submissionWindow.pastDeadline &&
-        !["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "AWAITING_USER"].includes(taskState.status);
+        !["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ESCALATED", "AI_DENIED", "DELETED"].includes(taskState.status);
 
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
@@ -259,7 +259,10 @@ export default function TaskDetailClient({
     const hasOpenProofRequest =
         Boolean(taskState.proof_request_open) &&
         (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE");
-    const proofRequestedByLabel = taskState.voucher?.username || "Your voucher";
+    const voucherDisplayLabel = isAiVouched
+        ? "AI"
+        : (isSelfVouched ? "Self" : (taskState.voucher?.username || "Your voucher"));
+    const proofRequestedByLabel = voucherDisplayLabel;
     const storedProof = useMemo(() => {
         if (!canViewStoredProof) return null;
         const proof = taskState.completion_proof;
@@ -629,7 +632,6 @@ export default function TaskDetailClient({
                                     )}
                                     {taskState.title}
                                 </h1>
-                                <TaskStatusBadge status={taskState.status} />
                             </div>
                             {recurrenceSummary && (
                                 <div className="mt-2 flex items-center justify-center gap-1.5 text-purple-400">
@@ -659,8 +661,10 @@ export default function TaskDetailClient({
             {/* ② STATS STRIP */}
             <TaskDetailStatsStrip
                 deadline={deadline}
+                status={taskState.status}
                 formattedFailureCost={formattedFailureCost}
                 isAiVouched={isAiVouched}
+                isSelfVouched={isSelfVouched}
                 voucherUsername={taskState.voucher?.username}
                 totalPomoSeconds={totalPomoSeconds}
                 sessionCount={pomoSummary?.sessionCount ?? 0}
@@ -684,7 +688,7 @@ export default function TaskDetailClient({
                             <span className="text-[10px] uppercase tracking-wider font-bold text-purple-400">awaiting voucher</span>
                         </div>
                         <p className="text-base font-medium text-purple-200">
-                            Waiting for {isAiVouched ? 'AI' : (taskState.voucher?.username || 'your voucher')} to respond
+                            Waiting for {voucherDisplayLabel} to respond
                         </p>
                         {voucherDeadlineForDisplay && (
                             <p className="text-xs font-mono text-purple-400/60">
@@ -911,6 +915,9 @@ export default function TaskDetailClient({
                                     title={proofDraft ? "Proof attached" : (requiresProofForCompletion ? "Attach proof (required)" : "Attach proof (optional)")}
                                     aria-label="Attach proof">
                                     <Camera className="h-5 w-5" />
+                                    <span className={cn("text-xs font-medium", proofDraft ? "" : requiresProofForCompletion ? "text-pink-400" : "text-slate-500")}>
+                                        {proofDraft ? "attached" : requiresProofForCompletion ? "required" : "optional"}
+                                    </span>
                                 </Button>
                             )}
                             {buttonVisibility.actions.markComplete && (

@@ -86,6 +86,19 @@ export function useTaskDetailActivitySteps(events: TaskEvent[], aiVouches: Array
                 ];
             }
 
+            if (event.event_type === "MARK_COMPLETE" && isTaskStatus(toStatus) && toStatus !== "MARKED_COMPLETE") {
+                return [
+                    baseStep,
+                    {
+                        id: `${event.id}:awaiting-status`,
+                        tag: { kind: "status", status: toStatus },
+                        detail: null,
+                        timestamp: formatEventTimestamp(event),
+                        tone: getActivityStepTone(event),
+                    },
+                ];
+            }
+
             return [baseStep];
         });
     }, [visibleEvents, aiVouches]);
