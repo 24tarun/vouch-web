@@ -10,7 +10,7 @@ const slides = [
     eyebrow: "Task Accountability System",
     headTop: "The cost of",
     headEm: "failure",
-    headBot: "is real.",
+    headBot: "is real",
     body: "Not a to-do app. A commitment engine with skin in the game — money on the line, a friend to verify, real consequences.",
     badge: null,
   },

@@ -14,7 +14,14 @@
       "mcp__c5fe56a3-78b2-4e5e-bb68-f97f26d052b0__list_projects",
       "Bash(npm run *)",
       "mcp__c5fe56a3-78b2-4e5e-bb68-f97f26d052b0__list_migrations",
-      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(identify /Users/tarun/Desktop/coding/vouch/vouch-web/public/favicon.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight /Users/tarun/Desktop/coding/vouch/vouch-web/public/favicon.png /Users/tarun/Desktop/coding/vouch/vouch-web/public/icon-192.png /Users/tarun/Desktop/coding/vouch/vouch-web/public/icon-512.png)",
+      "Bash(cp /Users/tarun/Desktop/coding/vouch/applogoicon3.png /Users/tarun/Desktop/coding/vouch/vouch-web/public/favicon.png)",
+      "Bash(cp /Users/tarun/Desktop/coding/vouch/applogoicon3.png /Users/tarun/Desktop/coding/vouch/vouch-web/public/icon-192.png)",
+      "Bash(sips -z 192 192 /Users/tarun/Desktop/coding/vouch/vouch-web/public/icon-192.png)",
+      "Bash(cp /Users/tarun/Desktop/coding/vouch/applogoicon3.png /Users/tarun/Desktop/coding/vouch/vouch-web/public/icon-512.png)",
+      "Bash(sips -z 512 512 /Users/tarun/Desktop/coding/vouch/vouch-web/public/icon-512.png)"
     ]
   },
   "enableAllProjectMcpServers": true,

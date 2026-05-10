@@ -7,7 +7,7 @@ const SLIDES = [
     {
         eyebrow: "task accountability",
         headline: ["The cost of", "failure"],
-        italic: "is real.",
+        italic: "is real",
         body: "Commit to a task. Set a deadline. Put real money on the line.",
         visual: null as null,
         isCTA: false,
