@@ -32,6 +32,8 @@ function LoginContent() {
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
     const [exiting, setExiting] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
     function navigateBack() {
         setExiting(true);
@@ -41,11 +43,11 @@ function LoginContent() {
     const callbackErrorParam = searchParams.get("error");
     const callbackErrorMessage =
         callbackErrorParam === "exchange_failed"
-            ? "Failed to complete authentication. The link may have expired. Please try again."
+            ? "Failed to complete authentication The link may have expired Please try again"
             : callbackErrorParam === "missing_code"
-                ? "Invalid authentication link. Please request a new one."
+                ? "Invalid authentication link Please request a new one"
                 : callbackErrorParam
-                    ? "Authentication failed. Please try again."
+                    ? "Authentication failed Please try again"
                     : null;
     const effectiveMessage = message ?? (callbackErrorMessage ? { type: "error" as const, text: callbackErrorMessage } : null);
 
@@ -64,12 +66,12 @@ function LoginContent() {
         setMessage(null);
 
         if (mode === "signup" && !privacyPolicyClicked) {
-            setMessage({ type: "error", text: "Please open the Privacy Policy before signing up." });
+            setMessage({ type: "error", text: "Please open the Privacy Policy before signing up" });
             setIsLoading(false);
             return;
         }
         if (mode === "signup" && !privacyPolicyAccepted) {
-            setMessage({ type: "error", text: "You must accept the Privacy Policy to create an account." });
+            setMessage({ type: "error", text: "You must accept the Privacy Policy to create an account" });
             setIsLoading(false);
             return;
         }
@@ -97,7 +99,7 @@ function LoginContent() {
                     router.push("/tasks");
                     return;
                 }
-                const successText = "message" in result ? result.message : "Success!";
+                const successText = "message" in result ? result.message : "Success";
                 setMessage({ type: "success", text: successText });
                 if (mode === "forgot") setEmail("");
                 else if (mode === "reset") {
@@ -113,17 +115,17 @@ function LoginContent() {
                     : undefined;
             if (typeof digest === "string" && digest.startsWith("NEXT_REDIRECT")) throw err;
             console.error("Submission error:", err);
-            setMessage({ type: "error", text: "An unexpected error occurred." });
+            setMessage({ type: "error", text: "An unexpected error occurred" });
         }
 
         setIsLoading(false);
     }
 
     const headlines: Record<AuthMode, { top: string; bottom: string }> = {
-        signin:  { top: "Welcome",       bottom: "back."         },
-        signup:  { top: "Start holding", bottom: "yourself accountable." },
-        forgot:  { top: "Reset your",    bottom: "password."     },
-        reset:   { top: "Choose a new",  bottom: "password."     },
+        signin:  { top: "Welcome",       bottom: "back"         },
+        signup:  { top: "Start holding", bottom: "yourself accountable" },
+        forgot:  { top: "Reset your",    bottom: "password"     },
+        reset:   { top: "Choose a new",  bottom: "password"     },
     };
 
     const { top, bottom } = headlines[mode];
@@ -168,19 +170,6 @@ function LoginContent() {
 
                 .cyan-glow { filter: drop-shadow(0 0 10px var(--cyan-glow)); }
 
-                .eyebrow {
-                    font-family: 'DM Mono', monospace;
-                    font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
-                    color: var(--cyan);
-                    display: flex; align-items: center; gap: 14px;
-                }
-                .eyebrow::before {
-                    content: ''; display: inline-block;
-                    width: 32px; height: 1px;
-                    background: var(--cyan);
-                    box-shadow: 0 0 6px var(--cyan-glow);
-                    flex-shrink: 0;
-                }
 
                 /* Form inputs */
                 .auth-label {
@@ -204,6 +193,25 @@ function LoginContent() {
                 }
                 .auth-input::placeholder { color: var(--fg-muted); }
                 .auth-input:focus { border-color: var(--cyan); }
+                .auth-password-wrap { position: relative; }
+                .auth-password-wrap .auth-input { padding-right: 48px; }
+                .auth-eye-btn {
+                    position: absolute;
+                    right: 12px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    width: 28px;
+                    height: 28px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: transparent;
+                    border: none;
+                    color: var(--fg-dim);
+                    cursor: pointer;
+                    padding: 0;
+                }
+                .auth-eye-btn:hover { color: var(--cyan); }
 
                 .auth-btn {
                     width: 100%;
@@ -317,10 +325,6 @@ function LoginContent() {
                         pointerEvents: "none",
                     }} />
 
-                    <div className="rise eyebrow" style={{ marginBottom: "48px" }}>
-                        Task Accountability System
-                    </div>
-
                     <div className="rise d1 fc" style={{
                         fontSize: "clamp(52px, 6vw, 96px)",
                         fontWeight: 300,
@@ -391,9 +395,11 @@ function LoginContent() {
 
                         {mode !== "reset" && (
                             <div>
-                                <label className="auth-label" htmlFor="email">
-                                    {mode === "signin" ? "Email or Username" : "Email"}
-                                </label>
+                                {mode !== "signin" && (
+                                    <label className="auth-label" htmlFor="email">
+                                        Email
+                                    </label>
+                                )}
                                 <input
                                     className="auth-input"
                                     id="email"
@@ -417,34 +423,78 @@ function LoginContent() {
                                         </button>
                                     )}
                                 </div>
-                                <input
-                                    className="auth-input"
-                                    id="password"
-                                    type="password"
-                                    placeholder="••••••••"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    required
-                                    minLength={6}
-                                    autoComplete={mode === "signup" ? "new-password" : "current-password"}
-                                />
+                                <div className="auth-password-wrap">
+                                    <input
+                                        className="auth-input"
+                                        id="password"
+                                        type={showPassword ? "text" : "password"}
+                                        placeholder="Password"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        required
+                                        minLength={6}
+                                        autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                                    />
+                                    <button
+                                        type="button"
+                                        className="auth-eye-btn"
+                                        onClick={() => setShowPassword((v) => !v)}
+                                        aria-label={showPassword ? "Hide password" : "Show password"}
+                                    >
+                                        {showPassword ? (
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.89 1 12c.83-2.35 2.29-4.36 4.16-5.8" />
+                                                <path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58" />
+                                                <path d="M1 1l22 22" />
+                                                <path d="M9.88 4.24A10.94 10.94 0 0 1 12 4c5 0 9.27 3.11 11 8a11.2 11.2 0 0 1-3.17 4.73" />
+                                            </svg>
+                                        ) : (
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                                <circle cx="12" cy="12" r="3" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                         )}
 
                         {mode === "reset" && (
                             <div>
                                 <label className="auth-label" htmlFor="confirmPassword">Confirm Password</label>
-                                <input
-                                    className="auth-input"
-                                    id="confirmPassword"
-                                    type="password"
-                                    placeholder="••••••••"
-                                    value={confirmPassword}
-                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                    required
-                                    minLength={6}
-                                    autoComplete="new-password"
-                                />
+                                <div className="auth-password-wrap">
+                                    <input
+                                        className="auth-input"
+                                        id="confirmPassword"
+                                        type={showConfirmPassword ? "text" : "password"}
+                                        placeholder="Confirm password"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        required
+                                        minLength={6}
+                                        autoComplete="new-password"
+                                    />
+                                    <button
+                                        type="button"
+                                        className="auth-eye-btn"
+                                        onClick={() => setShowConfirmPassword((v) => !v)}
+                                        aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                                    >
+                                        {showConfirmPassword ? (
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20C7 20 2.73 16.89 1 12c.83-2.35 2.29-4.36 4.16-5.8" />
+                                                <path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58" />
+                                                <path d="M1 1l22 22" />
+                                                <path d="M9.88 4.24A10.94 10.94 0 0 1 12 4c5 0 9.27 3.11 11 8a11.2 11.2 0 0 1-3.17 4.73" />
+                                            </svg>
+                                        ) : (
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                                <circle cx="12" cy="12" r="3" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                         )}
 
@@ -482,7 +532,7 @@ function LoginContent() {
                                         disabled={!privacyPolicyClicked}
                                         style={{ marginTop: "1px" }}
                                     />
-                                    I have opened and agree to the Privacy Policy.
+                                    I have opened and agree to the Privacy Policy
                                 </label>
                             </div>
                         )}
@@ -507,7 +557,7 @@ function LoginContent() {
                             className="auth-btn"
                             disabled={isLoading || (mode === "signup" && (!privacyPolicyClicked || !privacyPolicyAccepted))}
                         >
-                            {isLoading ? "Processing..."
+                            {isLoading ? "Processing"
                                 : mode === "signin"  ? "Sign In"
                                 : mode === "signup"  ? "Sign Up"
                                 : mode === "forgot"  ? "Send Reset Link"
@@ -548,7 +598,7 @@ export default function LoginPage() {
     return (
         <Suspense fallback={
             <div style={{ minHeight: "100dvh", background: "#020617", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Mono', monospace", fontSize: "11px", letterSpacing: "0.2em", textTransform: "uppercase", color: "#334155" }}>
-                Loading...
+                Loading
             </div>
         }>
             <LoginContent />
