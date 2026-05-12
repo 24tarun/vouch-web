@@ -358,7 +358,7 @@ export async function signOut() {
         }
     }
 
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: 'local' });
     revalidatePath("/", "layout");
     redirect("https://tas.tarunh.com");
 }
