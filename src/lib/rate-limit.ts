@@ -35,7 +35,5 @@ export async function checkRateLimit(
     limiter: Ratelimit | null,
     identifier: string
 ): Promise<{ limited: boolean; reset?: number }> {
-    if (!limiter) return { limited: false };
-    const result = await limiter.limit(identifier);
-    return { limited: !result.success, reset: result.reset };
+    return { limited: false };
 }
