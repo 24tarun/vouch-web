@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { ReminderDateTimePicker } from "@/components/ui/reminder-date-time-picker";
 import { PostponeDeadlineDialog } from "@/components/PostponeDeadlineDialog";
 import {
     Dialog,
@@ -68,7 +69,7 @@ import {
 import { useTaskDetailActivitySteps } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-activity-steps";
 import { useTaskDetailReminders } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-reminders";
 import { useTaskDetailSubtasks } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-subtasks";
-import { useTaskDetailProof, type TaskProofDraft } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-proof";
+import { useTaskDetailProof, type ProofUploadStatus, type TaskProofDraft } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-proof";
 import { useTaskDetailActions } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-actions";
 import { TaskDetailStatsStrip } from "@/app/(app)/tasks/[id]/task-detail/sections/task-detail-stats-strip";
 
@@ -120,6 +121,7 @@ export default function TaskDetailClient({
     const [isAddingSubtask, setIsAddingSubtask] = useState(false);
     const [proofDraft, setProofDraft] = useState<TaskProofDraft | null>(null);
     const [proofUploadError, setProofUploadError] = useState<string | null>(null);
+    const [proofUploadStatus, setProofUploadStatus] = useState<ProofUploadStatus>(task.completion_proof?.upload_state === "UPLOADED" ? "uploaded" : "idle");
     const [isStoredProofFullscreen, setIsStoredProofFullscreen] = useState(false);
     const [isPostponeDialogOpen, setIsPostponeDialogOpen] = useState(false);
     const [showEscalationPicker, setShowEscalationPicker] = useState(false);
@@ -279,6 +281,14 @@ export default function TaskDetailClient({
         if (warmSrc) return warmSrc;
         return `/api/task-proofs/${taskState.id}?v=${encodeURIComponent(storedProofVersion)}`;
     }, [storedProof, storedProofVersion, taskState.id]);
+    const hasStagedProofForResubmit = taskState.status === "AWAITING_USER" && isAiVouched && Boolean(proofDraft || storedProof);
+    const proofIndicatorState: ProofUploadStatus | "none" = useMemo(() => {
+        if (!storedProof && !proofDraft) return "none";
+        if (proofUploadStatus === "uploading" || proofUploadStatus === "uploaded" || proofUploadStatus === "failed") {
+            return proofUploadStatus;
+        }
+        return "uploaded";
+    }, [proofDraft, proofUploadStatus, storedProof]);
 
     const refreshInBackground = () => {
         startRefreshTransition(() => {
@@ -392,6 +402,15 @@ export default function TaskDetailClient({
         if (storedProof) return;
         setIsStoredProofFullscreen(false);
     }, [storedProof]);
+    useEffect(() => {
+        if (storedProof) {
+            setProofUploadStatus("uploaded");
+            return;
+        }
+        if (!proofDraft) {
+            setProofUploadStatus("idle");
+        }
+    }, [proofDraft, storedProof]);
 
     useEffect(() => {
         if (!isStoredProofFullscreen) return;
@@ -426,7 +445,7 @@ export default function TaskDetailClient({
         return unsubscribe;
     }, [task.id, router, startRefreshTransition]);
 
-    const { handleAddReminder, handleRemoveReminder } = useTaskDetailReminders({
+    const { addReminder, handleRemoveReminder } = useTaskDetailReminders({
         reminders,
         taskState,
         newReminderLocal,
@@ -440,12 +459,14 @@ export default function TaskDetailClient({
     });
 
     const {
-        processPickedProofFile,
+        processSelectedProofFile,
         openProofPicker,
         handleProofInputChange,
+        handleSubmitAwaitingProofDraft,
         handleMarkComplete,
         handleUndoComplete,
         handleRemoveStoredProof,
+        handleRemoveDraftProof,
     } = useTaskDetailProof({
         taskState,
         isOwner,
@@ -460,9 +481,9 @@ export default function TaskDetailClient({
         remainingRequiredPomoSeconds,
         hasRunningPomoForTask,
         userTimeZone,
-        potentialRp,
         storedProof,
         proofDraft,
+        setProofUploadStatus,
         setProofDraft: setTaskProofDraft,
         setProofUploadError,
         setTaskState,
@@ -587,6 +608,18 @@ export default function TaskDetailClient({
     });
 
     const activitySteps = useTaskDetailActivitySteps(events, aiVouches);
+    const activityDotClassByTone: Record<string, string> = {
+        success: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.45)]",
+        danger: "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.45)]",
+        warning: "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.45)]",
+        info: "bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.45)]",
+        proof: "bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.45)]",
+        statusBlue: "bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.45)]",
+        statusOrange: "bg-orange-400 shadow-[0_0_6px_rgba(251,146,60,0.45)]",
+        statusPurple: "bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.45)]",
+        statusSlate: "bg-slate-400 shadow-[0_0_6px_rgba(148,163,184,0.45)]",
+        neutral: "bg-slate-500 shadow-[0_0_6px_rgba(100,116,139,0.45)]",
+    };
 
     return (
         <>
@@ -601,9 +634,16 @@ export default function TaskDetailClient({
             .td-d3 { animation-delay: 0.30s; }
             .td-d4 { animation-delay: 0.42s; }
             .td-d5 { animation-delay: 0.56s; }
+            @keyframes proofUploadBlink {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.2; }
+            }
+            .proof-upload-blink {
+                animation: proofUploadBlink 1s ease-in-out infinite;
+            }
         `}</style>
 
-        <div className="max-w-4xl mx-auto px-4 md:px-0 pb-12 space-y-7">
+        <div className="mx-auto w-full max-w-[1480px] px-4 md:px-6 xl:px-10 pb-12 space-y-7">
 
             {/* Hidden proof file input */}
             <input ref={proofInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleProofInputChange} />
@@ -612,7 +652,9 @@ export default function TaskDetailClient({
                 onClose={() => setShowWebcamModal(false)}
                 onCapture={async (file) => {
                     setShowWebcamModal(false);
-                    await processPickedProofFile(file);
+                    const pickerMode = proofPickerModeRef.current;
+                    proofPickerModeRef.current = "draft";
+                    await processSelectedProofFile(file, pickerMode);
                 }}
                 onFallbackToFilePicker={() => {
                     proofInputRef.current?.click();
@@ -658,29 +700,31 @@ export default function TaskDetailClient({
                 </div>
             </div>
 
-            {/* ② STATS STRIP */}
-            <TaskDetailStatsStrip
-                deadline={deadline}
-                status={taskState.status}
-                formattedFailureCost={formattedFailureCost}
-                isAiVouched={isAiVouched}
-                isSelfVouched={isSelfVouched}
-                voucherUsername={taskState.voucher?.username}
-                totalPomoSeconds={totalPomoSeconds}
-                sessionCount={pomoSummary?.sessionCount ?? 0}
-            />
+            <div className="lg:grid lg:grid-cols-3 lg:gap-8 lg:items-start">
+                <div className="space-y-7 lg:col-span-2">
+                    {/* ② STATS STRIP */}
+                    <TaskDetailStatsStrip
+                        deadline={deadline}
+                        status={taskState.status}
+                        formattedFailureCost={formattedFailureCost}
+                        isAiVouched={isAiVouched}
+                        isSelfVouched={isSelfVouched}
+                        voucherUsername={taskState.voucher?.username}
+                        totalPomoSeconds={totalPomoSeconds}
+                        sessionCount={pomoSummary?.sessionCount ?? 0}
+                    />
 
-            {/* Google Sync */}
-            {googleSyncDirectionLabel && (
-                <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-wider font-bold text-slate-600">Sync</span>
-                    <span className={`text-xs font-medium font-mono ${googleSyncDirectionClassName}`}>{googleSyncDirectionLabel}</span>
-                </div>
-            )}
+                    {/* Google Sync */}
+                    {googleSyncDirectionLabel && (
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-slate-600">Sync</span>
+                            <span className={`text-xs font-medium font-mono ${googleSyncDirectionClassName}`}>{googleSyncDirectionLabel}</span>
+                        </div>
+                    )}
 
-            {/* ③ STATUS CONTEXT BANNER */}
-            {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETE") && (
-                <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
+                    {/* ③ STATUS CONTEXT BANNER */}
+                    {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETE") && (
+                        <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
@@ -718,11 +762,11 @@ export default function TaskDetailClient({
                             </div>
                         )}
                     </div>
-                </div>
-            )}
+                        </div>
+                    )}
 
-            {taskState.status === "AWAITING_AI" && (
-                <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
+                    {taskState.status === "AWAITING_AI" && (
+                        <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
@@ -750,11 +794,11 @@ export default function TaskDetailClient({
                             </div>
                         )}
                     </div>
-                </div>
-            )}
+                        </div>
+                    )}
 
-            {taskState.status === "AWAITING_USER" && isAiVouched && (
-                <div className="td-rise td-d3 rounded-xl border border-orange-500/20 bg-orange-950/10 overflow-hidden">
+                    {taskState.status === "AWAITING_USER" && isAiVouched && (
+                        <div className="td-rise td-d3 rounded-xl border border-orange-500/20 bg-orange-950/10 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-orange-500/60 via-orange-400/20 to-transparent" />
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
@@ -787,10 +831,27 @@ export default function TaskDetailClient({
                         {showAwaitingUserActionRow && (
                             <div className="flex flex-wrap gap-2 pt-1">
                                 {buttonVisibility.awaitingUser.resubmitProof && (
-                                    <button type="button" onClick={() => openProofPicker("awaiting-upload")}
-                                        className={cn(TASK_DETAIL_BUTTON_CLASSES.awaiting.resubmitProof, uniformActionButtonClass)}>
-                                        <Camera className="h-3.5 w-3.5" />
-                                        Upload New Proof
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (hasStagedProofForResubmit && proofUploadStatus !== "uploading") {
+                                                void handleSubmitAwaitingProofDraft();
+                                                return;
+                                            }
+                                            void openProofPicker("awaiting-upload");
+                                        }}
+                                        className={cn(
+                                            uniformActionButtonClass,
+                                            hasStagedProofForResubmit && proofUploadStatus !== "uploading"
+                                                ? "flex items-center gap-2 rounded-lg border border-green-400/35 bg-green-400/10 text-green-400 hover:bg-green-400/20 hover:text-green-300 transition-colors cursor-pointer disabled:opacity-50"
+                                                : TASK_DETAIL_BUTTON_CLASSES.awaiting.resubmitProof
+                                        )}>
+                                        {hasStagedProofForResubmit && proofUploadStatus !== "uploading"
+                                            ? <Check className="h-3.5 w-3.5" />
+                                            : <Camera className="h-3.5 w-3.5" />}
+                                        {hasStagedProofForResubmit && proofUploadStatus !== "uploading"
+                                            ? "Re-Submit"
+                                            : "Upload New Proof"}
                                     </button>
                                 )}
                                 {buttonVisibility.awaitingUser.escalateToFriend && (
@@ -802,30 +863,57 @@ export default function TaskDetailClient({
                             </div>
                         )}
                     </div>
-                </div>
-            )}
+                        </div>
+                    )}
 
-            {/* Proof upload error */}
-            {proofUploadError && (
-                <div className="rounded-xl border border-red-900/50 bg-red-950/15 px-4 py-3">
-                    <p className="text-sm font-mono text-red-300">{proofUploadError}</p>
-                </div>
-            )}
+                    {/* Proof upload error */}
+                    {proofUploadError && (
+                        <div className="rounded-xl border border-red-900/50 bg-red-950/15 px-4 py-3">
+                            <p className="text-sm font-mono text-red-300">{proofUploadError}</p>
+                        </div>
+                    )}
 
-            {/* Stored proof */}
-            {storedProof && storedProofSrc && (
-                <div className="td-rise td-d3 space-y-2">
+                    {/* Stored proof */}
+                    {storedProof && storedProofSrc && !proofDraft && (
+                        <div className="td-rise td-d3 space-y-2">
                     <div className="flex items-center gap-3">
                         <div style={{ width: 24, height: 1, background: '#f472b6', boxShadow: '0 0 6px rgba(244,114,182,0.35)', flexShrink: 0 }} />
                         <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
                             completion proof ({storedProof.media_kind})
                         </span>
-                        {["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status) && buttonVisibility.proof.removeStored && (
-                            <Button type="button" variant="ghost" onClick={handleRemoveStoredProof}
-                                className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
-                                Remove Proof
-                            </Button>
-                        )}
+                        <div className="ml-auto flex items-center gap-2">
+                            {proofIndicatorState !== "none" && (
+                                <span
+                                    className={cn(
+                                        "h-3 w-3 rounded-full border",
+                                        proofIndicatorState === "uploading" && "bg-amber-500 border-amber-400/80 shadow-[0_0_4px_rgba(245,158,11,0.6)] proof-upload-blink",
+                                        proofIndicatorState === "uploaded" && "bg-green-500 border-green-400/80 shadow-[0_0_4px_rgba(34,197,94,0.6)]",
+                                        proofIndicatorState === "failed" && "bg-red-500 border-red-400/80 shadow-[0_0_4px_rgba(239,68,68,0.6)]"
+                                    )}
+                                    title={
+                                        proofIndicatorState === "uploading"
+                                            ? "Proof upload in progress"
+                                            : proofIndicatorState === "uploaded"
+                                                ? "Proof uploaded"
+                                                : "Proof upload failed"
+                                    }
+                                    aria-label={
+                                        proofIndicatorState === "uploading"
+                                            ? "Proof upload in progress"
+                                            : proofIndicatorState === "uploaded"
+                                                ? "Proof uploaded"
+                                                : "Proof upload failed"
+                                    }
+                                />
+                            )}
+                            {["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status) && buttonVisibility.proof.removeStored && (
+                                <Button type="button" variant="ghost" onClick={handleRemoveStoredProof}
+                                    className={cn(uniformActionButtonClass, "inline-flex items-center", TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
+                                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                    Remove Proof
+                                </Button>
+                            )}
+                        </div>
                     </div>
                     <div className="relative rounded-xl overflow-hidden border border-slate-800">
                         <ProofMedia mediaKind={storedProof.media_kind} src={storedProofSrc} alt="Completion proof"
@@ -835,23 +923,54 @@ export default function TaskDetailClient({
                             imageProps={{ loading: "lazy", onClick: () => setIsStoredProofFullscreen(true) }}
                             videoProps={{ controls: true, preload: "metadata", onClick: () => setIsStoredProofFullscreen(true) }} />
                     </div>
-                </div>
-            )}
+                        </div>
+                    )}
 
-            {/* Proof draft preview */}
-            {proofDraft && (
-                <div className="td-rise td-d3 space-y-2">
+                    {/* Proof draft preview */}
+                    {proofDraft && (
+                        <div className="td-rise td-d3 space-y-2">
                     <div className="flex items-center gap-3">
                         <div style={{ width: 24, height: 1, background: '#f472b6', boxShadow: '0 0 6px rgba(244,114,182,0.35)', flexShrink: 0 }} />
                         <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
-                            {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "AWAITING_USER" || taskState.status === "MARKED_COMPLETE")
-                                ? `ready to upload (${proofDraft.proof.mediaKind})`
-                                : `proof attached (${proofDraft.proof.mediaKind})`}
+                            {proofUploadStatus === "uploaded"
+                                ? `proof uploaded (${proofDraft.proof.mediaKind})`
+                                : proofUploadStatus === "uploading"
+                                    ? `uploading proof (${proofDraft.proof.mediaKind})`
+                                    : (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "AWAITING_USER" || taskState.status === "MARKED_COMPLETE")
+                                        ? `ready to upload (${proofDraft.proof.mediaKind})`
+                                        : `proof attached (${proofDraft.proof.mediaKind})`}
                         </span>
-                        <Button type="button" variant="ghost" onClick={() => setTaskProofDraft(null)}
-                            className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.proof.removeDraft)}>
-                            Remove Proof
-                        </Button>
+                        <div className="ml-auto flex items-center gap-2">
+                            {proofIndicatorState !== "none" && (
+                                <span
+                                    className={cn(
+                                        "h-3 w-3 rounded-full border",
+                                        proofIndicatorState === "uploading" && "bg-amber-500 border-amber-400/80 shadow-[0_0_4px_rgba(245,158,11,0.6)] proof-upload-blink",
+                                        proofIndicatorState === "uploaded" && "bg-green-500 border-green-400/80 shadow-[0_0_4px_rgba(34,197,94,0.6)]",
+                                        proofIndicatorState === "failed" && "bg-red-500 border-red-400/80 shadow-[0_0_4px_rgba(239,68,68,0.6)]"
+                                    )}
+                                    title={
+                                        proofIndicatorState === "uploading"
+                                            ? "Proof upload in progress"
+                                            : proofIndicatorState === "uploaded"
+                                                ? "Proof uploaded"
+                                                : "Proof upload failed"
+                                    }
+                                    aria-label={
+                                        proofIndicatorState === "uploading"
+                                            ? "Proof upload in progress"
+                                            : proofIndicatorState === "uploaded"
+                                                ? "Proof uploaded"
+                                                : "Proof upload failed"
+                                    }
+                                />
+                            )}
+                            <Button type="button" variant="ghost" onClick={handleRemoveDraftProof}
+                                className={cn(uniformActionButtonClass, "inline-flex items-center", TASK_DETAIL_BUTTON_CLASSES.proof.removeDraft)}>
+                                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                Remove Proof
+                            </Button>
+                        </div>
                     </div>
                     <div className="rounded-xl overflow-hidden border border-pink-400/20 bg-pink-950/10">
                         <ProofMedia mediaKind={proofDraft.proof.mediaKind} src={proofDraft.previewUrl} alt="Selected proof"
@@ -860,11 +979,11 @@ export default function TaskDetailClient({
                             videoClassName="w-full max-h-56"
                             videoProps={{ controls: true, preload: "metadata" }} />
                     </div>
-                </div>
-            )}
+                        </div>
+                    )}
 
-            {/* ACTIONS BAR */}
-            <div className="td-rise td-d3 space-y-3">
+                    {/* ACTIONS BAR */}
+                    <div className="td-rise td-d3 space-y-3">
                 {isOwner && isActiveParentTask && potentialRp !== null && potentialRp > 0 && (
                     <p className="text-xs font-mono text-orange-400/80">
                         +{potentialRp} RP on completion
@@ -1078,20 +1197,13 @@ export default function TaskDetailClient({
 
                             {remindersSectionOpen && (
                                 <div className="space-y-2">
-                                    <form onSubmit={handleAddReminder}>
-                                        <div className="flex items-center gap-2">
-                                            <Input type="datetime-local" value={newReminderLocal} onChange={(e) => setNewReminderLocal(e.target.value)}
-                                                disabled={!canManageActionChildren || isActionPending("saveReminders")}
-                                                className={cn("h-8 font-mono text-xs bg-slate-900/50 border-slate-800 text-slate-300 [color-scheme:dark]",
-                                                    (!canManageActionChildren || isActionPending("saveReminders")) && "opacity-40 cursor-not-allowed")} />
-                                            {reminderButtonVisibility.add && (
-                                                <Button type="submit" variant="outline"
-                                                    className={cn(uniformActionButtonClass, TASK_DETAIL_BUTTON_CLASSES.actions.addReminder)}>
-                                                    Add Reminder
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </form>
+                                    <ReminderDateTimePicker
+                                        value={newReminderLocal}
+                                        onChange={setNewReminderLocal}
+                                        onAdd={() => void addReminder()}
+                                        disabled={!canManageActionChildren || isActionPending("saveReminders")}
+                                        addDisabled={!canManageActionChildren || isActionPending("saveReminders") || !newReminderLocal.trim()}
+                                    />
                                     {reminders.length > 0 && (
                                         <div className="space-y-0.5">
                                             {reminders.map((reminder) => {
@@ -1136,91 +1248,104 @@ export default function TaskDetailClient({
                     )}
                 </div>
                 )}
-            </div>
-
-            {/* Divider */}
-            <div className="h-px bg-gradient-to-r from-transparent via-slate-800/80 to-transparent" />
-
-            {/* ⑦ ACTIVITY LOG */}
-            <div className="td-rise td-d5 space-y-4">
-                <div className="mx-auto flex w-full max-w-2xl items-center gap-3">
-                    <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
-                    <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">timeline</span>
-                    <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
-                </div>
-                {activitySteps.length === 0 ? (
-                    <p className="text-center text-xs font-mono text-slate-700">No timeline yet</p>
-                ) : (
-                    <div className="relative mx-auto w-full max-w-3xl">
-                        <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-cyan-500/35" />
-                        {activitySteps.map((step, index) => {
-                            const isRightSide = index % 2 === 0;
-                            const toneConfig =
-                                step.tone === "success"
-                                    ? {
-                                        dot: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.45)]",
-                                    }
-                                    : step.tone === "danger"
-                                        ? {
-                                            dot: "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.45)]",
-                                        }
-                                        : step.tone === "warning"
-                                            ? {
-                                                dot: "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.45)]",
-                                            }
-                                            : step.tone === "info"
-                                                ? {
-                                                    dot: "bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.45)]",
-                                                }
-                                                : step.tone === "proof"
-                                                    ? {
-                                                        dot: "bg-pink-400 shadow-[0_0_6px_rgba(244,114,182,0.45)]",
-                                                    }
-                                                : {
-                                                    dot: "bg-slate-500 shadow-[0_0_6px_rgba(100,116,139,0.45)]",
-                                                };
-
-                            return (
-                                <div key={step.id} className="relative pb-4 last:pb-0">
-                                    <div className={cn("absolute left-1/2 top-1.5 h-2.5 w-2.5 -translate-x-1/2 rounded-full", toneConfig.dot)} />
-                                    <div
-                                        className={cn(
-                                            "absolute top-[9px] h-px w-10",
-                                            isRightSide
-                                                ? "left-1/2 ml-1.5 bg-cyan-500/45"
-                                                : "right-1/2 mr-1.5 bg-cyan-500/45"
-                                        )}
-                                    />
-                                    <div className={cn(
-                                        "space-y-1.5",
-                                        isRightSide
-                                            ? "ml-[calc(50%+2.75rem)] max-w-[calc(50%-2.75rem)] text-left"
-                                            : "mr-[calc(50%+2.75rem)] max-w-[calc(50%-2.75rem)] text-right"
-                                    )}>
-                                        <div className={cn("flex", isRightSide ? "justify-start" : "justify-end")}>
-                                            {step.tag.kind === "status" ? (
-                                                <TaskStatusBadge status={step.tag.status} className="font-medium tracking-normal" />
-                                            ) : (
-                                                <ActivityEventBadge
-                                                    eventType={step.tag.eventType}
-                                                    elapsedSeconds={step.tag.elapsedSeconds}
-                                                />
-                                            )}
-                                        </div>
-                                        <p className={ACTIVITY_TIMELINE_META_TEXT_CLASS}>
-                                            {step.timestamp}
-                                        </p>
-                                        {step.detail && (
-                                            <p className="text-[11px] font-mono text-slate-500 break-words">
-                                                {step.detail}
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            );
-                        })}
                     </div>
-                )}
+                </div>
+
+                {/* ⑦ ACTIVITY LOG */}
+                <aside className="td-rise td-d5 mt-7 lg:mt-0 lg:col-span-1 lg:sticky lg:top-24">
+                    <div className="rounded-xl border border-slate-800/80 bg-slate-950/35 p-4 lg:p-5 space-y-4">
+                        <div className="flex w-full items-center gap-3">
+                            <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                            <span className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">timeline</span>
+                            <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />
+                        </div>
+                        {activitySteps.length === 0 ? (
+                            <p className="text-center text-xs font-mono text-slate-700">No timeline yet</p>
+                        ) : (
+                            <>
+                                <div className="relative mx-auto w-full max-w-3xl lg:hidden">
+                                    <div className="pointer-events-none absolute left-1/2 top-2 bottom-2 w-px -translate-x-1/2 bg-cyan-500/35" />
+                                    {activitySteps.map((step, index) => {
+                                        const isRightSide = index % 2 === 0;
+                                        const toneDotClass = activityDotClassByTone[step.tone] ?? activityDotClassByTone.neutral;
+
+                                        return (
+                                            <div key={step.id} className="relative pb-4 last:pb-0">
+                                                <div className={cn("absolute left-1/2 top-1.5 h-2.5 w-2.5 -translate-x-1/2 rounded-full", toneDotClass)} />
+                                                <div
+                                                    className={cn(
+                                                        "absolute top-[9px] h-px w-10",
+                                                        isRightSide
+                                                            ? "left-1/2 ml-1.5 bg-cyan-500/45"
+                                                            : "right-1/2 mr-1.5 bg-cyan-500/45"
+                                                    )}
+                                                />
+                                                <div className={cn(
+                                                    "space-y-1.5",
+                                                    isRightSide
+                                                        ? "ml-[calc(50%+2.75rem)] max-w-[calc(50%-2.75rem)] text-left"
+                                                        : "mr-[calc(50%+2.75rem)] max-w-[calc(50%-2.75rem)] text-right"
+                                                )}>
+                                                    <div className={cn("flex", isRightSide ? "justify-start" : "justify-end")}>
+                                                        {step.tag.kind === "status" ? (
+                                                            <TaskStatusBadge status={step.tag.status} className="font-medium tracking-normal" />
+                                                        ) : (
+                                                            <ActivityEventBadge
+                                                                eventType={step.tag.eventType}
+                                                                elapsedSeconds={step.tag.elapsedSeconds}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    <p className={ACTIVITY_TIMELINE_META_TEXT_CLASS}>
+                                                        {step.timestamp}
+                                                    </p>
+                                                    {step.detail && (
+                                                        <p className="text-[11px] font-mono text-slate-500 break-words">
+                                                            {step.detail}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="relative hidden lg:block">
+                                    <div className="pointer-events-none absolute left-2 top-2 bottom-2 w-px bg-cyan-500/35" />
+                                    {activitySteps.map((step) => {
+                                        const toneDotClass = activityDotClassByTone[step.tone] ?? activityDotClassByTone.neutral;
+
+                                        return (
+                                            <div key={step.id} className="relative pb-5 pl-8 last:pb-0">
+                                                <div className={cn("absolute left-[5px] top-1.5 h-2.5 w-2.5 rounded-full", toneDotClass)} />
+                                                <div className="space-y-1.5 text-left">
+                                                    <div className="flex justify-start">
+                                                        {step.tag.kind === "status" ? (
+                                                            <TaskStatusBadge status={step.tag.status} className="font-medium tracking-normal" />
+                                                        ) : (
+                                                            <ActivityEventBadge
+                                                                eventType={step.tag.eventType}
+                                                                elapsedSeconds={step.tag.elapsedSeconds}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                    <p className={ACTIVITY_TIMELINE_META_TEXT_CLASS}>
+                                                        {step.timestamp}
+                                                    </p>
+                                                    {step.detail && (
+                                                        <p className="text-[11px] font-mono text-slate-500 break-words">
+                                                            {step.detail}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </aside>
             </div>
 
             {/* Postpone dialog */}

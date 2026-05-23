@@ -1,11 +1,13 @@
-import { useCallback, type ChangeEvent, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, type ChangeEvent, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { toast } from "sonner";
 import {
     finalizeTaskProofUpload,
     initAwaitingVoucherProofUpload,
     markTaskCompleteWithProofIntent,
+    removeTaskProofAttachment,
     removeAwaitingVoucherProof,
     revertTaskCompletionAfterProofFailure,
+    submitAwaitingUserProofToAi,
     undoTaskComplete,
 } from "@/actions/tasks";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -25,11 +27,15 @@ export interface TaskProofDraft {
     proof: PreparedTaskProof;
     previewUrl: string;
 }
+export type ProofUploadStatus = "idle" | "uploading" | "uploaded" | "failed";
 
 interface ProofUploadTarget {
     bucket: string;
     objectPath: string;
     uploadToken?: string;
+}
+interface AwaitingUploadSession {
+    staged: true;
 }
 
 type ProofPickerMode = "draft" | "awaiting-upload";
@@ -48,9 +54,9 @@ interface UseTaskDetailProofArgs {
     remainingRequiredPomoSeconds: number;
     hasRunningPomoForTask: boolean;
     userTimeZone: string;
-    potentialRp: number | null;
     storedProof: TaskWithRelations["completion_proof"] | null;
     proofDraft: TaskProofDraft | null;
+    setProofUploadStatus: Dispatch<SetStateAction<ProofUploadStatus>>;
     setProofDraft: Dispatch<SetStateAction<TaskProofDraft | null>>;
     setProofUploadError: Dispatch<SetStateAction<string | null>>;
     setTaskState: Dispatch<SetStateAction<TaskWithRelations>>;
@@ -60,6 +66,47 @@ interface UseTaskDetailProofArgs {
     setShowWebcamModal: Dispatch<SetStateAction<boolean>>;
     proofInputRef: MutableRefObject<HTMLInputElement | null>;
     proofPickerModeRef: MutableRefObject<ProofPickerMode>;
+}
+
+const PROOF_DRAFT_STORAGE_KEY_PREFIX = "task-detail-proof-draft:";
+
+interface PersistedProofDraft {
+    name: string;
+    type: string;
+    lastModified: number;
+    dataUrl: string;
+}
+
+function getProofDraftStorageKey(taskId: string): string {
+    return `${PROOF_DRAFT_STORAGE_KEY_PREFIX}${taskId}`;
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+    return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            if (typeof reader.result === "string") {
+                resolve(reader.result);
+                return;
+            }
+            reject(new Error("Unable to read file"));
+        };
+        reader.onerror = () => reject(reader.error ?? new Error("Unable to read file"));
+        reader.readAsDataURL(file);
+    });
+}
+
+function dataUrlToFile(dataUrl: string, name: string, type: string, lastModified: number): File {
+    const [meta, base64] = dataUrl.split(",");
+    if (!meta || !base64 || !meta.includes(";base64")) {
+        throw new Error("Invalid stored proof payload");
+    }
+    const binary = window.atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return new File([bytes], name, { type, lastModified });
 }
 
 async function uploadViaTarget(uploadTarget: ProofUploadTarget, draft: TaskProofDraft) {
@@ -94,9 +141,9 @@ export function useTaskDetailProof({
     remainingRequiredPomoSeconds,
     hasRunningPomoForTask,
     userTimeZone,
-    potentialRp,
     storedProof,
     proofDraft,
+    setProofUploadStatus,
     setProofDraft,
     setProofUploadError,
     setTaskState,
@@ -107,44 +154,91 @@ export function useTaskDetailProof({
     proofInputRef,
     proofPickerModeRef,
 }: UseTaskDetailProofArgs) {
-    const processPickedProofFile = useCallback(async (selectedFile: File) => {
+    const awaitingUploadSessionRef = useRef<AwaitingUploadSession | null>(null);
+    const storageKey = getProofDraftStorageKey(taskState.id);
+    const clearPersistedProofDraft = useCallback(() => {
+        if (typeof window === "undefined") return;
         try {
-            const prepared = await prepareTaskProof(selectedFile);
-            const previewUrl = URL.createObjectURL(prepared.file);
-            setProofDraft({ proof: prepared, previewUrl });
-            setProofUploadError(null);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : "Could not process proof file.";
-            toast.error(message);
+            window.sessionStorage.removeItem(storageKey);
+        } catch {
+            // Ignore storage quota/privacy mode errors.
         }
-    }, [setProofDraft, setProofUploadError]);
+    }, [storageKey]);
 
-    const uploadAwaitingProofInBackground = useCallback(async (taskId: string, draft: TaskProofDraft) => {
+    const persistProofDraft = useCallback(async (file: File) => {
+        if (typeof window === "undefined") return;
+        try {
+            const dataUrl = await fileToDataUrl(file);
+            const payload: PersistedProofDraft = {
+                name: file.name,
+                type: file.type,
+                lastModified: file.lastModified,
+                dataUrl,
+            };
+            window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
+        } catch {
+            // Ignore storage persistence failures and continue with in-memory draft.
+        }
+    }, [storageKey]);
+
+    useEffect(() => {
+        if (proofDraft || typeof window === "undefined") return;
+
+        let cancelled = false;
+        const raw = window.sessionStorage.getItem(storageKey);
+        if (!raw) return;
+
+        void (async () => {
+            try {
+                const parsed = JSON.parse(raw) as PersistedProofDraft;
+                if (!parsed?.dataUrl || !parsed?.name || !parsed?.type) {
+                    clearPersistedProofDraft();
+                    return;
+                }
+                const restoredFile = dataUrlToFile(parsed.dataUrl, parsed.name, parsed.type, parsed.lastModified || Date.now());
+                const prepared = await prepareTaskProof(restoredFile);
+                if (cancelled) return;
+                const previewUrl = URL.createObjectURL(prepared.file);
+                setProofDraft({ proof: prepared, previewUrl });
+                setProofUploadStatus("idle");
+                setProofUploadError(null);
+            } catch {
+                clearPersistedProofDraft();
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [clearPersistedProofDraft, proofDraft, setProofDraft, setProofUploadError, setProofUploadStatus, storageKey]);
+
+    const uploadAwaitingProofToBucket = useCallback(async (taskId: string, draft: TaskProofDraft): Promise<boolean> => {
+        setProofUploadStatus("uploading");
         const init = await initAwaitingVoucherProofUpload(taskId, getProofIntentFromPreparedProof(draft.proof));
         if (init?.error) {
+            setProofUploadStatus("failed");
             setProofUploadError(init.error);
             toast.error(init.error);
-            refreshInBackground();
-            return;
+            return false;
         }
 
         const uploadTarget = (init as { proofUploadTarget?: ProofUploadTarget } | undefined)?.proofUploadTarget;
         if (!uploadTarget) {
             const message = "Proof upload target missing.";
+            setProofUploadStatus("failed");
             setProofUploadError(message);
             toast.error(`Proof upload failed: ${message}`);
-            refreshInBackground();
-            return;
+            return false;
         }
 
         const uploadResponse = await uploadViaTarget(uploadTarget, draft);
         const uploadError = uploadResponse.error;
         if (uploadError) {
             const uploadMessage = uploadError.message || "Unknown upload error";
+            setProofUploadStatus("failed");
             setProofUploadError(`Proof upload failed (${uploadMessage}). Task is still awaiting voucher.`);
             toast.error(`Proof upload failed: ${uploadMessage}`);
-            refreshInBackground();
-            return;
+            return false;
         }
 
         const finalize = await finalizeTaskProofUpload(taskId, {
@@ -156,32 +250,27 @@ export function useTaskDetailProof({
             bucket: uploadTarget.bucket,
             objectPath: uploadTarget.objectPath,
         });
-
         if (finalize?.error) {
+            setProofUploadStatus("failed");
             setProofUploadError(finalize.error);
-            toast.error(`Proof finalize failed: ${finalize.error}`);
-            refreshInBackground();
-            return;
+            toast.error(`Proof upload failed: ${finalize.error}`);
+            return false;
         }
 
-        setTaskState((prev) => ({
-            ...prev,
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: new Date().toISOString(),
-        }));
-        setProofDraft(null);
+        setProofUploadStatus("uploaded");
         setProofUploadError(null);
         refreshInBackground();
-    }, [refreshInBackground, setProofDraft, setProofUploadError, setTaskState]);
+        return true;
+    }, [refreshInBackground, setProofUploadError, setProofUploadStatus]);
 
     const uploadProofInBackground = useCallback(async (taskId: string, draft: TaskProofDraft, uploadTarget: ProofUploadTarget) => {
+        setProofUploadStatus("uploading");
         const uploadResponse = await uploadViaTarget(uploadTarget, draft);
         const uploadError = uploadResponse.error;
 
         if (uploadError) {
             const uploadMessage = uploadError.message || "Unknown upload error";
+            setProofUploadStatus("failed");
             setProofUploadError(`Proof upload failed (${uploadMessage}). Task reverted to active state.`);
             toast.error(`Proof upload failed: ${uploadMessage}`);
             const reverted = await revertTaskCompletionAfterProofFailure(taskId);
@@ -212,6 +301,7 @@ export function useTaskDetailProof({
         });
 
         if (finalize?.error) {
+            setProofUploadStatus("failed");
             setProofUploadError("Proof finalize failed. Task reverted to active state.");
             toast.error(`Proof upload failed: ${finalize.error}`);
             const reverted = await revertTaskCompletionAfterProofFailure(taskId);
@@ -231,10 +321,37 @@ export function useTaskDetailProof({
             return;
         }
 
+        clearPersistedProofDraft();
         setProofDraft(null);
+        setProofUploadStatus("uploaded");
         setProofUploadError(null);
         refreshInBackground();
-    }, [refreshInBackground, setProofDraft, setProofUploadError, setTaskState]);
+    }, [clearPersistedProofDraft, refreshInBackground, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState]);
+
+    const submitAwaitingDraft = useCallback(async () => {
+        if (!awaitingUploadSessionRef.current && !proofDraft && !storedProof) {
+            toast.error("Upload a new proof first.");
+            return;
+        }
+        setActionPending("awaitingProofUpload", true);
+        try {
+            const result = await submitAwaitingUserProofToAi(taskState.id);
+            if (result?.error) {
+                setProofUploadStatus("failed");
+                setProofUploadError(result.error);
+                toast.error(`Resubmit failed: ${result.error}`);
+                return;
+            }
+            awaitingUploadSessionRef.current = null;
+            clearPersistedProofDraft();
+            setProofDraft(null);
+            setProofUploadStatus("uploaded");
+            setProofUploadError(null);
+            refreshInBackground();
+        } finally {
+            setActionPending("awaitingProofUpload", false);
+        }
+    }, [clearPersistedProofDraft, proofDraft, refreshInBackground, setActionPending, setProofDraft, setProofUploadError, setProofUploadStatus, storedProof, taskState.id]);
 
     const openProofPicker = useCallback(async (mode: ProofPickerMode = "draft") => {
         const canOpenForDraft = isOwner && isActiveParentTask && !isActionPending("markComplete");
@@ -252,7 +369,9 @@ export function useTaskDetailProof({
         if (proofDraft) {
             const shouldReplace = window.confirm("A proof file is already attached. Press OK to replace it, or Cancel to remove it.");
             if (!shouldReplace) {
+                clearPersistedProofDraft();
                 setProofDraft(null);
+                setProofUploadStatus("idle");
                 setProofUploadError(null);
                 return;
             }
@@ -265,16 +384,49 @@ export function useTaskDetailProof({
             setShowWebcamModal(true);
         }
     }, [
+        clearPersistedProofDraft,
         isOwner,
         isActiveParentTask,
         isActionPending,
         taskState.status,
         proofDraft,
         setProofDraft,
+        setProofUploadStatus,
         setProofUploadError,
         proofPickerModeRef,
         proofInputRef,
         setShowWebcamModal,
+    ]);
+
+    const processSelectedProofFile = useCallback(async (selectedFile: File, mode: ProofPickerMode = "draft") => {
+        try {
+            const prepared = await prepareTaskProof(selectedFile);
+            const previewUrl = URL.createObjectURL(prepared.file);
+            const nextDraft = { proof: prepared, previewUrl };
+            setProofDraft(nextDraft);
+            setProofUploadError(null);
+            void persistProofDraft(prepared.file);
+
+            const staged = await uploadAwaitingProofToBucket(taskState.id, nextDraft);
+            if (!staged) return;
+
+            if (mode === "awaiting-upload") {
+                awaitingUploadSessionRef.current = {
+                    staged: true,
+                };
+            } else {
+                awaitingUploadSessionRef.current = null;
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Could not process proof file.";
+            toast.error(message);
+        }
+    }, [
+        persistProofDraft,
+        setProofDraft,
+        setProofUploadError,
+        taskState.id,
+        uploadAwaitingProofToBucket,
     ]);
 
     const handleProofInputChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
@@ -283,63 +435,10 @@ export function useTaskDetailProof({
         const selectedFile = event.target.files?.[0];
         event.target.value = "";
         if (!selectedFile) return;
-
-        if (pickerMode === "awaiting-upload") {
-            setActionPending("awaitingProofUpload", true);
-            try {
-                const prepared = await prepareTaskProof(selectedFile);
-                const previewUrl = URL.createObjectURL(prepared.file);
-                const awaitingDraft = { proof: prepared, previewUrl };
-
-                const optimisticProof = {
-                    media_kind: prepared.mediaKind,
-                    mime_type: prepared.mimeType,
-                    size_bytes: prepared.sizeBytes,
-                    duration_ms: prepared.durationMs,
-                    overlay_timestamp_text: prepared.overlayTimestampText,
-                    upload_state: "UPLOADED" as const,
-                    updated_at: new Date().toISOString(),
-                };
-                const snapshotCompletionProof = taskState.completion_proof;
-                setTaskState((prev) => ({
-                    ...prev,
-                    completion_proof: optimisticProof as TaskWithRelations["completion_proof"],
-                    proof_request_open: false,
-                    proof_requested_at: null,
-                    proof_requested_by: null,
-                    updated_at: new Date().toISOString(),
-                }));
-                setProofDraft(null);
-                setProofUploadError(null);
-
-                try {
-                    await uploadAwaitingProofInBackground(taskState.id, awaitingDraft);
-                } catch {
-                    setTaskState((prev) => ({
-                        ...prev,
-                        completion_proof: snapshotCompletionProof,
-                    }));
-                }
-            } catch (error) {
-                const message = error instanceof Error ? error.message : "Could not process proof file.";
-                toast.error(message);
-            } finally {
-                setActionPending("awaitingProofUpload", false);
-            }
-            return;
-        }
-
-        await processPickedProofFile(selectedFile);
+        await processSelectedProofFile(selectedFile, pickerMode);
     }, [
-        processPickedProofFile,
+        processSelectedProofFile,
         proofPickerModeRef,
-        setActionPending,
-        setProofDraft,
-        setProofUploadError,
-        setTaskState,
-        taskState.completion_proof,
-        taskState.id,
-        uploadAwaitingProofInBackground,
     ]);
 
     const handleMarkComplete = useCallback(async () => {
@@ -367,7 +466,9 @@ export function useTaskDetailProof({
         }
 
         setActionPending("markComplete", true);
+        setProofUploadStatus("idle");
         setProofUploadError(null);
+        clearPersistedProofDraft();
         fireCompletionConfetti();
 
         const now = new Date();
@@ -398,7 +499,9 @@ export function useTaskDetailProof({
             },
             onSuccess: () => {
                 if (isSelfVouched) {
+                    clearPersistedProofDraft();
                     setProofDraft(null);
+                    setProofUploadStatus("uploaded");
                     setProofUploadError(null);
                     void purgeLocalProofMedia(taskState.id);
                 } else if (!proofIntent) {
@@ -426,6 +529,7 @@ export function useTaskDetailProof({
         setActionPending("markComplete", false);
     }, [
         beforeStartMessage,
+        clearPersistedProofDraft,
         hasIncompletePomoRequirement,
         hasRunningPomoForTask,
         incompleteSubtasksCount,
@@ -433,13 +537,13 @@ export function useTaskDetailProof({
         isAiVouched,
         isBeforeStart,
         isSelfVouched,
-        potentialRp,
         proofDraft,
         refreshInBackground,
         remainingRequiredPomoSeconds,
         requiresProofForCompletion,
         setActionPending,
         setProofDraft,
+        setProofUploadStatus,
         setProofUploadError,
         setTaskState,
         storedProof,
@@ -479,7 +583,9 @@ export function useTaskDetailProof({
                 setTaskState(snapshot.taskState);
             },
             onSuccess: () => {
+                clearPersistedProofDraft();
                 setProofDraft(null);
+                setProofUploadStatus("idle");
                 setProofUploadError(null);
                 void purgeLocalProofMedia(taskState.id);
                 refreshInBackground();
@@ -487,7 +593,7 @@ export function useTaskDetailProof({
         });
 
         setActionPending("undoComplete", false);
-    }, [isActionPending, isOwner, refreshInBackground, setActionPending, setProofDraft, setProofUploadError, setTaskState, taskState]);
+    }, [clearPersistedProofDraft, isActionPending, isOwner, refreshInBackground, setActionPending, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, taskState]);
 
     const handleRemoveStoredProof = useCallback(async () => {
         if (isActionPending("removeStoredProof")) return;
@@ -524,12 +630,40 @@ export function useTaskDetailProof({
         setActionPending("removeStoredProof", false);
     }, [isActionPending, isOwner, refreshInBackground, setActionPending, setProofUploadError, setTaskState, storedProof, taskState]);
 
+    const handleRemoveDraftProof = useCallback(async () => {
+        clearPersistedProofDraft();
+        setProofDraft(null);
+        setProofUploadStatus("idle");
+        setProofUploadError(null);
+
+        if (!isOwner) return;
+        const hasServerProof = Boolean(storedProof || taskState.completion_proof);
+        if (!hasServerProof) return;
+
+        const result = await removeTaskProofAttachment(taskState.id);
+        if (result?.error) {
+            toast.error(result.error);
+            refreshInBackground();
+            return;
+        }
+
+        setTaskState((prev) => ({
+            ...prev,
+            completion_proof: null,
+            updated_at: new Date().toISOString(),
+        }));
+        toast.success("Proof removed.");
+        refreshInBackground();
+    }, [clearPersistedProofDraft, isOwner, refreshInBackground, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, storedProof, taskState.completion_proof, taskState.id]);
+
     return {
-        processPickedProofFile,
+        processSelectedProofFile,
         openProofPicker,
         handleProofInputChange,
+        handleSubmitAwaitingProofDraft: submitAwaitingDraft,
         handleMarkComplete,
         handleUndoComplete,
         handleRemoveStoredProof,
+        handleRemoveDraftProof,
     };
 }

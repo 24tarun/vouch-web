@@ -29,6 +29,8 @@ interface UseTaskInputSubmitArgs {
     reminderDraftValue: string;
     remindersDraft: Date[];
     reminders: Date[];
+    includeDefaultOneHourReminder: boolean;
+    includeDefaultTenMinuteReminder: boolean;
     selectedDate: Date | null;
     isDeadlineManuallyPicked: boolean;
     onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
@@ -62,6 +64,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         reminderDraftValue,
         remindersDraft,
         reminders,
+        includeDefaultOneHourReminder,
+        includeDefaultTenMinuteReminder,
         selectedDate,
         isDeadlineManuallyPicked,
         onCreateTaskOptimistic,
@@ -216,6 +220,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             eventStartIso: eventStartDate ? eventStartDate.toISOString() : null,
             eventEndIso: eventEndDate ? eventEndDate.toISOString() : null,
             reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
+            includeDefaultOneHourReminder,
+            includeDefaultTenMinuteReminder,
             voucherId: selectedVoucherId,
             failureCost,
             recurrenceType: effectiveRecurrenceType,
@@ -257,6 +263,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             formData.append("requiresProof", payload.requiresProof ? "true" : "false");
             if (payload.isStrict) formData.append("isStrict", "true");
             if (payload.reminderIsos.length > 0) formData.append("reminders", JSON.stringify(payload.reminderIsos));
+            formData.append("includeDefaultOneHourReminder", payload.includeDefaultOneHourReminder ? "true" : "false");
+            formData.append("includeDefaultTenMinuteReminder", payload.includeDefaultTenMinuteReminder ? "true" : "false");
 
             if (payload.recurrenceType) {
                 formData.append("recurrenceType", payload.recurrenceType);
@@ -295,6 +303,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         reminderDraftValue,
         reminders,
         remindersDraft,
+        includeDefaultOneHourReminder,
+        includeDefaultTenMinuteReminder,
         requiresProof,
         resetDeadlineToDefault,
         selectedDate,

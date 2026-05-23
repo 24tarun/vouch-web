@@ -18,10 +18,30 @@ export interface ActivityStep {
         | { kind: "event"; eventType: string; elapsedSeconds?: number };
     detail: string | null;
     timestamp: string;
-    tone: "success" | "danger" | "warning" | "info" | "proof" | "neutral";
+    tone:
+        | "success"
+        | "danger"
+        | "warning"
+        | "info"
+        | "proof"
+        | "statusBlue"
+        | "statusOrange"
+        | "statusPurple"
+        | "statusSlate"
+        | "neutral";
 }
 
 const isAiDecisionEvent = (event: TaskEvent) => event.event_type === "AI_APPROVE" || event.event_type === "AI_DENY";
+const toneForStatus = (status: TaskStatus): ActivityStep["tone"] => {
+    if (["MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"].includes(status)) return "success";
+    if (["DENIED", "AI_DENIED", "MISSED"].includes(status)) return "danger";
+    if (["AWAITING_VOUCHER", "AWAITING_AI"].includes(status)) return "warning";
+    if (["ACTIVE", "POSTPONED", "ESCALATED"].includes(status)) return "statusBlue";
+    if (["AWAITING_USER", "RECTIFIED"].includes(status)) return "statusOrange";
+    if (status === "SETTLED") return "statusPurple";
+    if (status === "DELETED") return "statusSlate";
+    return "neutral";
+};
 
 export function useTaskDetailActivitySteps(events: TaskEvent[], aiVouches: Array<{ reason?: string | null }>): ActivityStep[] {
     const visibleEvents = useMemo(() => buildVisibleEvents(events), [events]);
@@ -70,7 +90,7 @@ export function useTaskDetailActivitySteps(events: TaskEvent[], aiVouches: Array
                 tag,
                 detail,
                 timestamp: formatEventTimestamp(event),
-                tone: getActivityStepTone(event),
+                tone: tag.kind === "status" ? toneForStatus(tag.status) : getActivityStepTone(event),
             };
 
             if (event.event_type === "UNDO_COMPLETE" && hasTransition && isTaskStatus(toStatus)) {
@@ -81,7 +101,7 @@ export function useTaskDetailActivitySteps(events: TaskEvent[], aiVouches: Array
                         tag: { kind: "status", status: toStatus },
                         detail: null,
                         timestamp: formatEventTimestamp(event),
-                        tone: "neutral",
+                        tone: toneForStatus(toStatus),
                     },
                 ];
             }
@@ -94,7 +114,7 @@ export function useTaskDetailActivitySteps(events: TaskEvent[], aiVouches: Array
                         tag: { kind: "status", status: toStatus },
                         detail: null,
                         timestamp: formatEventTimestamp(event),
-                        tone: getActivityStepTone(event),
+                        tone: toneForStatus(toStatus),
                     },
                 ];
             }

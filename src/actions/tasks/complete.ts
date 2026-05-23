@@ -324,23 +324,27 @@ export async function markTaskCompleteWithProofIntent(
                 .remove([(existingProof.object_path as string)]);
         }
 
+        if (existingProof) {
+            await (supabase.from("task_completion_proofs") as any)
+                .delete()
+                .eq("task_id", taskId as any)
+                .eq("owner_id", user.id as any);
+        }
+
         const { error: proofError } = await (supabase.from("task_completion_proofs") as any)
-            .upsert(
-                {
-                    task_id: taskId,
-                    owner_id: user.id,
-                    voucher_id: (task as any).voucher_id,
-                    bucket: TASK_PROOFS_BUCKET,
-                    object_path: objectPath,
-                    media_kind: proofIntent.mediaKind,
-                    mime_type: proofIntent.mimeType,
-                    size_bytes: proofIntent.sizeBytes,
-                    duration_ms: proofIntent.durationMs ?? null,
-                    overlay_timestamp_text: normalizeProofTimestampText(proofIntent.overlayTimestampText),
-                    upload_state: "PENDING",
-                },
-                { onConflict: "task_id" }
-            );
+            .insert({
+                task_id: taskId,
+                owner_id: user.id,
+                voucher_id: (task as any).voucher_id,
+                bucket: TASK_PROOFS_BUCKET,
+                object_path: objectPath,
+                media_kind: proofIntent.mediaKind,
+                mime_type: proofIntent.mimeType,
+                size_bytes: proofIntent.sizeBytes,
+                duration_ms: proofIntent.durationMs ?? null,
+                overlay_timestamp_text: normalizeProofTimestampText(proofIntent.overlayTimestampText),
+                upload_state: "PENDING",
+            });
 
         if (proofError) {
             await (supabase.from("tasks") as any)

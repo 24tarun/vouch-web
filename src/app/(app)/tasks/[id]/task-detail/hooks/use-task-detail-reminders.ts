@@ -150,8 +150,7 @@ export function useTaskDetailReminders({
         taskState,
     ]);
 
-    const handleAddReminder = useCallback(async (e: FormEvent<HTMLFormElement>) => {
-        e.preventDefault();
+    const addReminder = useCallback(async () => {
         if (!canManageActionChildren || isActionPending("saveReminders")) return;
         if (!newReminderLocal.trim()) return;
 
@@ -187,6 +186,11 @@ export function useTaskDetailReminders({
         taskState.deadline,
     ]);
 
+    const handleAddReminder = useCallback(async (e: FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        await addReminder();
+    }, [addReminder]);
+
     const handleRemoveReminder = useCallback(async (reminderIso: string) => {
         if (!canManageActionChildren || isActionPending("saveReminders")) return;
         const reminderMs = new Date(reminderIso).getTime();
@@ -199,6 +203,7 @@ export function useTaskDetailReminders({
     }, [canManageActionChildren, getCurrentFutureReminderIsos, isActionPending, saveReminderSet]);
 
     return {
+        addReminder,
         handleAddReminder,
         handleRemoveReminder,
     };

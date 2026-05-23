@@ -240,6 +240,16 @@ export async function createTask(formData: FormData) {
         typeof submittedEventEndIsoRaw === "string"
             ? submittedEventEndIsoRaw.trim()
             : "";
+    const includeDefaultOneHourReminderRaw = formData.get("includeDefaultOneHourReminder");
+    const includeDefaultTenMinuteReminderRaw = formData.get("includeDefaultTenMinuteReminder");
+    const includeDefaultOneHourReminder =
+        includeDefaultOneHourReminderRaw == null
+            ? true
+            : String(includeDefaultOneHourReminderRaw).toLowerCase() !== "false";
+    const includeDefaultTenMinuteReminder =
+        includeDefaultTenMinuteReminderRaw == null
+            ? true
+            : String(includeDefaultTenMinuteReminderRaw).toLowerCase() !== "false";
     const voucherId = formData.get("voucherId") as string;
     const subtasksInput = normalizeSubtasksFromFormData(formData.get("subtasks"));
     const requiredPomoInput = parseRequiredPomoMinutesFromFormData(formData.get("requiredPomoMinutes"));
@@ -468,9 +478,11 @@ export async function createTask(formData: FormData) {
         userId: (user as any).id,
         deadline: validatedDeadline,
         deadlineOneHourWarningEnabled:
-            ((reminderDefaultsProfile as any)?.deadline_one_hour_warning_enabled as boolean | undefined) ?? true,
+            (((reminderDefaultsProfile as any)?.deadline_one_hour_warning_enabled as boolean | undefined) ?? true) &&
+            includeDefaultOneHourReminder,
         deadlineFinalWarningEnabled:
-            ((reminderDefaultsProfile as any)?.deadline_final_warning_enabled as boolean | undefined) ?? true,
+            (((reminderDefaultsProfile as any)?.deadline_final_warning_enabled as boolean | undefined) ?? true) &&
+            includeDefaultTenMinuteReminder,
         now: new Date(),
     });
     const seededReminderInsert = await insertTaskReminderRows(

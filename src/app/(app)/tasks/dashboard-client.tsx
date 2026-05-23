@@ -149,6 +149,8 @@ function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
     if (payload.reminderIsos.length > 0) {
         formData.append("reminders", JSON.stringify(payload.reminderIsos));
     }
+    formData.append("includeDefaultOneHourReminder", payload.includeDefaultOneHourReminder ? "true" : "false");
+    formData.append("includeDefaultTenMinuteReminder", payload.includeDefaultTenMinuteReminder ? "true" : "false");
 
     if (payload.isStrict) {
         formData.append("isStrict", "true");

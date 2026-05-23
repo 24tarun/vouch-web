@@ -16,8 +16,8 @@ export const TASK_DETAIL_BUTTON_CLASSES = {
         escalateToFriend: "border border-blue-700/40 bg-blue-900/15 text-blue-300 hover:bg-blue-800/25 hover:text-blue-100",
     },
     proof: {
-        removeStored: "ml-auto text-pink-400/80 bg-pink-400/10 hover:text-pink-300 hover:bg-pink-400/20 border border-pink-400/30",
-        removeDraft: "ml-auto text-pink-400/70 bg-pink-400/10 hover:text-pink-300 hover:bg-pink-400/20 border border-pink-400/25",
+        removeStored: "ml-auto text-red-400/85 bg-red-500/10 hover:text-red-300 hover:bg-red-500/20 border border-red-500/35",
+        removeDraft: "ml-auto text-red-400/80 bg-red-500/10 hover:text-red-300 hover:bg-red-500/20 border border-red-500/30",
     },
     actions: {
         attachProofBase: "h-12 w-full p-0 border transition-all justify-center",
@@ -214,6 +214,7 @@ export function TaskDetailButtonsShowcaseSection({
             title: "Remove Stored Proof",
             render: () => (
                 <Button variant="ghost" className={cn(TASK_DETAIL_BUTTON_CLASSES.size.uniform, TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
+                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                     Remove Proof
                 </Button>
             ),

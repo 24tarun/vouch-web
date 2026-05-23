@@ -2,6 +2,8 @@ import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 
 export const PROOF_UPLOAD_ENTRY_STATUSES = [
+    "ACTIVE",
+    "POSTPONED",
     "AWAITING_VOUCHER",
     "AWAITING_AI",
     "AWAITING_USER",
@@ -11,6 +13,14 @@ export const PROOF_UPLOAD_ENTRY_STATUSES = [
 export const PROOF_FINALIZE_OR_REVERT_STATUSES = [
     "AWAITING_VOUCHER",
     "AWAITING_AI",
+    "MARKED_COMPLETE",
+] as const;
+export const PROOF_STAGING_FINALIZE_STATUSES = [
+    "ACTIVE",
+    "POSTPONED",
+    "AWAITING_VOUCHER",
+    "AWAITING_AI",
+    "AWAITING_USER",
     "MARKED_COMPLETE",
 ] as const;
 
@@ -24,4 +34,8 @@ export function canInitAwaitingProofUpload(status: TaskStatus): boolean {
 
 export function canFinalizeOrRevertProof(status: TaskStatus): boolean {
     return (PROOF_FINALIZE_OR_REVERT_STATUSES as readonly string[]).includes(status);
+}
+
+export function canFinalizeProofStaging(status: TaskStatus): boolean {
+    return (PROOF_STAGING_FINALIZE_STATUSES as readonly string[]).includes(status);
 }

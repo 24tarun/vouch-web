@@ -323,14 +323,24 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                 // `facingMode: "environment"` (rear camera) does not exist on desktop
                 // webcams and causes OverconstrainedError/NotFoundError even when
                 // the browser has camera permission.
-                stream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        aspectRatio: { ideal: 4 / 3 },
-                        width: { ideal: 1280 },
-                        height: { ideal: 960 },
-                    },
-                    audio: false,
-                });
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            aspectRatio: { exact: 4 / 3 },
+                            width: { ideal: 1280, min: 640 },
+                            height: { ideal: 960, min: 480 },
+                        },
+                        audio: false,
+                    });
+                } catch {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: { ideal: 1280 },
+                            height: { ideal: 960 },
+                        },
+                        audio: false,
+                    });
+                }
             } catch {
                 stream = null;
             }
@@ -364,7 +374,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
 
     return (
         <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-            <DialogContent className="w-[96vw] max-w-5xl p-0 overflow-hidden bg-slate-900 border-slate-800 text-slate-200 [&>[data-slot='dialog-close']]:text-slate-400 [&>[data-slot='dialog-close']]:hover:text-slate-200">
+            <DialogContent className="w-[96vw] max-w-5xl p-0 bg-slate-900 border-slate-800 text-slate-200 overflow-y-auto max-h-[96vh] [&>[data-slot='dialog-close']]:text-slate-400 [&>[data-slot='dialog-close']]:hover:text-slate-200">
                 <div className="px-5 pt-5 pb-4 border-b border-slate-800">
                     <DialogTitle className="text-sm font-semibold text-slate-100">Capture Proof</DialogTitle>
                 </div>
@@ -420,14 +430,14 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                     </div>
                 ) : (
                     <div>
-                        <div className="mx-auto bg-black overflow-hidden" style={{ aspectRatio: "4 / 3", maxHeight: "72vh", width: "min(100%, calc(72vh * 4 / 3))" }}>
+                        <div className="relative mx-auto bg-black overflow-hidden w-full" style={{ aspectRatio: "4 / 3", maxHeight: "70vh" }}>
                             <video
                                 ref={videoRef}
                                 autoPlay
                                 playsInline
                                 muted
-                                className="w-full h-full bg-black -scale-x-100"
-                                style={{ objectFit: "cover" }}
+                                className="absolute inset-0 w-full h-full bg-black -scale-x-100"
+                                style={{ objectFit: "contain" }}
                             />
                         </div>
                         {captureMode === "video" && (
@@ -442,7 +452,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                                 Video recording is not supported in this browser. You can still upload a video file.
                             </div>
                         )}
-                        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-800">
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-t border-slate-800">
                             <Button
                                 variant="ghost"
                                 size="sm"

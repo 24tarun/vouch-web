@@ -7,17 +7,18 @@ import {
     endOfMonth,
     endOfWeek,
     format,
+    isBefore,
     isSameDay,
     isSameMonth,
     isToday,
+    startOfDay,
     startOfMonth,
     startOfWeek,
     subMonths,
 } from "date-fns";
 import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { CustomTimePicker } from "@/components/ui/custom-time-picker";
 import {
     combineDateAndTime,
     fromDateTimeLocalValue,
@@ -25,6 +26,8 @@ import {
     getTimePartFromLocalDateTime,
 } from "@/lib/datetime-local";
 import { cn } from "@/lib/utils";
+
+const WEEKDAY_HEADERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
 function formatDatePart(date: Date): string {
     return format(date, "yyyy-MM-dd");
@@ -48,6 +51,8 @@ interface TaskDateTimePickerProps {
     eventStartValue: string;
     onDeadlineValueChange: (value: string) => void;
     onEventStartValueChange: (value: string) => void;
+    mode?: "deadline" | "reminder";
+    highlightCalendar?: boolean;
     actions?: ReactNode;
     className?: string;
 }
@@ -57,6 +62,8 @@ export function TaskDateTimePicker({
     eventStartValue,
     onDeadlineValueChange,
     onEventStartValueChange,
+    mode = "deadline",
+    highlightCalendar = false,
     actions,
     className,
 }: TaskDateTimePickerProps) {
@@ -79,7 +86,7 @@ export function TaskDateTimePicker({
             setVisibleMonth(startOfMonth(nextDate));
         }
         onDeadlineValueChange(combineDateAndTime(nextDatePart, selectedEndTime));
-        if (selectedStartTime) {
+        if (mode === "deadline" && selectedStartTime) {
             onEventStartValueChange(combineDateAndTime(nextDatePart, selectedStartTime));
         }
     };
@@ -98,18 +105,18 @@ export function TaskDateTimePicker({
     };
 
     return (
-        <div className={cn("grid gap-5 sm:grid-cols-[minmax(0,1fr)_180px]", className)}>
-            <div>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="text-sm font-medium text-slate-100">
+        <div className={cn("grid gap-6 sm:grid-cols-[1fr_220px]", className)}>
+            {/* Left: Calendar */}
+            <div className={cn(highlightCalendar && "rounded-xl bg-slate-800/60")}>
+                {/* Month header */}
+                <div className="mb-4 flex items-center justify-between">
+                    <div className="text-lg font-semibold text-slate-100">
                         {format(visibleMonth, "MMMM yyyy")}
                     </div>
-                    <div className="flex items-center gap-1">
-                        <Button
+                    <div className="flex items-center gap-2">
+                        <button
                             type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="h-8 w-8 text-slate-400 hover:bg-slate-800 hover:text-slate-100 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                            className="flex h-8 w-8 items-center justify-center text-amber-400 transition-colors hover:text-amber-300 disabled:opacity-30 disabled:text-slate-600"
                             disabled={!canGoToPreviousMonth}
                             onClick={() => {
                                 if (!canGoToPreviousMonth) return;
@@ -120,80 +127,91 @@ export function TaskDateTimePicker({
                             }}
                             aria-label="Previous month"
                         >
-                            <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <Button
+                            <ChevronLeft className="h-5 w-5" strokeWidth={2.5} />
+                        </button>
+                        <button
                             type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            className="h-8 w-8 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                            className="flex h-8 w-8 items-center justify-center text-amber-400 transition-colors hover:text-amber-300"
                             onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
                             aria-label="Next month"
                         >
-                            <ChevronRight className="h-4 w-4" />
-                        </Button>
+                            <ChevronRight className="h-5 w-5" strokeWidth={2.5} />
+                        </button>
                     </div>
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
-                        <div key={`${day}-${index}`} className="h-6">
+
+                {/* Weekday headers */}
+                <div className="grid grid-cols-7 text-center">
+                    {WEEKDAY_HEADERS.map((day) => (
+                        <div key={day} className="pb-3 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                             {day}
                         </div>
                     ))}
                 </div>
-                <div className="grid grid-cols-7 gap-1">
+
+                {/* Calendar grid */}
+                <div className="grid grid-cols-7 gap-y-1">
                     {calendarDays.map((day) => {
                         const isSelected = isSameDay(day, selectedDeadline);
                         const isMuted = !isSameMonth(day, visibleMonth);
+                        const isPast = isBefore(day, startOfDay(new Date()));
                         if (isMuted) {
-                            return <div key={day.toISOString()} className="h-9" aria-hidden="true" />;
+                            return <div key={day.toISOString()} className="h-11" aria-hidden="true" />;
                         }
 
                         return (
                             <button
                                 key={day.toISOString()}
                                 type="button"
+                                disabled={isPast}
                                 onClick={() => commitDatePart(formatDatePart(day))}
-                                className={cn(
-                                    "flex h-9 items-center justify-center rounded-lg border text-sm transition-colors",
-                                    isSelected
-                                        ? "border-blue-400/50 bg-blue-500/20 text-blue-100 shadow-[0_0_0_1px_rgba(96,165,250,0.18)]"
-                                        : "border-transparent text-slate-300 hover:border-slate-700 hover:bg-slate-800/80 hover:text-white",
-                                    isMuted && !isSelected && "text-slate-600 hover:text-slate-300",
-                                    isToday(day) && !isSelected && "text-blue-300"
-                                )}
+                                className="flex h-11 items-center justify-center"
                                 aria-pressed={isSelected}
                             >
-                                {format(day, "d")}
+                                <span
+                                    className={cn(
+                                        "flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium transition-colors",
+                                        isSelected
+                                            ? "bg-amber-500 text-white font-bold"
+                                            : "text-slate-400 hover:bg-slate-800/60 hover:text-white",
+                                        isPast && "text-slate-700 cursor-not-allowed hover:bg-transparent hover:text-slate-700",
+                                        isToday(day) && !isSelected && "text-amber-300"
+                                    )}
+                                >
+                                    {format(day, "d")}
+                                </span>
                             </button>
                         );
                     })}
                 </div>
             </div>
 
-            <div className="flex flex-col justify-between gap-4">
-                <div className="space-y-3">
-                <TimeControl
-                    label="Start (optional)"
-                    value={selectedStartTime}
-                    placeholder="Optional"
-                    onChange={commitStartTime}
-                    allowClear
-                />
-                <TimeControl
-                    label="End"
-                    value={selectedEndTime}
-                    placeholder="23:00"
-                    onChange={commitEndTime}
-                />
+            {/* Right: Time + Actions */}
+            <div className="flex flex-col justify-between gap-5">
+                <div className="space-y-4">
+                    {mode === "deadline" ? (
+                        <TimeRow
+                            label="Start (optional)"
+                            value={selectedStartTime}
+                            placeholder="--:--"
+                            onChange={commitStartTime}
+                            allowClear
+                        />
+                    ) : null}
+                    <TimeRow
+                        label={mode === "deadline" ? "End" : "Time"}
+                        value={selectedEndTime}
+                        placeholder={mode === "deadline" ? "23:00" : "--:--"}
+                        onChange={commitEndTime}
+                    />
                 </div>
-                {actions && <div className="space-y-2">{actions}</div>}
+                {actions && <div className="space-y-2.5">{actions}</div>}
             </div>
         </div>
     );
 }
 
-interface TimeControlProps {
+interface TimeRowProps {
     label: string;
     value: string;
     placeholder: string;
@@ -201,27 +219,23 @@ interface TimeControlProps {
     onChange: (value: string) => void;
 }
 
-function TimeControl({ label, value, placeholder, allowClear = false, onChange }: TimeControlProps) {
+function TimeRow({ label, value, placeholder, allowClear = false, onChange }: TimeRowProps) {
     return (
         <div>
-            <label className="mb-1.5 block text-xs text-slate-400">
-                {label}
-            </label>
-            <div className="flex items-center gap-1.5">
-                <Input
-                    type="time"
+            <label className="mb-2 block text-sm text-slate-400">{label}</label>
+            <div className="flex items-center gap-2">
+                <CustomTimePicker
                     value={value}
                     placeholder={placeholder}
-                    onChange={(event) => onChange(event.target.value)}
-                    className="h-9 border-slate-700 bg-slate-950/60 px-2 text-sm text-slate-100 [color-scheme:dark] focus-visible:border-blue-400 focus-visible:ring-blue-400/20"
+                    onChange={onChange}
                 />
                 {allowClear && value && (
                     <button
                         type="button"
                         onClick={() => onChange("")}
-                        className="h-9 rounded-md border border-slate-700 bg-slate-950/50 px-2 text-[11px] font-mono text-slate-500 transition-colors hover:border-red-400/40 hover:text-red-300"
+                        className="rounded-full px-2.5 py-1 text-[11px] font-mono text-slate-500 transition-colors hover:text-red-400"
                     >
-                        Clear
+                        ✕
                     </button>
                 )}
             </div>

@@ -7,13 +7,14 @@ import { deleteTaskProof, TASK_PROOFS_BUCKET, buildTaskProofObjectPath } from "@
 import { type TaskProofIntent, type TaskProofMetadata } from "@/lib/task-proof";
 import {
     canInitAwaitingProofUpload,
+    canFinalizeProofStaging,
     canFinalizeOrRevertProof,
-    getAwaitingProofReviewStatus,
     PROOF_FINALIZE_OR_REVERT_STATUSES,
 } from "@/lib/task-proof-routing";
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
 import { aiEvaluationLimiter, checkRateLimit } from "@/lib/rate-limit";
+import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import {
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
@@ -22,6 +23,32 @@ import {
     INVALID_TASK_PROOF_ERROR,
     type MarkTaskCompleteWithProofResult,
 } from "./helpers";
+
+async function triggerAiEvaluationForProof(taskId: string, mediaKind: "image" | "video", ownerId: string): Promise<{ error?: string }> {
+    const { limited } = await checkRateLimit(aiEvaluationLimiter, `ai-eval:${ownerId}`);
+    if (limited) {
+        return { error: "Too many AI proof evaluations right now. Please wait a bit and try again." };
+    }
+
+    if (mediaKind === "image") {
+        const { processAiVoucherDecision } = await import("@/lib/ai-voucher/evaluate");
+        try {
+            await processAiVoucherDecision(taskId);
+        } catch (error) {
+            console.error(`AI voucher evaluation failed: ${error}`);
+        }
+        return {};
+    }
+
+    try {
+        const { tasks: triggerTasks } = await import("@trigger.dev/sdk/v3");
+        await triggerTasks.trigger("ai-voucher-evaluate", { taskId });
+    } catch (error) {
+        console.error(`Failed to queue AI voucher video evaluation: ${error}`);
+    }
+
+    return {};
+}
 
 export async function initAwaitingVoucherProofUpload(
     taskId: string,
@@ -72,42 +99,33 @@ export async function initAwaitingVoucherProofUpload(
             .remove([(existingProof.object_path as string)]);
     }
 
+    if (existingProof) {
+        await (supabase.from("task_completion_proofs") as any)
+            .delete()
+            .eq("task_id", taskId as any)
+            .eq("owner_id", user.id as any);
+    }
+
     const { error: proofError } = await (supabase.from("task_completion_proofs") as any)
-        .upsert(
-            {
-                task_id: taskId,
-                owner_id: user.id,
-                voucher_id: (task as any).voucher_id,
-                bucket: TASK_PROOFS_BUCKET,
-                object_path: objectPath,
-                media_kind: proofIntent.mediaKind,
-                mime_type: proofIntent.mimeType,
-                size_bytes: proofIntent.sizeBytes,
-                duration_ms: proofIntent.durationMs ?? null,
-                overlay_timestamp_text: normalizeProofTimestampText(proofIntent.overlayTimestampText),
-                upload_state: "PENDING",
-            },
-            { onConflict: "task_id" }
-        );
+        .insert({
+            task_id: taskId,
+            owner_id: user.id,
+            voucher_id: (task as any).voucher_id,
+            bucket: TASK_PROOFS_BUCKET,
+            object_path: objectPath,
+            media_kind: proofIntent.mediaKind,
+            mime_type: proofIntent.mimeType,
+            size_bytes: proofIntent.sizeBytes,
+            duration_ms: proofIntent.durationMs ?? null,
+            overlay_timestamp_text: normalizeProofTimestampText(proofIntent.overlayTimestampText),
+            upload_state: "PENDING",
+        });
 
     if (proofError) {
         return { error: proofError.message };
     }
 
     const supabaseAdmin = createAdminClient();
-
-    const routedAwaitingStatus = getAwaitingProofReviewStatus((task as any).voucher_id);
-
-    if ((task as any).status === "AWAITING_USER" || (task as any).status === "MARKED_COMPLETE") {
-        const { error: transitionError } = await (supabaseAdmin.from("tasks") as any)
-            .update({ status: routedAwaitingStatus })
-            .eq("id", taskId)
-            .eq("status", (task as any).status as any);
-
-        if (transitionError) {
-            return { error: "Another resubmit is already in progress" };
-        }
-    }
     const { data: signedUpload, error: signedUploadError } = await supabaseAdmin.storage
         .from(TASK_PROOFS_BUCKET)
         .createSignedUploadUrl(objectPath);
@@ -131,6 +149,55 @@ export async function initAwaitingVoucherProofUpload(
             uploadToken: signedUpload.token,
         },
     };
+}
+
+export async function removeTaskProofAttachment(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, user_id, voucher_id, status")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if (!["ACTIVE", "POSTPONED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes((task as any).status)) {
+        return { error: `Proof cannot be removed in ${(task as any).status} status.` };
+    }
+
+    const cleanup = await deleteTaskProof(taskId, "owner_remove_proof_attachment");
+    if (!cleanup.success) {
+        return { error: cleanup.error || "Could not remove proof media." };
+    }
+
+    const { error: eventError } = await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "PROOF_REMOVED",
+        actor_id: user.id as any,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+        from_status: (task as any).status,
+        to_status: (task as any).status,
+    });
+    if (eventError) {
+        console.error("Failed to log PROOF_REMOVED event:", eventError);
+    }
+
+    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/tasks");
+    revalidatePath("/stats");
+    revalidatePath("/friends");
+    revalidatePath(`/tasks/${taskId}`);
+    return { success: true };
 }
 
 export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskProofMetadata) {
@@ -164,7 +231,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         return { error: "Task not found" };
     }
 
-    if (!canFinalizeOrRevertProof((task as any).status)) {
+    if (!canFinalizeProofStaging((task as any).status)) {
         return { error: "Task is no longer awaiting voucher response." };
     }
 
@@ -213,7 +280,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         } as any)
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
-        .in("status", PROOF_FINALIZE_OR_REVERT_STATUSES as any);
+        .in("status", ["AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER", "MARKED_COMPLETE"] as any);
 
     if (clearProofRequestError) {
         return { error: clearProofRequestError.message };
@@ -237,27 +304,10 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         console.error("Failed to log PROOF_UPLOADED event:", proofUploadedEventError);
     }
 
-    const { AI_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
-    if ((task as any).voucher_id === AI_PROFILE_ID) {
-        const { limited } = await checkRateLimit(aiEvaluationLimiter, `ai-eval:${user.id}`);
-        if (limited) {
-            return { error: "Too many AI proof evaluations right now. Please wait a bit and try again." };
-        }
-
-        if (proofMeta.mediaKind === "image") {
-            const { processAiVoucherDecision } = await import("@/lib/ai-voucher/evaluate");
-            try {
-                await processAiVoucherDecision(taskId);
-            } catch (error) {
-                console.error(`AI voucher evaluation failed: ${error}`);
-            }
-        } else {
-            try {
-                const { tasks: triggerTasks } = await import("@trigger.dev/sdk/v3");
-                await triggerTasks.trigger("ai-voucher-evaluate", { taskId });
-            } catch (error) {
-                console.error(`Failed to queue AI voucher video evaluation: ${error}`);
-            }
+    if ((task as any).voucher_id === AI_PROFILE_ID && (task as any).status === "AWAITING_AI") {
+        const aiResult = await triggerAiEvaluationForProof(taskId, proofMeta.mediaKind, user.id);
+        if (aiResult.error) {
+            return aiResult;
         }
     }
 
@@ -266,6 +316,88 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     revalidatePath("/stats");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
+    return { success: true };
+}
+
+export async function submitAwaitingUserProofToAi(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const { data: task } = await (supabase.from("tasks") as any)
+        .select("id, user_id, voucher_id, status")
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .single();
+
+    if (!task) {
+        return { error: "Task not found" };
+    }
+
+    if ((task as any).status !== "AWAITING_USER") {
+        return { error: `Task is in ${(task as any).status} status and cannot be resubmitted.` };
+    }
+
+    if ((task as any).voucher_id !== AI_PROFILE_ID) {
+        return { error: "Only AI-vouched tasks can be resubmitted to AI." };
+    }
+
+    const { data: proofRow } = await (supabase.from("task_completion_proofs") as any)
+        .select("id, media_kind, upload_state")
+        .eq("task_id", taskId as any)
+        .eq("owner_id", user.id as any)
+        .maybeSingle();
+
+    if (!proofRow || proofRow.upload_state !== "UPLOADED" || !proofRow.media_kind) {
+        return { error: "Upload proof first before resubmitting to AI." };
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
+        .update({
+            status: "AWAITING_AI",
+            proof_request_open: false,
+            proof_requested_at: null,
+            proof_requested_by: null,
+            updated_at: nowIso,
+        } as any)
+        .eq("id", taskId as any)
+        .eq("user_id", user.id as any)
+        .eq("status", "AWAITING_USER" as any)
+        .select("id");
+
+    if (updateError) {
+        return { error: updateError.message };
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+        return { error: "Task changed while resubmitting. Please refresh and retry." };
+    }
+
+    await (supabase.from("task_events") as any).insert({
+        task_id: taskId as any,
+        event_type: "RESUBMIT_TO_AI",
+        actor_id: user.id as any,
+        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+        from_status: "AWAITING_USER",
+        to_status: "AWAITING_AI",
+    });
+
+    const aiResult = await triggerAiEvaluationForProof(taskId, proofRow.media_kind, user.id);
+    if (aiResult.error) {
+        return aiResult;
+    }
+
+    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    revalidatePath("/tasks");
+    revalidatePath("/stats");
+    revalidatePath("/friends");
+    revalidatePath(`/tasks/${taskId}`);
+
     return { success: true };
 }
 

@@ -150,15 +150,39 @@ export function formatEventTimestamp(event: TaskEvent): string {
     return `${formatDateTimeDdMmYyyy24h(startDate)} -> ${formatDateTimeDdMmYyyy24h(endDate)}`;
 }
 
-export type ActivityTone = "success" | "danger" | "warning" | "info" | "proof" | "neutral";
+export type ActivityTone =
+    | "success"
+    | "danger"
+    | "warning"
+    | "info"
+    | "proof"
+    | "statusBlue"
+    | "statusOrange"
+    | "statusPurple"
+    | "statusSlate"
+    | "neutral";
 
 export function getActivityStepTone(event: TaskEvent): ActivityTone {
-    const toStatus = event.to_status;
-    if (["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "RECTIFIED", "SETTLED"].includes(toStatus)) return "success";
-    if (["DENIED", "MISSED"].includes(toStatus)) return "danger";
-    if (event.event_type === "DEADLINE_WARNING_1H" || event.event_type === "DEADLINE_WARNING_10M") return "warning";
+    // Event-specific tones must win over status transitions.
+    if (event.event_type === "DEADLINE_WARNING_1H" || event.event_type === "DEADLINE_WARNING_10M" || event.event_type === "VOUCHER_TIMEOUT" || event.event_type === "POSTPONE") return "warning";
     if (["PROOF_UPLOAD_FAILED_REVERT", "PROOF_REQUESTED", "PROOF_UPLOADED", "PROOF_REMOVED"].includes(event.event_type)) return "proof";
-    if (["POMO_COMPLETED", "REPETITION_STOPPED", "UNDO_COMPLETE"].includes(event.event_type)) return "info";
+    if (event.event_type === "POMO_COMPLETED") return "info";
+    if (["ACTIVE", "CREATED", "UNDO_COMPLETE", "ESCALATE", "AI_ESCALATE_TO_HUMAN"].includes(event.event_type)) return "statusBlue";
+    if (["REPETITION_STOPPED"].includes(event.event_type)) return "statusPurple";
+    if (["RECTIFY", "AI_DENIED_AUTO_HOP"].includes(event.event_type)) return "statusOrange";
+    if (["VOUCHER_DELETE"].includes(event.event_type)) return "statusSlate";
+    if (["VOUCHER_ACCEPT", "AI_APPROVE", "MARK_COMPLETE"].includes(event.event_type)) return "success";
+    if (["VOUCHER_DENY", "AI_DENY", "ACCEPT_DENIAL", "DEADLINE_MISSED", "GOOGLE_EVENT_CANCELLED"].includes(event.event_type)) return "danger";
+
+    const toStatus = event.to_status;
+    if (["MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"].includes(toStatus)) return "success";
+    if (["DENIED", "AI_DENIED", "MISSED"].includes(toStatus)) return "danger";
+    if (["AWAITING_VOUCHER", "AWAITING_AI"].includes(toStatus)) return "warning";
+    if (["ACTIVE", "POSTPONED", "ESCALATED"].includes(toStatus)) return "statusBlue";
+    if (["AWAITING_USER", "RECTIFIED"].includes(toStatus)) return "statusOrange";
+    if (toStatus === "SETTLED") return "statusPurple";
+    if (toStatus === "DELETED") return "statusSlate";
+
     return "neutral";
 }
 
