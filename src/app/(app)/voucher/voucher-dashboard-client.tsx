@@ -16,6 +16,12 @@ import { getWarmProofSrc, purgeLocalProofMedia } from "@/lib/proof-media-warmup"
 import { subscribeRealtimeTaskChanges, type RealtimeTaskRow } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
 import { reconcilePendingTasksFromServer } from "@/lib/voucher-pending-reconcile";
+import {
+    deriveVoucherPendingDeadline,
+    getVoucherPendingDisplayType,
+    isVoucherPendingActionable,
+    shouldPreferServerPendingTask,
+} from "@/lib/voucher-pending-state";
 import { ProofMedia } from "@/components/ProofMedia";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
 import { useCollapsibleSection } from "@/lib/ui/useCollapsibleSection";
@@ -39,7 +45,6 @@ const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const VOUCH_HISTORY_OPEN_SESSION_KEY = "voucher.history.open";
 const PENDING_FALLBACK_POLL_MS = 60000;
 const ACCEPTED_STATUS_ERROR = "Cannot accept task in ACCEPTED status";
-const ACTIVE_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED"]);
 const ALL_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_USER", "ESCALATED", "AI_DENIED"]);
 const HISTORY_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"]);
 
@@ -65,32 +70,19 @@ function isWithinRectifyWindow(updatedAt: string, referenceTimestamp: number): b
     return referenceTimestamp <= failedAtTs + RECTIFY_WINDOW_MS;
 }
 
-function deriveAwaitingDeadline(task: { voucher_response_deadline: string | null; marked_completed_at: string | null }): string | null {
-    if (task.voucher_response_deadline) return task.voucher_response_deadline;
-    if (!task.marked_completed_at) return null;
-
-    const derived = new Date(task.marked_completed_at);
-    if (Number.isNaN(derived.getTime())) return null;
-    derived.setDate(derived.getDate() + 2);
-    derived.setHours(23, 59, 59, 999);
-    return derived.toISOString();
-}
-
 function toPendingTask(task: VoucherPendingTask, incoming: RealtimeTaskRow): VoucherPendingTask {
     const patched = patchTaskScalars(task, incoming);
-    const pendingDisplayType = ACTIVE_PENDING_STATUSES.has(patched.status) ? "ACTIVE" : "AWAITING_VOUCHER";
-    const pendingDeadlineAt = ACTIVE_PENDING_STATUSES.has(patched.status)
-        ? patched.deadline
-        : deriveAwaitingDeadline({
-            voucher_response_deadline: patched.voucher_response_deadline,
-            marked_completed_at: patched.marked_completed_at,
-        });
 
     return {
         ...patched,
-        pending_display_type: pendingDisplayType,
-        pending_deadline_at: pendingDeadlineAt,
-        pending_actionable: patched.status === "AWAITING_VOUCHER",
+        pending_display_type: getVoucherPendingDisplayType(patched.status),
+        pending_deadline_at: deriveVoucherPendingDeadline({
+            status: patched.status,
+            deadline: patched.deadline,
+            voucher_response_deadline: patched.voucher_response_deadline,
+            marked_completed_at: patched.marked_completed_at,
+        }),
+        pending_actionable: isVoucherPendingActionable(patched.status),
         proof_request_count: task.proof_request_count || 0,
     };
 }
@@ -202,7 +194,7 @@ export default function VoucherDashboardClient({
         const merged = reconciled.pendingTasks.map((serverTask) => {
             const liveTask = liveById.get(serverTask.id);
             if (!liveTask) return serverTask;
-            return isIncomingNewer(liveTask.updated_at, serverTask.updated_at) ? serverTask : liveTask;
+            return shouldPreferServerPendingTask(liveTask, serverTask) ? serverTask : liveTask;
         });
 
         setPendingState(merged);
@@ -617,8 +609,8 @@ export function CompactPendingItem({
     const hoursLeft = hasValidDeadline
         ? Math.max(0, Math.floor((deadline.getTime() - renderTimestamp) / (1000 * 60 * 60)))
         : Number.POSITIVE_INFINITY;
-    const canReview = task.status === "AWAITING_VOUCHER" || task.status === "MARKED_COMPLETE";
-    const canRequestProof = canReview;
+    const canReview = task.pending_actionable;
+    const canRequestProof = task.pending_actionable;
     const proof = task.completion_proof;
     const proofVersion = proof
         ? (proof.updated_at || task.updated_at)

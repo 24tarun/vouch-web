@@ -19,6 +19,11 @@ import { buildProofRequestCountByTaskId, type ProofRequestEventRow } from "@/lib
 import { sortPendingTasks } from "@/lib/voucher-pending-sort";
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 import {
+    deriveVoucherPendingDeadline,
+    getVoucherPendingDisplayType,
+    isVoucherPendingActionable,
+} from "@/lib/voucher-pending-state";
+import {
     notifyCommitmentFailureIfNeeded,
     notifyCommitmentRevivedIfNeeded,
 } from "@/actions/commitments";
@@ -38,7 +43,6 @@ const PENDING_VOUCH_REQUEST_STATUSES: TaskStatus[] = [
     ...ACTIVE_PENDING_STATUSES,
     ...AWAITING_PENDING_STATUSES,
 ];
-const ACTIVE_PENDING_STATUS_SET = new Set<TaskStatus>(ACTIVE_PENDING_STATUSES);
 const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type VoucherDecisionTask = {
@@ -52,32 +56,6 @@ type VoucherDecisionTask = {
     user?: { id?: string; email?: string | null; username?: string | null } | null;
 };
 
-
-function deriveAwaitingDeadline(task: { voucher_response_deadline: string | null; marked_completed_at: string | null }): string | null {
-    if (task.voucher_response_deadline) return task.voucher_response_deadline;
-    if (!task.marked_completed_at) return null;
-
-    const derived = new Date(task.marked_completed_at);
-    if (Number.isNaN(derived.getTime())) return null;
-    derived.setDate(derived.getDate() + 2);
-    derived.setHours(23, 59, 59, 999);
-    return derived.toISOString();
-}
-
-function getPendingDisplayType(status: TaskStatus): VoucherPendingTask["pending_display_type"] {
-    return ACTIVE_PENDING_STATUS_SET.has(status) ? "ACTIVE" : "AWAITING_VOUCHER";
-}
-
-function getPendingDeadline(task: {
-    status: TaskStatus;
-    deadline: string;
-    voucher_response_deadline: string | null;
-    marked_completed_at: string | null;
-}): string | null {
-    return ACTIVE_PENDING_STATUS_SET.has(task.status)
-        ? (task.deadline || null)
-        : deriveAwaitingDeadline(task);
-}
 
 async function applyVoucherDecisionUpdate(
     supabase: SupabaseClient<Database>,
@@ -537,14 +515,14 @@ export async function getCachedPendingVouchRequestsForVoucher(voucherId: string)
                 ...task,
                 pomo_total_seconds: secondsByTask.get(task.id) || 0,
                 completion_proof: proofByTask.get(task.id) || null,
-                pending_display_type: getPendingDisplayType(task.status as TaskStatus),
-                pending_deadline_at: getPendingDeadline({
+                pending_display_type: getVoucherPendingDisplayType(task.status as TaskStatus),
+                pending_deadline_at: deriveVoucherPendingDeadline({
                     status: task.status as TaskStatus,
                     deadline: task.deadline,
                     voucher_response_deadline: task.voucher_response_deadline,
                     marked_completed_at: task.marked_completed_at,
                 }),
-                pending_actionable: (task.status as TaskStatus) === "AWAITING_VOUCHER",
+                pending_actionable: isVoucherPendingActionable(task.status as TaskStatus),
                 proof_request_count: proofRequestCountsByTask.get(task.id) || 0,
             })) as VoucherPendingTask[];
 
