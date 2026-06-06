@@ -160,7 +160,7 @@ export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
     }
 
     if (isSubscribed === null) return null;
-    if (isSubscribed || permission === "denied") return null;
+    if (isSubscribed || permission === "denied" || permission === "granted") return null;
 
     return (
         <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-6">
