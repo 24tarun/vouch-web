@@ -457,7 +457,7 @@ export async function updateUserDefaults(formData: FormData) {
     const deadlineFinalWarningEnabledRaw = formData.get("deadlineFinalWarningEnabled");
     const voucherCanViewActiveTasksEnabledRaw = formData.get("voucherCanViewActiveTasksEnabled");
     const defaultRequiresProofForAllTasksRaw = formData.get("defaultRequiresProofForAllTasks");
-    const mobileNotificationsEnabledRaw = formData.get("mobileNotificationsEnabled");
+    const webNotificationsEnabledRaw = formData.get("webNotificationsEnabled");
     const currencyRaw = formData.get("currency");
     const timezoneRaw = formData.get("timezone");
     const timezoneUserSetRaw = formData.get("timezoneUserSet");
@@ -567,15 +567,15 @@ export async function updateUserDefaults(formData: FormData) {
         }
         voucherCanViewActiveTasksEnabled = voucherCanViewActiveTasksEnabledRaw === "true";
     }
-    let mobileNotificationsEnabled: boolean | undefined;
-    if (mobileNotificationsEnabledRaw != null && mobileNotificationsEnabledRaw !== "") {
-        if (typeof mobileNotificationsEnabledRaw !== "string") {
-            return { error: "Mobile notifications toggle value is invalid." };
+    let webNotificationsEnabled: boolean | undefined;
+    if (webNotificationsEnabledRaw != null && webNotificationsEnabledRaw !== "") {
+        if (typeof webNotificationsEnabledRaw !== "string") {
+            return { error: "Web notifications toggle value is invalid." };
         }
-        if (mobileNotificationsEnabledRaw !== "true" && mobileNotificationsEnabledRaw !== "false") {
-            return { error: "Mobile notifications toggle value is invalid." };
+        if (webNotificationsEnabledRaw !== "true" && webNotificationsEnabledRaw !== "false") {
+            return { error: "Web notifications toggle value is invalid." };
         }
-        mobileNotificationsEnabled = mobileNotificationsEnabledRaw === "true";
+        webNotificationsEnabled = webNotificationsEnabledRaw === "true";
     }
     let defaultRequiresProofForAllTasks: boolean | undefined;
     if (defaultRequiresProofForAllTasksRaw != null && defaultRequiresProofForAllTasksRaw !== "") {
@@ -704,8 +704,8 @@ export async function updateUserDefaults(formData: FormData) {
     if (defaultRequiresProofForAllTasks !== undefined) {
         profileUpdate.default_requires_proof_for_all_tasks = defaultRequiresProofForAllTasks;
     }
-    if (mobileNotificationsEnabled !== undefined) {
-        profileUpdate.mobile_notifications_enabled = mobileNotificationsEnabled;
+    if (webNotificationsEnabled !== undefined) {
+        profileUpdate.web_notifications_enabled = webNotificationsEnabled;
     }
     if (currency !== undefined) {
         profileUpdate.currency = currency;

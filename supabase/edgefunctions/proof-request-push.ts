@@ -207,13 +207,13 @@ Deno.serve(async (request) => {
   } else {
     const { data: recipientProfile } = await adminSupabase
       .from("profiles")
-      .select("mobile_notifications_enabled")
+      .select("web_notifications_enabled")
       .eq("id", recipientUserId)
       .maybeSingle();
 
     const notificationsEnabled =
-      (recipientProfile as { mobile_notifications_enabled?: boolean } | null)
-        ?.mobile_notifications_enabled ?? false;
+      (recipientProfile as { web_notifications_enabled?: boolean } | null)
+        ?.web_notifications_enabled ?? false;
 
     if (!notificationsEnabled) {
       results.webPush = { success: true, skipped: true, reason: "disabled_by_user" };

@@ -22,7 +22,7 @@ export interface BuildDefaultsFormDataInput {
     deadlineFinalWarningEnabled: boolean;
     voucherCanViewActiveTasksEnabled: boolean;
     defaultRequiresProofForAllTasks: boolean;
-    mobileNotificationsEnabled: boolean;
+    webNotificationsEnabled: boolean;
     currency: SupportedCurrency;
     timeZone: string;
     timeZoneUserSet: boolean;
@@ -40,7 +40,7 @@ export function buildDefaultsFormData(input: BuildDefaultsFormDataInput): FormDa
     formData.append("deadlineFinalWarningEnabled", String(input.deadlineFinalWarningEnabled));
     formData.append("voucherCanViewActiveTasksEnabled", String(input.voucherCanViewActiveTasksEnabled));
     formData.append("defaultRequiresProofForAllTasks", String(input.defaultRequiresProofForAllTasks));
-    formData.append("mobileNotificationsEnabled", String(input.mobileNotificationsEnabled));
+    formData.append("webNotificationsEnabled", String(input.webNotificationsEnabled));
     formData.append("currency", input.currency);
     formData.append("timezone", input.timeZone);
     formData.append("timezoneUserSet", String(input.timeZoneUserSet));

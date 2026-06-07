@@ -147,11 +147,11 @@ export default function SettingsClient({
     const [defaultRequiresProofForAllTasks, setDefaultRequiresProofForAllTasks] = useState(
         profile.default_requires_proof_for_all_tasks ?? false
     );
-    const [mobileNotificationsEnabled, setMobileNotificationsEnabled] = useState(
-        profile.mobile_notifications_enabled ?? false
+    const [webNotificationsEnabled, setWebNotificationsEnabled] = useState(
+        profile.web_notifications_enabled ?? false
     );
-    const [isMobileNotificationsLoading, setIsMobileNotificationsLoading] = useState(false);
-    const [mobileNotificationsError, setMobileNotificationsError] = useState<string | null>(null);
+    const [isWebNotificationsLoading, setIsWebNotificationsLoading] = useState(false);
+    const [webNotificationsError, setWebNotificationsError] = useState<string | null>(null);
     const [isTestPushLoading, setIsTestPushLoading] = useState(false);
     const [testPushStatusMessage, setTestPushStatusMessage] = useState<string | null>(null);
     const [testPushStatusKind, setTestPushStatusKind] = useState<"success" | "error" | null>(null);
@@ -204,7 +204,7 @@ export default function SettingsClient({
             "Notification" in window
         );
     }, []);
-    const canEnableMobileNotifications = VAPID_PUBLIC_KEY.length > 0 && pushApiSupported;
+    const canEnableWebNotifications = VAPID_PUBLIC_KEY.length > 0 && pushApiSupported;
     const deviceTimeZone = useMemo(
         () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         []
@@ -238,7 +238,7 @@ export default function SettingsClient({
                 deadlineFinalWarningEnabled,
                 voucherCanViewActiveTasksEnabled,
                 defaultRequiresProofForAllTasks,
-                mobileNotificationsEnabled,
+                webNotificationsEnabled,
                 currency,
                 timeZone,
                 timeZoneUserSet,
@@ -254,7 +254,7 @@ export default function SettingsClient({
             deadlineFinalWarningEnabled,
             voucherCanViewActiveTasksEnabled,
             defaultRequiresProofForAllTasks,
-            mobileNotificationsEnabled,
+            webNotificationsEnabled,
             currency,
             timeZone,
             timeZoneUserSet,
@@ -382,11 +382,11 @@ export default function SettingsClient({
         }
     }
 
-    async function handleMobileNotificationsToggle(nextEnabled: boolean) {
-        if (isMobileNotificationsLoading) return;
+    async function handleWebNotificationsToggle(nextEnabled: boolean) {
+        if (isWebNotificationsLoading) return;
 
-        setIsMobileNotificationsLoading(true);
-        setMobileNotificationsError(null);
+        setIsWebNotificationsLoading(true);
+        setWebNotificationsError(null);
 
         try {
             if (!nextEnabled) {
@@ -399,23 +399,23 @@ export default function SettingsClient({
                         await existingSubscription.unsubscribe();
                     }
                 }
-                setMobileNotificationsEnabled(false);
+                setWebNotificationsEnabled(false);
                 return;
             }
 
             if (!VAPID_PUBLIC_KEY) {
-                setMobileNotificationsError("Push is not configured. Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY.");
+                setWebNotificationsError("Push is not configured. Missing NEXT_PUBLIC_VAPID_PUBLIC_KEY.");
                 return;
             }
 
             if (!pushApiSupported) {
-                setMobileNotificationsError("This browser does not support Web Push in the current mode.");
+                setWebNotificationsError("This browser does not support Web Push in the current mode.");
                 return;
             }
 
             const permission = await Notification.requestPermission();
             if (permission !== "granted") {
-                setMobileNotificationsError(
+                setWebNotificationsError(
                     permission === "denied"
                         ? "Notification permission denied. Enable notifications in browser settings."
                         : "Notification permission request was dismissed."
@@ -432,13 +432,13 @@ export default function SettingsClient({
             try {
                 applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
             } catch {
-                setMobileNotificationsError(
+                setWebNotificationsError(
                     "NEXT_PUBLIC_VAPID_PUBLIC_KEY is malformed. Regenerate VAPID keys and redeploy."
                 );
                 return;
             }
             if (!isLikelyValidVapidPublicKey(applicationServerKey)) {
-                setMobileNotificationsError(
+                setWebNotificationsError(
                     "NEXT_PUBLIC_VAPID_PUBLIC_KEY is invalid (expected a 65-byte uncompressed key)."
                 );
                 return;
@@ -452,26 +452,26 @@ export default function SettingsClient({
             const serialized = JSON.parse(JSON.stringify(subscription));
             const result = await saveSubscription(serialized);
             if (!result.success) {
-                setMobileNotificationsError(result.error ?? "Could not save push subscription.");
+                setWebNotificationsError(result.error ?? "Could not save push subscription.");
                 return;
             }
 
-            setMobileNotificationsEnabled(true);
+            setWebNotificationsEnabled(true);
         } catch (error) {
             console.error(error);
             if (error instanceof DOMException && error.name === "AbortError") {
-                setMobileNotificationsError(
+                setWebNotificationsError(
                     "Push registration failed. Check VAPID key pair/environment variables and browser push service availability."
                 );
                 return;
             }
-            setMobileNotificationsError(
+            setWebNotificationsError(
                 error instanceof Error && error.message
                     ? error.message
                     : "Could not update web push notification setting."
             );
         } finally {
-            setIsMobileNotificationsLoading(false);
+            setIsWebNotificationsLoading(false);
         }
     }
 
@@ -582,7 +582,7 @@ export default function SettingsClient({
                     deadlineFinalWarningEnabled,
                     voucherCanViewActiveTasksEnabled,
                     defaultRequiresProofForAllTasks,
-                    mobileNotificationsEnabled,
+                    webNotificationsEnabled,
                     currency,
                     timeZone,
                     timeZoneUserSet,
@@ -1296,11 +1296,11 @@ export default function SettingsClient({
                     <div className="py-3">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
-                                <Label htmlFor="mobileNotificationsEnabled" className="text-slate-200">
+                                <Label htmlFor="webNotificationsEnabled" className="text-slate-200">
                                     Enable web push notifications
                                 </Label>
-                                {mobileNotificationsError && (
-                                    <p className="text-xs text-red-400">{mobileNotificationsError}</p>
+                                {webNotificationsError && (
+                                    <p className="text-xs text-red-400">{webNotificationsError}</p>
                                 )}
                                 <div className="pt-2 flex items-center gap-3">
                                     <Button
@@ -1308,8 +1308,8 @@ export default function SettingsClient({
                                         onClick={handleSendTestPush}
                                         disabled={
                                             isTestPushLoading ||
-                                            isMobileNotificationsLoading ||
-                                            !mobileNotificationsEnabled
+                                            isWebNotificationsLoading ||
+                                            !webNotificationsEnabled
                                         }
                                         className="h-8 px-3 text-xs bg-slate-800 text-slate-100 hover:bg-slate-700 disabled:opacity-60"
                                     >
@@ -1329,13 +1329,13 @@ export default function SettingsClient({
                                 </div>
                             </div>
                             <GlassToggle
-                                id="mobileNotificationsEnabled"
-                                checked={mobileNotificationsEnabled}
+                                id="webNotificationsEnabled"
+                                checked={webNotificationsEnabled}
                                 disabled={
-                                    isMobileNotificationsLoading ||
-                                    (!mobileNotificationsEnabled && !canEnableMobileNotifications)
+                                    isWebNotificationsLoading ||
+                                    (!webNotificationsEnabled && !canEnableWebNotifications)
                                 }
-                                onChange={handleMobileNotificationsToggle}
+                                onChange={handleWebNotificationsToggle}
                             />
                         </div>
                     </div>

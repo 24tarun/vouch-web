@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles RENAME COLUMN mobile_notifications_enabled TO web_notifications_enabled;

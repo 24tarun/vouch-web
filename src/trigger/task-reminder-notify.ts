@@ -192,7 +192,6 @@ async function processDueTaskReminders(
                         text: `Reminder for "${task.title}".`,
                         email: false,
                         push: true,
-                        pushChannels: ["web"],
                         url: `/tasks/${task.id}`,
                         tag: `task-reminder-${reminder.id}`,
                         data: {
@@ -220,7 +219,6 @@ async function processDueTaskReminders(
                         text,
                         email: false,
                         push: true,
-                        pushChannels: ["web"],
                         url: `/tasks/${task.id}`,
                         tag: `deadline-reminder-${reminder.id}`,
                         data: {

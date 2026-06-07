@@ -26,7 +26,7 @@ test("buildDefaultsFormData writes expected server keys", () => {
         deadlineFinalWarningEnabled: true,
         voucherCanViewActiveTasksEnabled: false,
         defaultRequiresProofForAllTasks: false,
-        mobileNotificationsEnabled: false,
+        webNotificationsEnabled: false,
         currency: "EUR",
         timeZone: "UTC",
         timeZoneUserSet: true,

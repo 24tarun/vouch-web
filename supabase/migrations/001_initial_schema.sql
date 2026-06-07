@@ -526,7 +526,7 @@ CREATE TABLE public.profiles (
   lifetime_xp                       integer     NOT NULL DEFAULT 0,
   display_xp_bar_on_dashboard       boolean     NOT NULL DEFAULT false,
   display_rp_bar_on_dashboard       boolean     NOT NULL DEFAULT true,
-  mobile_notifications_enabled      boolean     NOT NULL DEFAULT false,
+  web_notifications_enabled          boolean     NOT NULL DEFAULT false,
   abandoned_commitments_count       integer     NOT NULL DEFAULT 0,
   ai_friend_opt_in                  boolean     NOT NULL DEFAULT false,
   CONSTRAINT profiles_pkey PRIMARY KEY (id),

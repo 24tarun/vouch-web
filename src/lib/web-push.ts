@@ -72,7 +72,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     const supabase = createAdminClient();
     const { data: profileData, error: profileError } = await supabase
         .from("profiles")
-        .select("mobile_notifications_enabled")
+        .select("web_notifications_enabled")
         .eq("id", userId)
         .maybeSingle();
 
@@ -88,9 +88,9 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
         };
     }
 
-    const mobileNotificationsEnabled =
-        ((profileData as { mobile_notifications_enabled?: boolean } | null)?.mobile_notifications_enabled ?? false);
-    if (!mobileNotificationsEnabled) {
+    const webNotificationsEnabled =
+        ((profileData as { web_notifications_enabled?: boolean } | null)?.web_notifications_enabled ?? false);
+    if (!webNotificationsEnabled) {
         return {
             success: true,
             total: 0,
