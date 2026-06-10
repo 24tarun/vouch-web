@@ -200,3 +200,55 @@ test("friends page buckets active voucher tasks away from actionable pending req
     assert.deepEqual(activeTasks.map((task) => task.id), ["active-task"]);
     assert.deepEqual(actionablePendingTasks.map((task) => task.id), ["awaiting-task"]);
 });
+
+test("active voucher row reuses pending row layout without review action buttons", () => {
+    const deadlineIso = "2026-03-13T18:00:00.000Z";
+    const expectedDeadlineLabel = new Date(deadlineIso).toLocaleString("en-GB", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    });
+    const activeTask = buildPendingTask({
+        id: "active-task",
+        title: "Testing active row",
+        status: "ACTIVE",
+        deadline: deadlineIso,
+        marked_completed_at: null,
+        voucher_response_deadline: null,
+        pending_display_type: "ACTIVE",
+        pending_deadline_at: deadlineIso,
+        pending_actionable: false,
+    });
+
+    const view = render(
+        <CompactPendingItem
+            task={activeTask}
+            onAccept={() => { }}
+            onDeny={() => { }}
+            onRequestProof={() => { }}
+            isLoading={false}
+        />
+    );
+
+    /*
+     * What and why this test checks:
+     * This locks the ACTIVE row UI to the normal friends-page task row while suppressing voucher
+     * review controls that only make sense for awaiting-voucher tasks.
+     *
+     * Passing scenario:
+     * The active task title, ACTIVE badge, and task deadline render, but accept/deny/proof actions are absent.
+     *
+     * Failing scenario:
+     * If the deadline is missing or action buttons render for active tasks, vouchers cannot track the
+     * owner's completion window or can try to review work that is not ready.
+     */
+    assert.ok(view.getByText("Testing active row"));
+    assert.ok(view.getByText("ACTIVE"));
+    assert.ok(view.getByText(expectedDeadlineLabel));
+    assert.equal(view.queryByLabelText("Accept task Testing active row"), null);
+    assert.equal(view.queryByLabelText("Deny task Testing active row"), null);
+    assert.equal(view.queryByLabelText("Request proof for task Testing active row"), null);
+});
