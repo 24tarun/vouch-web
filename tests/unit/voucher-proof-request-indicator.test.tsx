@@ -7,6 +7,8 @@ import { cleanup, render } from "@testing-library/react";
 import {
     CompactPendingItem,
     applyProofRequestSuccessToPendingTasks,
+    getVoucherActionablePendingTasks,
+    getVoucherActiveTasks,
 } from "../../src/app/(app)/voucher/voucher-dashboard-client";
 import type { VoucherPendingTask } from "../../src/lib/types";
 
@@ -162,4 +164,39 @@ test("proof-request success patch opens request state and increments per-task co
     assert.equal(after[0]?.proof_request_count, 2);
     assert.equal(after[1]?.proof_request_count, 0);
     assert.equal(after[1]?.proof_request_open, false);
+});
+
+test("friends page buckets active voucher tasks away from actionable pending requests", () => {
+    const activeTask = buildPendingTask({
+        id: "active-task",
+        status: "ACTIVE",
+        marked_completed_at: null,
+        voucher_response_deadline: null,
+        pending_display_type: "ACTIVE",
+        pending_deadline_at: "2026-03-13T18:00:00.000Z",
+        pending_actionable: false,
+    });
+    const awaitingTask = buildPendingTask({
+        id: "awaiting-task",
+        status: "AWAITING_VOUCHER",
+        pending_display_type: "AWAITING_VOUCHER",
+        pending_actionable: true,
+    });
+
+    const activeTasks = getVoucherActiveTasks([activeTask, awaitingTask]);
+    const actionablePendingTasks = getVoucherActionablePendingTasks([activeTask, awaitingTask]);
+
+    /*
+     * What and why this test checks:
+     * This protects the friends page layout contract: active voucher-assigned tasks are activity,
+     * while only awaiting-voucher rows belong in the actionable Pending list.
+     *
+     * Passing scenario:
+     * The active task appears only in the activity bucket, and the awaiting task appears only in Pending.
+     *
+     * Failing scenario:
+     * If active tasks remain in Pending, vouchers see ordinary active work as something to approve.
+     */
+    assert.deepEqual(activeTasks.map((task) => task.id), ["active-task"]);
+    assert.deepEqual(actionablePendingTasks.map((task) => task.id), ["awaiting-task"]);
 });

@@ -105,6 +105,14 @@ export function applyProofRequestSuccessToPendingTasks(
     );
 }
 
+export function getVoucherActiveTasks(tasks: VoucherPendingTask[]): VoucherPendingTask[] {
+    return tasks.filter((task) => task.pending_display_type === "ACTIVE");
+}
+
+export function getVoucherActionablePendingTasks(tasks: VoucherPendingTask[]): VoucherPendingTask[] {
+    return tasks.filter((task) => task.pending_actionable);
+}
+
 export default function VoucherDashboardClient({
     pendingTasks,
     workingFriends = [],
@@ -448,6 +456,10 @@ export default function VoucherDashboardClient({
         setTaskInFlight(taskId, false);
     }
 
+    const activeTasks = getVoucherActiveTasks(pendingState);
+    const actionablePendingTasks = getVoucherActionablePendingTasks(pendingState);
+    const hasFriendActivity = workingFriends.length > 0 || activeTasks.length > 0;
+
     return (
         <div className="max-w-4xl mx-auto space-y-12 pb-20 px-4 md:px-0">
             <TaskDetailPrefetcher tasks={pendingState} />
@@ -459,7 +471,7 @@ export default function VoucherDashboardClient({
             </div>
 
             <section className="space-y-3">
-                {workingFriends.length > 0 ? (
+                {hasFriendActivity ? (
                     <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3">
                         <div className="space-y-2">
                             {workingFriends.map((friend) => (
@@ -474,6 +486,9 @@ export default function VoucherDashboardClient({
                                     </span>
                                 </p>
                             ))}
+                            {activeTasks.map((task) => (
+                                <ActiveVoucherTaskActivity key={task.id} task={task} />
+                            ))}
                         </div>
                     </div>
                 ) : (
@@ -485,11 +500,11 @@ export default function VoucherDashboardClient({
                 <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
                     Pending
                 </h2>
-                {pendingState.length === 0 ? (
+                {actionablePendingTasks.length === 0 ? (
                     <p className="text-xl font-semibold text-slate-500">No pending requests</p>
                 ) : (
                     <div className="flex flex-col" ref={pendingListRef}>
-                        {pendingState.map((task) => (
+                        {actionablePendingTasks.map((task) => (
                             <CompactPendingItem
                                 key={task.id}
                                 task={task}
@@ -555,6 +570,41 @@ export default function VoucherDashboardClient({
                     </div>
                 )}
             </section>
+        </div>
+    );
+}
+
+function ActiveVoucherTaskActivity({ task }: { task: VoucherPendingTask }) {
+    const deadline = new Date(task.deadline || "");
+    const deadlineLabel = Number.isNaN(deadline.getTime())
+        ? null
+        : deadline.toLocaleString("en-GB", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+        });
+
+    return (
+        <div className="flex items-start gap-2 text-sm text-cyan-100">
+            <Timer className="mt-0.5 h-4 w-4 shrink-0 text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.45)]" />
+            <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="break-words font-semibold text-cyan-50">{task.title}</span>
+                    <TaskStatusBadge status="ACTIVE" className="font-medium tracking-normal" />
+                    {deadlineLabel && (
+                        <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-0.5 text-xs font-mono text-cyan-200">
+                            {deadlineLabel}
+                        </span>
+                    )}
+                </div>
+                <p className="mt-1 text-xs text-cyan-200/80">
+                    <span className="font-medium text-purple-200">{task.user?.username || "Unknown"}</span>{" "}
+                    has this active task assigned to you as voucher
+                </p>
+            </div>
         </div>
     );
 }
