@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath, unstable_cache } from "next/cache";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
 import { sendNotification } from "@/lib/notifications";
@@ -8,7 +8,6 @@ import { type Database, type VoucherPendingTask } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-    pendingVoucherRequestsTag,
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
 } from "@/lib/cache-tags";
@@ -429,113 +428,102 @@ export async function authorizeRectify(taskId: string) {
     return { success: true };
 }
 
-export async function getCachedPendingVouchRequestsForVoucher(voucherId: string): Promise<VoucherPendingTask[]> {
+export async function getPendingVouchRequestsForVoucher(voucherId: string): Promise<VoucherPendingTask[]> {
     if (!voucherId) return [];
 
-    const loadPendingRequests = unstable_cache(
-        async () => {
-            const supabaseAdmin = createAdminClient();
-            // @ts-ignore
-            const { data: tasks } = await (supabaseAdmin.from("tasks") as any)
-                .select(`
-                    id,
-                    user_id,
-                    voucher_id,
-                    title,
-                    description,
-                    deadline,
-                    status,
-                    marked_completed_at,
-                    voucher_response_deadline,
-                    failure_cost_cents,
-                    requires_proof,
-                    recurrence_rule_id,
-                    created_at,
-                    updated_at,
-                    google_sync_for_task,
-                    google_event_start_at,
-                    google_event_end_at,
-                    google_event_color_id,
-                    has_proof,
-                    proof_request_open,
-                    proof_requested_at,
-                    proof_requested_by,
-                    user:profiles!tasks_user_id_fkey(id, username, voucher_can_view_active_tasks)
-                `)
-                .eq("voucher_id", voucherId as any)
-                .neq("user_id", voucherId as any)
-                .in("status", PENDING_VOUCH_REQUEST_STATUSES as any)
-                .order("updated_at", { ascending: false });
+    const supabaseAdmin = createAdminClient();
+    // @ts-ignore
+    const { data: tasks } = await (supabaseAdmin.from("tasks") as any)
+        .select(`
+            id,
+            user_id,
+            voucher_id,
+            title,
+            description,
+            deadline,
+            status,
+            marked_completed_at,
+            voucher_response_deadline,
+            failure_cost_cents,
+            requires_proof,
+            recurrence_rule_id,
+            created_at,
+            updated_at,
+            google_sync_for_task,
+            google_event_start_at,
+            google_event_end_at,
+            google_event_color_id,
+            has_proof,
+            proof_request_open,
+            proof_requested_at,
+            proof_requested_by,
+            user:profiles!tasks_user_id_fkey(id, username, voucher_can_view_active_tasks)
+        `)
+        .eq("voucher_id", voucherId as any)
+        .neq("user_id", voucherId as any)
+        .in("status", PENDING_VOUCH_REQUEST_STATUSES as any)
+        .order("updated_at", { ascending: false });
 
-            const pendingTasks = ((tasks as any[]) || []).filter((task) =>
-                canVoucherSeeTask({
-                    status: task.status as TaskStatus,
-                    deadline: task.deadline,
-                    user: task.user as { voucher_can_view_active_tasks?: boolean } | null,
-                })
-            );
-            if (pendingTasks.length === 0) return [];
-
-            const taskIds = pendingTasks.map((task) => task.id);
-            const ownerIds = [...new Set(pendingTasks.map((task) => task.user_id))];
-
-            const [{ data: sessions }, { data: proofs }, { data: proofEvents }] = await Promise.all([
-                // @ts-ignore
-                (supabaseAdmin.from("pomo_sessions") as any)
-                    .select("task_id, elapsed_seconds")
-                    .in("task_id", taskIds as any)
-                    .in("user_id", ownerIds as any)
-                    .neq("status", "DELETED"),
-                // @ts-ignore
-                (supabaseAdmin.from("task_completion_proofs") as any)
-                    .select("task_id, media_kind, mime_type, size_bytes, duration_ms, overlay_timestamp_text, upload_state, updated_at")
-                    .in("task_id", taskIds as any)
-                    .eq("upload_state", "UPLOADED"),
-                // @ts-ignore
-                (supabaseAdmin.from("task_events") as any)
-                    .select("task_id")
-                    .in("task_id", taskIds as any)
-                    .eq("event_type", "PROOF_REQUESTED"),
-            ]);
-
-            const secondsByTask = new Map<string, number>();
-            for (const row of (sessions as any[]) || []) {
-                const key = row.task_id as string;
-                const total = secondsByTask.get(key) || 0;
-                secondsByTask.set(key, total + (row.elapsed_seconds || 0));
-            }
-
-            const proofByTask = new Map<string, any>();
-            for (const row of (proofs as any[]) || []) {
-                proofByTask.set(row.task_id as string, row);
-            }
-            const proofRequestCountsByTask = buildProofRequestCountByTaskId((proofEvents as ProofRequestEventRow[]) || []);
-
-            const normalizedTasks = pendingTasks.map((task) => ({
-                ...task,
-                pomo_total_seconds: secondsByTask.get(task.id) || 0,
-                completion_proof: proofByTask.get(task.id) || null,
-                pending_display_type: getVoucherPendingDisplayType(task.status as TaskStatus),
-                pending_deadline_at: deriveVoucherPendingDeadline({
-                    status: task.status as TaskStatus,
-                    deadline: task.deadline,
-                    voucher_response_deadline: task.voucher_response_deadline,
-                    marked_completed_at: task.marked_completed_at,
-                }),
-                pending_actionable: isVoucherPendingActionable(task.status as TaskStatus),
-                proof_request_count: proofRequestCountsByTask.get(task.id) || 0,
-            })) as VoucherPendingTask[];
-
-            return sortPendingTasks(normalizedTasks);
-        },
-        ["pending-vouch-requests", voucherId],
-        {
-            tags: [pendingVoucherRequestsTag(voucherId)],
-            revalidate: 300,
-        }
+    const pendingTasks = ((tasks as any[]) || []).filter((task) =>
+        canVoucherSeeTask({
+            status: task.status as TaskStatus,
+            deadline: task.deadline,
+            user: task.user as { voucher_can_view_active_tasks?: boolean } | null,
+        })
     );
+    if (pendingTasks.length === 0) return [];
 
-    return loadPendingRequests();
+    const taskIds = pendingTasks.map((task) => task.id);
+    const ownerIds = [...new Set(pendingTasks.map((task) => task.user_id))];
+
+    const [{ data: sessions }, { data: proofs }, { data: proofEvents }] = await Promise.all([
+        // @ts-ignore
+        (supabaseAdmin.from("pomo_sessions") as any)
+            .select("task_id, elapsed_seconds")
+            .in("task_id", taskIds as any)
+            .in("user_id", ownerIds as any)
+            .neq("status", "DELETED"),
+        // @ts-ignore
+        (supabaseAdmin.from("task_completion_proofs") as any)
+            .select("task_id, media_kind, mime_type, size_bytes, duration_ms, overlay_timestamp_text, upload_state, updated_at")
+            .in("task_id", taskIds as any)
+            .eq("upload_state", "UPLOADED"),
+        // @ts-ignore
+        (supabaseAdmin.from("task_events") as any)
+            .select("task_id")
+            .in("task_id", taskIds as any)
+            .eq("event_type", "PROOF_REQUESTED"),
+    ]);
+
+    const secondsByTask = new Map<string, number>();
+    for (const row of (sessions as any[]) || []) {
+        const key = row.task_id as string;
+        const total = secondsByTask.get(key) || 0;
+        secondsByTask.set(key, total + (row.elapsed_seconds || 0));
+    }
+
+    const proofByTask = new Map<string, any>();
+    for (const row of (proofs as any[]) || []) {
+        proofByTask.set(row.task_id as string, row);
+    }
+    const proofRequestCountsByTask = buildProofRequestCountByTaskId((proofEvents as ProofRequestEventRow[]) || []);
+
+    const normalizedTasks = pendingTasks.map((task) => ({
+        ...task,
+        pomo_total_seconds: secondsByTask.get(task.id) || 0,
+        completion_proof: proofByTask.get(task.id) || null,
+        pending_display_type: getVoucherPendingDisplayType(task.status as TaskStatus),
+        pending_deadline_at: deriveVoucherPendingDeadline({
+            status: task.status as TaskStatus,
+            deadline: task.deadline,
+            voucher_response_deadline: task.voucher_response_deadline,
+            marked_completed_at: task.marked_completed_at,
+        }),
+        pending_actionable: isVoucherPendingActionable(task.status as TaskStatus),
+        proof_request_count: proofRequestCountsByTask.get(task.id) || 0,
+    })) as VoucherPendingTask[];
+
+    return sortPendingTasks(normalizedTasks);
 }
 
 export async function getPendingVouchRequests(): Promise<VoucherPendingTask[]> {
@@ -546,7 +534,7 @@ export async function getPendingVouchRequests(): Promise<VoucherPendingTask[]> {
 
     if (!user) return [];
 
-    return getCachedPendingVouchRequestsForVoucher(user.id);
+    return getPendingVouchRequestsForVoucher(user.id);
 }
 
 const FINAL_HISTORY_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];

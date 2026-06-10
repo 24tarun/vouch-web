@@ -116,6 +116,36 @@ test("voucher active-task visibility excludes overdue and hidden-owner tasks", (
     );
 });
 
+test("voucher sees opted-in active tasks due tomorrow", () => {
+    const reference = buildReferenceNow();
+
+    /*
+     * What and why this test checks:
+     * This verifies the voucher-facing active-task filter uses the same today/tomorrow
+     * window as the dashboard and mobile friends page.
+     *
+     * Passing scenario:
+     * A task assigned to this voucher with tomorrow's deadline is visible when the owner
+     * enabled active-task sharing.
+     *
+     * Failing scenario:
+     * If this task is hidden, vouchers can miss newly assigned active work until it becomes
+     * due today, which makes the friends page appear stale or empty.
+     */
+    assert.equal(
+        canVoucherSeeTask(
+            {
+                ...buildTask("tomorrow-active", {
+                    deadline: toLocalIso(2026, 5, 2, 18, 0),
+                }),
+                user: { voucher_can_view_active_tasks: true },
+            },
+            reference
+        ),
+        true
+    );
+});
+
 test("voucher still sees awaiting-voucher tasks regardless of the active-task window", () => {
     const reference = buildReferenceNow();
 
