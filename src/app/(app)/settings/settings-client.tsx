@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { GlassToggle } from "@/components/GlassToggle";
 import { deleteAccount, getActiveVoucherTasks, updateUserDefaults, updateUsername } from "@/actions/auth";
 import { exportUserData } from "@/actions/export";
@@ -1564,6 +1565,18 @@ export default function SettingsClient({
                         </Select>
                     </div>
                 ) : null}
+            </section>
+
+            <section className="pb-8">
+                <Link
+                    href="/privacy-policy"
+                    className="flex items-center justify-between gap-4 border-b border-slate-900 py-3 text-slate-200 transition-colors hover:text-white"
+                >
+                    <span className="font-medium">Privacy Policy</span>
+                    <span aria-hidden="true" className="text-slate-500">
+                        &rarr;
+                    </span>
+                </Link>
             </section>
 
             <DeleteAccountModal
