@@ -228,19 +228,8 @@ export function StatsPomoBadge({ totalSeconds }: StatsPomoBadgeProps) {
     );
 }
 
-const HISTORY_STATUS_TEXT_CLASS_BY_STATUS: Record<string, string> = {
-    ACCEPTED: "text-lime-300",
-    AUTO_ACCEPTED: "text-lime-300",
-    AI_ACCEPTED: "text-lime-300",
-    DENIED: "text-[#dc322f]",
-    MISSED: "text-[#dc322f]",
-    RECTIFIED: "text-[#cb4b16]",
-    SETTLED: "text-[#F2C7D0]",
-    DELETED: "text-slate-500",
-};
-
-function getHistoryTaskStatusTextClass(status: string): string {
-    return HISTORY_STATUS_TEXT_CLASS_BY_STATUS[status] || "text-slate-400";
+function getHistoryTaskStatusBadgeClass(status: string): string {
+    return TASK_STATUS_BADGE_CLASS_BY_STATUS[status as TaskStatus] || "bg-slate-600/30 text-slate-300 border border-slate-600/40";
 }
 
 interface HistoryTaskStatusBadgeProps {
@@ -251,11 +240,24 @@ export function HistoryTaskStatusBadge({ status }: HistoryTaskStatusBadgeProps) 
     return (
         <CorePill
             className={cn(
-                "text-[10px] h-[13px] py-0 px-0.5 border-slate-800",
-                getHistoryTaskStatusTextClass(status)
+                TASK_STATUS_BADGE_SIZE_CLASS,
+                getHistoryTaskStatusBadgeClass(status),
+                "font-medium tracking-normal"
             )}
         >
             {status === "AUTO_ACCEPTED" ? "VOUCHER DID NOT RESPOND" : status}
+        </CorePill>
+    );
+}
+
+interface HistoryTaskDateBadgeProps {
+    dateLabel: string;
+}
+
+export function HistoryTaskDateBadge({ dateLabel }: HistoryTaskDateBadgeProps) {
+    return (
+        <CorePill className={`bg-purple-500/10 text-purple-400 border-purple-500/30 text-[10px] ${responsiveBadgeSizeClass}`}>
+            {dateLabel}
         </CorePill>
     );
 }

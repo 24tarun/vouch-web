@@ -5,12 +5,13 @@ import { JSDOM } from "jsdom";
 import React from "react";
 import { cleanup, render } from "@testing-library/react";
 import {
+    CompactHistoryItem,
     CompactPendingItem,
     applyProofRequestSuccessToPendingTasks,
     getVoucherActionablePendingTasks,
     getVoucherActiveTasks,
 } from "../../src/app/(app)/voucher/voucher-dashboard-client";
-import type { VoucherPendingTask } from "../../src/lib/types";
+import type { Profile, VoucherPendingTask } from "../../src/lib/types";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
 
@@ -64,6 +65,31 @@ function buildPendingTask(overrides: Partial<VoucherPendingTask> = {}): VoucherP
         pending_deadline_at: "2026-03-15T23:59:59.999Z",
         pending_actionable: true,
         proof_request_count: 0,
+        ...overrides,
+    };
+}
+
+function buildProfile(overrides: Partial<Profile> = {}): Profile {
+    return {
+        id: "owner-1",
+        email: "owner@example.com",
+        username: "owner",
+        currency: "EUR",
+        default_pomo_duration_minutes: 25,
+        default_event_duration_minutes: 60,
+        default_failure_cost_cents: 100,
+        default_voucher_id: null,
+        default_requires_proof_for_all_tasks: false,
+        strict_pomo_enabled: false,
+        deadline_one_hour_warning_enabled: true,
+        deadline_final_warning_enabled: true,
+        voucher_can_view_active_tasks: true,
+        charity_enabled: false,
+        selected_charity_id: null,
+        timezone: "UTC",
+        timezone_user_set: false,
+        hide_tips: false,
+        created_at: "2026-03-13T10:00:00.000Z",
         ...overrides,
     };
 }
@@ -251,4 +277,49 @@ test("active voucher row reuses pending row layout without review action buttons
     assert.equal(view.queryByLabelText("Accept task Testing active row"), null);
     assert.equal(view.queryByLabelText("Deny task Testing active row"), null);
     assert.equal(view.queryByLabelText("Request proof for task Testing active row"), null);
+});
+
+test("vouched history row keeps title separate and renders status/date as pills", () => {
+    const updatedAtIso = "2026-06-11T12:00:00.000Z";
+    const expectedDateLabel = new Date(updatedAtIso).toLocaleDateString();
+    const historyTask: VoucherPendingTask = {
+        ...buildPendingTask({
+            id: "history-task",
+            title: "Finished task",
+            status: "ACCEPTED",
+            updated_at: updatedAtIso,
+        }),
+        user: buildProfile({ username: "madhu" }),
+    };
+
+    const view = render(
+        <CompactHistoryItem
+            task={historyTask}
+            onRectify={() => { }}
+            isLoading={false}
+        />
+    );
+
+    /*
+     * What and why this test checks:
+     * This protects the Vouched row layout: the task title should occupy its own line, while the
+     * username, terminal status, and history date sit together in the meta row as pill-style items.
+     *
+     * Passing scenario:
+     * The title element contains only the title, and the ACCEPTED status plus date both render as badges
+     * in the following meta row.
+     *
+     * Failing scenario:
+     * If the status returns to the title line or the date becomes plain text, Vouched rows visually
+     * diverge from the active task rows on the Friends page.
+     */
+    const titleElement = view.getByText("Finished task");
+    const metaRow = titleElement.nextElementSibling;
+    const statusBadge = view.getByText("ACCEPTED").closest("[data-slot='badge']");
+    const dateBadge = view.getByText(expectedDateLabel).closest("[data-slot='badge']");
+
+    assert.equal(titleElement.textContent, "Finished task");
+    assert.ok(metaRow?.textContent?.includes("madhu"));
+    assert.equal(statusBadge?.parentElement, metaRow);
+    assert.equal(dateBadge?.parentElement, metaRow);
 });

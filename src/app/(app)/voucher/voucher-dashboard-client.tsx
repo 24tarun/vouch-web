@@ -27,6 +27,7 @@ import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
 import { useCollapsibleSection } from "@/lib/ui/useCollapsibleSection";
 import {
     TaskStatusBadge,
+    HistoryTaskDateBadge,
     HistoryTaskStatusBadge,
     VoucherDeadlineBadge,
     VoucherPomoAccumulatedBadge,
@@ -805,7 +806,7 @@ export function CompactPendingItem({
     );
 }
 
-function CompactHistoryItem({
+export function CompactHistoryItem({
     task,
     onRectify,
     isLoading,
@@ -819,25 +820,29 @@ function CompactHistoryItem({
     const isRectifiable = task.status === "DENIED" || task.status === "MISSED";
     const withinRectifyWindow = isWithinRectifyWindow(task.updated_at, renderNow);
     const passLimitReached = (task.rectify_passes_used ?? 0) >= 5;
+    const updatedAt = new Date(task.updated_at);
+    const updatedAtLabel = Number.isNaN(updatedAt.getTime())
+        ? "No date"
+        : updatedAt.toLocaleDateString();
+
     return (
-        <div className="group flex items-center gap-3 py-4 border-b border-slate-900/50 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
+        <div className="group flex items-start gap-3 py-4 border-b border-slate-900/50 last:border-0 hover:bg-slate-900/10 -mx-4 px-4 transition-colors">
             <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                    <div
-                        className="block min-w-0 max-w-[58vw] md:max-w-[24rem] overflow-hidden text-ellipsis whitespace-nowrap text-left [direction:ltr] text-base font-medium text-slate-300"
-                        title={task.title}
-                    >
-                        {task.title}
-                    </div>
-                    <HistoryTaskStatusBadge status={task.status} />
+                <div
+                    className="block w-full text-left [direction:ltr] text-base font-medium leading-tight text-slate-300 whitespace-normal break-words"
+                    title={task.title}
+                >
+                    {task.title}
                 </div>
-                <p className="text-xs text-slate-600 mt-1">
-                    <span className="text-purple-300">{task.user?.username || "Unknown"}</span> .{" "}
-                    <span>{new Date(task.updated_at).toLocaleDateString()}</span>
-                </p>
+
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-purple-300">{task.user?.username || "Unknown"}</span>
+                    <HistoryTaskStatusBadge status={task.status} />
+                    <HistoryTaskDateBadge dateLabel={updatedAtLabel} />
+                </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="shrink-0 self-center flex items-center gap-3">
                 {isRectifiable && withinRectifyWindow && (
                     <div className="flex flex-col items-end">
                         <Button

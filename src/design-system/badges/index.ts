@@ -1,6 +1,7 @@
 export {
     ACTIVITY_TIMELINE_META_TEXT_CLASS,
     ActivityEventBadge,
+    HistoryTaskDateBadge,
     HistoryTaskStatusBadge,
     StatsPomoBadge,
     StatsRecurringBadge,
