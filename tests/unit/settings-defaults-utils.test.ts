@@ -24,8 +24,11 @@ test("buildDefaultsFormData writes expected server keys", () => {
         effectiveDefaultVoucherId: "voucher-1",
         deadlineOneHourWarningEnabled: true,
         deadlineFinalWarningEnabled: true,
+        deadlineDueWarningEnabled: true,
         voucherCanViewActiveTasksEnabled: false,
+        alwaysShowActiveTasks: true,
         defaultRequiresProofForAllTasks: false,
+        autoSubmitAfterProofUpload: true,
         webNotificationsEnabled: false,
         currency: "EUR",
         timeZone: "UTC",
@@ -36,6 +39,9 @@ test("buildDefaultsFormData writes expected server keys", () => {
     // Passing scenario: required fields are present with expected values.
     assert.equal(form.get("defaultPomoDurationMinutes"), "25");
     assert.equal(form.get("currency"), "EUR");
+    assert.equal(form.get("autoSubmitAfterProofUpload"), "true");
+    assert.equal(form.get("alwaysShowActiveTasks"), "true");
+    assert.equal(form.get("deadlineDueWarningEnabled"), "true");
     // Failing scenario: a missing contract key would return null and fail this assertion.
     assert.notEqual(form.get("defaultVoucherId"), null);
 });

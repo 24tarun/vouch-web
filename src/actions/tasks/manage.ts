@@ -10,6 +10,7 @@ import {
     canPostponeDailyRecurringTaskToDeadline,
     shouldRestrictDailyPostponeToSameRuleDay,
 } from "@/lib/postpone-daily-recurrence";
+import { DEADLINE_INCLUSIVE_MINUTE_MS, isWithinInclusiveDeadlineMinute } from "@/lib/task-submission-window";
 import {
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
@@ -57,7 +58,10 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         return { error: INVALID_DEADLINE_ERROR };
     }
 
-    if (Date.now() >= currentDeadline.getTime()) {
+    const now = new Date();
+    const activeDeadlineCutoffIso = new Date(now.getTime() - DEADLINE_INCLUSIVE_MINUTE_MS).toISOString();
+
+    if (!isWithinInclusiveDeadlineMinute(currentDeadline, now)) {
         return { error: "Deadline has passed" };
     }
     if (!canTransition((task as any).status as TaskStatus, "POSTPONE")) {
@@ -106,14 +110,14 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         .update({
             status: "POSTPONED",
             deadline: newDeadlineDate.toISOString(),
-            postponed_at: new Date().toISOString(),
+            postponed_at: now.toISOString(),
         } as any)
         .eq("id", (taskId as any))
         .eq("user_id", user.id)
         .eq("status", expectedStatus as any)
         .eq("deadline", currentDeadlineIso as any)
         .is("postponed_at", null)
-        .gt("deadline", new Date().toISOString() as any)
+        .gt("deadline", activeDeadlineCutoffIso as any)
         .select("id");
 
     if (error) {

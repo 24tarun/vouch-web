@@ -166,6 +166,7 @@ const ACTIVITY_STEPPER_EVENTS: { eventType: string; elapsedSeconds?: number }[] 
     { eventType: "POMO_COMPLETED", elapsedSeconds: 3720 },
     { eventType: "DEADLINE_WARNING_1H" },
     { eventType: "DEADLINE_WARNING_10M" },
+    { eventType: "DEADLINE_WARNING_DUE" },
     { eventType: "GOOGLE_EVENT_CANCELLED" },
     { eventType: "POSTPONE" },
     { eventType: "REPETITION_STOPPED" },

@@ -20,8 +20,11 @@ export interface BuildDefaultsFormDataInput {
     effectiveDefaultVoucherId: string;
     deadlineOneHourWarningEnabled: boolean;
     deadlineFinalWarningEnabled: boolean;
+    deadlineDueWarningEnabled: boolean;
     voucherCanViewActiveTasksEnabled: boolean;
+    alwaysShowActiveTasks: boolean;
     defaultRequiresProofForAllTasks: boolean;
+    autoSubmitAfterProofUpload: boolean;
     webNotificationsEnabled: boolean;
     currency: SupportedCurrency;
     timeZone: string;
@@ -38,8 +41,11 @@ export function buildDefaultsFormData(input: BuildDefaultsFormDataInput): FormDa
     formData.append("defaultVoucherId", input.effectiveDefaultVoucherId ?? "");
     formData.append("deadlineOneHourWarningEnabled", String(input.deadlineOneHourWarningEnabled));
     formData.append("deadlineFinalWarningEnabled", String(input.deadlineFinalWarningEnabled));
+    formData.append("deadlineDueWarningEnabled", String(input.deadlineDueWarningEnabled));
     formData.append("voucherCanViewActiveTasksEnabled", String(input.voucherCanViewActiveTasksEnabled));
+    formData.append("alwaysShowActiveTasks", String(input.alwaysShowActiveTasks));
     formData.append("defaultRequiresProofForAllTasks", String(input.defaultRequiresProofForAllTasks));
+    formData.append("autoSubmitAfterProofUpload", String(input.autoSubmitAfterProofUpload));
     formData.append("webNotificationsEnabled", String(input.webNotificationsEnabled));
     formData.append("currency", input.currency);
     formData.append("timezone", input.timeZone);

@@ -2,7 +2,7 @@
  * Trigger: deadline-fail
  * Runs: Every 5 minutes (configured with a 5-minute cron interval).
  * What it does when it runs:
- * 1) Finds tasks in ACTIVE or POSTPONED whose deadline has passed.
+ * 1) Finds tasks in ACTIVE or POSTPONED whose displayed deadline minute has ended.
  * 2) Marks each matched task as MISSED.
  * 3) Writes a positive failure ledger entry for the task owner.
  * 4) Logs a DEADLINE_MISSED system event in task_events.
@@ -14,6 +14,7 @@ import { notifyCommitmentFailureIfNeeded } from "@/actions/commitments";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 import { claimTasksByIdsAndStatus } from "@/trigger/claim-utils";
 import { sendNotification } from "@/lib/notifications";
+import { getDeadlineMissCutoffIso, isDeadlineMissEligible } from "@/lib/deadline-miss-window";
 
 export const deadlineFail = schedules.task({
     id: "deadline-fail",
@@ -22,6 +23,7 @@ export const deadlineFail = schedules.task({
         const supabase = createAdminClient();
         const now = new Date();
         const nowIso = now.toISOString();
+        const missCutoffIso = getDeadlineMissCutoffIso(now);
         const currentPeriod = nowIso.slice(0, 7);
 
         // Find candidates first, then claim by status group to avoid duplicate processing
@@ -30,7 +32,7 @@ export const deadlineFail = schedules.task({
             .from("tasks")
             .select("id, user_id, title, status, failure_cost_cents, deadline, recurrence_rule_id")
             .in("status", ["ACTIVE", "POSTPONED"])
-            .lt("deadline", nowIso as any) as any;
+            .lte("deadline", missCutoffIso as any) as any;
 
         const rawCandidates = (data || []) as Array<{
             id: string;
@@ -47,11 +49,7 @@ export const deadlineFail = schedules.task({
             return;
         }
 
-        const candidates = rawCandidates.filter((task) => {
-            const deadlineTs = Date.parse(task.deadline);
-            if (Number.isNaN(deadlineTs)) return false;
-            return deadlineTs < now.getTime();
-        });
+        const candidates = rawCandidates.filter((task) => isDeadlineMissEligible(task.deadline, now));
 
         if (candidates.length === 0) {
             return;

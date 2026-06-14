@@ -50,12 +50,14 @@ export async function sendExpoPushToUser(
 
   const { data: tokenRows, error } = await supabase
     .from("expo_push_tokens")
-    .select("token")
+    .select("token, user_client_instance_id")
     .eq("user_id", userId);
 
-  const tokenEntries = ((tokenRows as Array<{ token: string }> | null) ?? []);
+  const tokenEntries = ((tokenRows as Array<{ token: string; user_client_instance_id: string | null }> | null) ?? []);
+  const scopedTokenEntries = tokenEntries.filter((row) => row.user_client_instance_id);
+  const deliveryTokenEntries = scopedTokenEntries.length > 0 ? scopedTokenEntries : tokenEntries;
 
-  if (error || tokenEntries.length === 0) {
+  if (error || deliveryTokenEntries.length === 0) {
     return {
       success: true,
       total: 0,
@@ -66,7 +68,7 @@ export async function sendExpoPushToUser(
     };
   }
 
-  const messages: ExpoMessage[] = tokenEntries.map((row) => ({
+  const messages: ExpoMessage[] = deliveryTokenEntries.map((row) => ({
     to: row.token,
     title: payload.title,
     body: payload.body,
@@ -112,7 +114,7 @@ export async function sendExpoPushToUser(
         failed++;
         // DeviceNotRegistered means the token is no longer valid — clean it up
         if (ticket.details?.error === "DeviceNotRegistered") {
-          staleTokens.push(tokenEntries[i].token);
+          staleTokens.push(deliveryTokenEntries[i].token);
         }
       }
     }

@@ -66,6 +66,7 @@ interface UseTaskDetailProofArgs {
     setShowWebcamModal: Dispatch<SetStateAction<boolean>>;
     proofInputRef: MutableRefObject<HTMLInputElement | null>;
     proofPickerModeRef: MutableRefObject<ProofPickerMode>;
+    autoSubmitAfterProofUpload: boolean;
 }
 
 const PROOF_DRAFT_STORAGE_KEY_PREFIX = "task-detail-proof-draft:";
@@ -153,8 +154,10 @@ export function useTaskDetailProof({
     setShowWebcamModal,
     proofInputRef,
     proofPickerModeRef,
+    autoSubmitAfterProofUpload,
 }: UseTaskDetailProofArgs) {
     const awaitingUploadSessionRef = useRef<AwaitingUploadSession | null>(null);
+    const handleMarkCompleteRef = useRef<((freshUploadedProofReady?: boolean) => Promise<void>) | null>(null);
     const storageKey = getProofDraftStorageKey(taskState.id);
     const clearPersistedProofDraft = useCallback(() => {
         if (typeof window === "undefined") return;
@@ -416,6 +419,9 @@ export function useTaskDetailProof({
                 };
             } else {
                 awaitingUploadSessionRef.current = null;
+                if (autoSubmitAfterProofUpload && isActiveParentTask) {
+                    await handleMarkCompleteRef.current?.(true);
+                }
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : "Could not process proof file.";
@@ -427,6 +433,8 @@ export function useTaskDetailProof({
         setProofUploadError,
         taskState.id,
         uploadAwaitingProofToBucket,
+        autoSubmitAfterProofUpload,
+        isActiveParentTask,
     ]);
 
     const handleProofInputChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
@@ -441,7 +449,7 @@ export function useTaskDetailProof({
         proofPickerModeRef,
     ]);
 
-    const handleMarkComplete = useCallback(async () => {
+    const handleMarkComplete = useCallback(async (freshUploadedProofReady = false) => {
         if (isActionPending("markComplete")) return;
         if (isBeforeStart) {
             toast.error(beforeStartMessage);
@@ -460,7 +468,7 @@ export function useTaskDetailProof({
             toast.error("Stop the running pomodoro for this task before marking it complete.");
             return;
         }
-        if (requiresProofForCompletion && !proofDraft && !storedProof) {
+        if (requiresProofForCompletion && !proofDraft && !storedProof && !freshUploadedProofReady) {
             toast.error("Attach proof before marking this task complete.");
             return;
         }
@@ -503,6 +511,10 @@ export function useTaskDetailProof({
                     setProofDraft(null);
                     setProofUploadStatus("uploaded");
                     setProofUploadError(null);
+                    void purgeLocalProofMedia(taskState.id);
+                } else if (freshUploadedProofReady) {
+                    clearPersistedProofDraft();
+                    setProofDraft(null);
                     void purgeLocalProofMedia(taskState.id);
                 } else if (!proofIntent) {
                     void purgeLocalProofMedia(taskState.id);
@@ -594,6 +606,8 @@ export function useTaskDetailProof({
 
         setActionPending("undoComplete", false);
     }, [clearPersistedProofDraft, isActionPending, isOwner, refreshInBackground, setActionPending, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, taskState]);
+
+    handleMarkCompleteRef.current = handleMarkComplete;
 
     const handleRemoveStoredProof = useCallback(async () => {
         if (isActionPending("removeStoredProof")) return;

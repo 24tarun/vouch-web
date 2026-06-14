@@ -144,6 +144,7 @@ const ACTIVITY_EVENT_BADGE_CLASS_BY_EVENT_TYPE: Record<string, string> = {
     POMO_COMPLETED: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
     DEADLINE_WARNING_1H: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     DEADLINE_WARNING_10M: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
+    DEADLINE_WARNING_DUE: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     GOOGLE_EVENT_CANCELLED: "bg-red-500/20 text-red-300 border border-red-500/30",
     POSTPONE: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     REPETITION_STOPPED: "bg-purple-400/10 text-purple-400 border border-purple-400/30",
@@ -186,6 +187,7 @@ function formatActivityEventLabel(eventType: string, elapsedSeconds?: number): s
     if (eventType === "AI_DENY") return "AI DENIED";
     if (eventType === "DEADLINE_WARNING_1H") return "1HR LEFT REMINDER SENT";
     if (eventType === "DEADLINE_WARNING_10M") return "10MIN LEFT REMINDER SENT";
+    if (eventType === "DEADLINE_WARNING_DUE") return "FINAL CALL REMINDER SENT";
     if (eventType === "REPETITION_STOPPED") return "REPETITIONS STOPPED";
     return eventType.replace(/_/g, " ");
 }

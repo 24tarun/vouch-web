@@ -15,6 +15,7 @@ import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
 import { aiEvaluationLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
+import { DEADLINE_INCLUSIVE_MINUTE_MS } from "@/lib/task-submission-window";
 import {
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
@@ -477,7 +478,8 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
     }
 
     const nowIso = new Date().toISOString();
-    if (new Date(nowIso) >= new Date((task as any).deadline)) {
+    const completionDeadlineCutoffIso = new Date(Date.now() - DEADLINE_INCLUSIVE_MINUTE_MS).toISOString();
+    if (new Date(completionDeadlineCutoffIso) >= new Date((task as any).deadline)) {
         return { error: "Deadline has passed" };
     }
 
@@ -496,7 +498,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .eq("status", (task as any).status as any)
-        .gt("deadline", nowIso)
+        .gt("deadline", completionDeadlineCutoffIso)
         .select("id");
 
     if (updateError) {

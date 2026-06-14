@@ -455,8 +455,11 @@ export async function updateUserDefaults(formData: FormData) {
     const defaultVoucherIdRaw = formData.get("defaultVoucherId") as string;
     const deadlineOneHourWarningEnabledRaw = formData.get("deadlineOneHourWarningEnabled");
     const deadlineFinalWarningEnabledRaw = formData.get("deadlineFinalWarningEnabled");
+    const deadlineDueWarningEnabledRaw = formData.get("deadlineDueWarningEnabled");
     const voucherCanViewActiveTasksEnabledRaw = formData.get("voucherCanViewActiveTasksEnabled");
+    const alwaysShowActiveTasksRaw = formData.get("alwaysShowActiveTasks");
     const defaultRequiresProofForAllTasksRaw = formData.get("defaultRequiresProofForAllTasks");
+    const autoSubmitAfterProofUploadRaw = formData.get("autoSubmitAfterProofUpload");
     const webNotificationsEnabledRaw = formData.get("webNotificationsEnabled");
     const currencyRaw = formData.get("currency");
     const timezoneRaw = formData.get("timezone");
@@ -478,7 +481,7 @@ export async function updateUserDefaults(formData: FormData) {
 
     const { data: currentProfile, error: currentProfileError } = await supabase
         .from("profiles")
-        .select("currency, default_event_duration_minutes, charity_enabled, selected_charity_id, timezone, timezone_user_set, default_requires_proof_for_all_tasks")
+        .select("currency, default_event_duration_minutes, charity_enabled, selected_charity_id, timezone, timezone_user_set, default_requires_proof_for_all_tasks, auto_submit_after_proof_upload")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -557,6 +560,16 @@ export async function updateUserDefaults(formData: FormData) {
         }
         deadlineFinalWarningEnabled = deadlineFinalWarningEnabledRaw === "true";
     }
+    let deadlineDueWarningEnabled: boolean | undefined;
+    if (deadlineDueWarningEnabledRaw != null && deadlineDueWarningEnabledRaw !== "") {
+        if (typeof deadlineDueWarningEnabledRaw !== "string") {
+            return { error: "Deadline final call toggle value is invalid." };
+        }
+        if (deadlineDueWarningEnabledRaw !== "true" && deadlineDueWarningEnabledRaw !== "false") {
+            return { error: "Deadline final call toggle value is invalid." };
+        }
+        deadlineDueWarningEnabled = deadlineDueWarningEnabledRaw === "true";
+    }
     let voucherCanViewActiveTasksEnabled: boolean | undefined;
     if (voucherCanViewActiveTasksEnabledRaw != null && voucherCanViewActiveTasksEnabledRaw !== "") {
         if (typeof voucherCanViewActiveTasksEnabledRaw !== "string") {
@@ -566,6 +579,16 @@ export async function updateUserDefaults(formData: FormData) {
             return { error: "Voucher active-task visibility toggle value is invalid." };
         }
         voucherCanViewActiveTasksEnabled = voucherCanViewActiveTasksEnabledRaw === "true";
+    }
+    let alwaysShowActiveTasks: boolean | undefined;
+    if (alwaysShowActiveTasksRaw != null && alwaysShowActiveTasksRaw !== "") {
+        if (typeof alwaysShowActiveTasksRaw !== "string") {
+            return { error: "Always-show active tasks toggle value is invalid." };
+        }
+        if (alwaysShowActiveTasksRaw !== "true" && alwaysShowActiveTasksRaw !== "false") {
+            return { error: "Always-show active tasks toggle value is invalid." };
+        }
+        alwaysShowActiveTasks = alwaysShowActiveTasksRaw === "true";
     }
     let webNotificationsEnabled: boolean | undefined;
     if (webNotificationsEnabledRaw != null && webNotificationsEnabledRaw !== "") {
@@ -586,6 +609,16 @@ export async function updateUserDefaults(formData: FormData) {
             return { error: "Default proof requirement toggle value is invalid." };
         }
         defaultRequiresProofForAllTasks = defaultRequiresProofForAllTasksRaw === "true";
+    }
+    let autoSubmitAfterProofUpload: boolean | undefined;
+    if (autoSubmitAfterProofUploadRaw != null && autoSubmitAfterProofUploadRaw !== "") {
+        if (typeof autoSubmitAfterProofUploadRaw !== "string") {
+            return { error: "Auto-submit proof upload toggle value is invalid." };
+        }
+        if (autoSubmitAfterProofUploadRaw !== "true" && autoSubmitAfterProofUploadRaw !== "false") {
+            return { error: "Auto-submit proof upload toggle value is invalid." };
+        }
+        autoSubmitAfterProofUpload = autoSubmitAfterProofUploadRaw === "true";
     }
     let timezone: string | undefined;
     if (hasTimezoneField) {
@@ -698,11 +731,20 @@ export async function updateUserDefaults(formData: FormData) {
     if (deadlineFinalWarningEnabled !== undefined) {
         profileUpdate.deadline_final_warning_enabled = deadlineFinalWarningEnabled;
     }
+    if (deadlineDueWarningEnabled !== undefined) {
+        profileUpdate.deadline_due_warning_enabled = deadlineDueWarningEnabled;
+    }
     if (voucherCanViewActiveTasksEnabled !== undefined) {
         profileUpdate.voucher_can_view_active_tasks = voucherCanViewActiveTasksEnabled;
     }
+    if (alwaysShowActiveTasks !== undefined) {
+        profileUpdate.always_show_active_tasks = alwaysShowActiveTasks;
+    }
     if (defaultRequiresProofForAllTasks !== undefined) {
         profileUpdate.default_requires_proof_for_all_tasks = defaultRequiresProofForAllTasks;
+    }
+    if (autoSubmitAfterProofUpload !== undefined) {
+        profileUpdate.auto_submit_after_proof_upload = autoSubmitAfterProofUpload;
     }
     if (webNotificationsEnabled !== undefined) {
         profileUpdate.web_notifications_enabled = webNotificationsEnabled;

@@ -39,7 +39,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, username, hide_tips")
+            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, username, hide_tips, always_show_active_tasks")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => result.data),
@@ -65,6 +65,7 @@ export default async function DashboardPage() {
         deadline_final_warning_enabled: boolean | null;
         username: string | null;
         hide_tips: boolean | null;
+        always_show_active_tasks: boolean | null;
     } | null;
 
     const defaultFailureCostEuros = (
@@ -89,6 +90,7 @@ export default async function DashboardPage() {
         ((user?.user_metadata as { username?: string } | undefined)?.username?.trim() ?? "") ||
         (user?.email?.split("@")[0] ?? "there");
     const initialHideTips = profileDefaults?.hide_tips ?? false;
+    const alwaysShowActiveTasks = profileDefaults?.always_show_active_tasks ?? false;
 
     const completedTasks = (completedTasksResult.data as Task[] | null) || [];
     const completedTaskIds = new Set(completedTasks.map((task) => task.id));
@@ -163,6 +165,7 @@ export default async function DashboardPage() {
             userId={userId || ""}
             username={username}
             initialHideTips={initialHideTips}
+            alwaysShowActiveTasks={alwaysShowActiveTasks}
             reputationScore={reputationScore}
         />
     );

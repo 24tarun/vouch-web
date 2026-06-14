@@ -136,10 +136,13 @@ Deno.serve(async (request) => {
   // --- Expo Push ---
   const { data: tokenRows } = await adminSupabase
     .from("expo_push_tokens")
-    .select("token")
+    .select("token, user_client_instance_id")
     .eq("user_id", recipientUserId);
 
-  const tokens = ((tokenRows as Array<{ token: string }> | null) ?? []).map((r) => r.token);
+  const tokenEntries = ((tokenRows as Array<{ token: string; user_client_instance_id: string | null }> | null) ?? []);
+  const scopedTokenEntries = tokenEntries.filter((row) => row.user_client_instance_id);
+  const deliveryTokenEntries = scopedTokenEntries.length > 0 ? scopedTokenEntries : tokenEntries;
+  const tokens = deliveryTokenEntries.map((r) => r.token);
 
   if (tokens.length === 0) {
     results.expo = { success: true, skipped: true, reason: "no_tokens" };

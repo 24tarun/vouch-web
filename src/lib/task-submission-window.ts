@@ -1,4 +1,5 @@
 export const TASK_SUBMISSION_BEFORE_START_ERROR = "Task cannot be submitted before its start time.";
+export const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
 
 export interface TaskSubmissionWindowState {
     startDate: Date | null;
@@ -25,6 +26,10 @@ function parseIsoDate(value?: string | null): Date | null {
     return parsed;
 }
 
+export function isWithinInclusiveDeadlineMinute(deadlineDate: Date, now: Date): boolean {
+    return now.getTime() < deadlineDate.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS;
+}
+
 export function getTaskSubmissionWindowState(input: TaskSubmissionWindowInput): TaskSubmissionWindowState {
     const now = input.now instanceof Date && !Number.isNaN(input.now.getTime())
         ? input.now
@@ -32,7 +37,7 @@ export function getTaskSubmissionWindowState(input: TaskSubmissionWindowInput): 
     const startDate = parseIsoDate(input.startAtIso);
     const deadlineDate = parseIsoDate(input.deadlineIso);
     const beforeStart = Boolean(input.isStrict) && Boolean(startDate) && now.getTime() < (startDate as Date).getTime();
-    const pastDeadline = Boolean(deadlineDate) && now.getTime() >= (deadlineDate as Date).getTime();
+    const pastDeadline = Boolean(deadlineDate) && !isWithinInclusiveDeadlineMinute(deadlineDate as Date, now);
     const canSubmitNow = !beforeStart && !pastDeadline;
 
     return {

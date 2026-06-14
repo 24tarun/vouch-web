@@ -3,15 +3,18 @@ import type { Database } from "@/lib/types";
 export const MANUAL_REMINDER_SOURCE = "MANUAL" as const;
 export const DEFAULT_DEADLINE_1H_REMINDER_SOURCE = "DEFAULT_DEADLINE_1H" as const;
 export const DEFAULT_DEADLINE_10M_REMINDER_SOURCE = "DEFAULT_DEADLINE_10M" as const;
+export const DEFAULT_DEADLINE_DUE_REMINDER_SOURCE = "DEFAULT_DEADLINE_DUE" as const;
 
 export type TaskReminderSource =
     | typeof MANUAL_REMINDER_SOURCE
     | typeof DEFAULT_DEADLINE_1H_REMINDER_SOURCE
-    | typeof DEFAULT_DEADLINE_10M_REMINDER_SOURCE;
+    | typeof DEFAULT_DEADLINE_10M_REMINDER_SOURCE
+    | typeof DEFAULT_DEADLINE_DUE_REMINDER_SOURCE;
 
 export type DefaultDeadlineReminderSource =
     | typeof DEFAULT_DEADLINE_1H_REMINDER_SOURCE
-    | typeof DEFAULT_DEADLINE_10M_REMINDER_SOURCE;
+    | typeof DEFAULT_DEADLINE_10M_REMINDER_SOURCE
+    | typeof DEFAULT_DEADLINE_DUE_REMINDER_SOURCE;
 
 type TaskReminderInsertRow = Database["public"]["Tables"]["task_reminders"]["Insert"];
 
@@ -21,6 +24,7 @@ interface BuildDefaultDeadlineReminderRowsInput {
     deadline: Date;
     deadlineOneHourWarningEnabled: boolean;
     deadlineFinalWarningEnabled: boolean;
+    deadlineDueWarningEnabled: boolean;
     now?: Date;
 }
 
@@ -29,7 +33,8 @@ export function isDefaultDeadlineReminderSource(
 ): source is DefaultDeadlineReminderSource {
     return (
         source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE ||
-        source === DEFAULT_DEADLINE_10M_REMINDER_SOURCE
+        source === DEFAULT_DEADLINE_10M_REMINDER_SOURCE ||
+        source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE
     );
 }
 
@@ -39,6 +44,7 @@ export function buildDefaultDeadlineReminderRows({
     deadline,
     deadlineOneHourWarningEnabled,
     deadlineFinalWarningEnabled,
+    deadlineDueWarningEnabled,
     now = new Date(),
 }: BuildDefaultDeadlineReminderRowsInput): TaskReminderInsertRow[] {
     const deadlineMs = deadline.getTime();
@@ -79,6 +85,11 @@ export function buildDefaultDeadlineReminderRows({
         deadlineFinalWarningEnabled,
         10 * 60 * 1000,
         DEFAULT_DEADLINE_10M_REMINDER_SOURCE
+    );
+    pushReminder(
+        deadlineDueWarningEnabled,
+        0,
+        DEFAULT_DEADLINE_DUE_REMINDER_SOURCE
     );
 
     return Array.from(rowsByReminderMs.entries())

@@ -13,6 +13,7 @@ import {
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
 import {
+    DEADLINE_INCLUSIVE_MINUTE_MS,
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
@@ -41,6 +42,10 @@ function buildBeforeStartSubmissionError(start: Date | null, end: Date | null): 
         });
     const window = start && end ? ` between ${fmt(start)} and ${fmt(end)}` : "";
     return `This task can only be submitted${window}.`;
+}
+
+function getCompletionDeadlineCutoffIso(nowIso: string): string {
+    return new Date(new Date(nowIso).getTime() - DEADLINE_INCLUSIVE_MINUTE_MS).toISOString();
 }
 
 async function validateCompletionPreconditions(
@@ -108,6 +113,7 @@ async function completeSelfVouchedTask(
     voucherId: string,
     nowIso: string
 ): Promise<{ success?: true; error?: string }> {
+    const completionDeadlineCutoffIso = getCompletionDeadlineCutoffIso(nowIso);
     const cleanup = await deleteTaskProof(taskId, "self_vouch_auto_accept");
     if (!cleanup.success) {
         return { error: cleanup.error || "Could not clear previous proof media." };
@@ -126,7 +132,7 @@ async function completeSelfVouchedTask(
         .eq("id", taskId as any)
         .eq("user_id", userId as any)
         .in("status", ["ACTIVE", "POSTPONED"] as any)
-        .gt("deadline", nowIso as any)
+        .gt("deadline", completionDeadlineCutoffIso as any)
         .select("id");
 
     if (updateError) return { error: updateError.message };
@@ -272,13 +278,27 @@ export async function markTaskCompleteWithProofIntent(
     }
 
     const proofIntent = proofValidation.proofIntent;
-    if (requiresProofForCompletion && !proofIntent) {
+    const { data: existingUploadedProofRows, error: existingUploadedProofError } = await (supabase.from("task_completion_proofs") as any)
+        .select("id")
+        .eq("task_id", taskId as any)
+        .eq("owner_id", user.id as any)
+        .eq("upload_state", "UPLOADED")
+        .not("object_path", "is", null)
+        .limit(1);
+
+    if (existingUploadedProofError) {
+        return { error: existingUploadedProofError.message };
+    }
+
+    const hasExistingUploadedProof = Boolean(existingUploadedProofRows && existingUploadedProofRows.length > 0);
+    if (requiresProofForCompletion && !proofIntent && !hasExistingUploadedProof) {
         return { error: REQUIRED_PROOF_FOR_COMPLETION_ERROR };
     }
 
     const completionStatus = getAwaitingProofReviewStatus((task as any).voucher_id);
     const isAiVoucher = completionStatus === "AWAITING_AI";
     const voucherResponseDeadline = isAiVoucher ? null : getVoucherResponseDeadlineUtc(new Date(), userTimeZone);
+    const completionDeadlineCutoffIso = getCompletionDeadlineCutoffIso(nowIso);
 
     // @ts-ignore
     const { data: updatedRows, error } = await (supabase.from("tasks") as any)
@@ -294,7 +314,7 @@ export async function markTaskCompleteWithProofIntent(
         .eq("id", (taskId as any))
         .eq("user_id", (user as any).id)
         .in("status", ["ACTIVE", "POSTPONED"] as any)
-        .gt("deadline", nowIso)
+        .gt("deadline", completionDeadlineCutoffIso)
         .select("id");
 
     if (error) {
@@ -393,7 +413,7 @@ export async function markTaskCompleteWithProofIntent(
             objectPath,
             uploadToken: signedUpload.token,
         };
-    } else {
+    } else if (!hasExistingUploadedProof) {
         const cleanup = await deleteTaskProof(taskId, "mark_complete_without_proof");
         if (!cleanup.success) {
             return { error: cleanup.error || "Could not clear previous proof media." };
@@ -407,10 +427,10 @@ export async function markTaskCompleteWithProofIntent(
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: completionStatus,
-        metadata: proofIntent
+        metadata: proofIntent || hasExistingUploadedProof
             ? {
                 has_proof: true,
-                media_kind: proofIntent.mediaKind,
+                ...(proofIntent ? { media_kind: proofIntent.mediaKind } : {}),
             }
             : null,
     });
@@ -444,7 +464,8 @@ export async function undoTaskComplete(taskId: string) {
     }
 
     const nowIso = new Date().toISOString();
-    if (new Date(nowIso) >= new Date((task as any).deadline)) {
+    const completionDeadlineCutoffIso = getCompletionDeadlineCutoffIso(nowIso);
+    if (new Date(completionDeadlineCutoffIso) >= new Date((task as any).deadline)) {
         return { error: "Deadline has passed" };
     }
 
@@ -469,7 +490,7 @@ export async function undoTaskComplete(taskId: string) {
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .eq("status", (task as any).status as any)
-        .gt("deadline", nowIso)
+        .gt("deadline", completionDeadlineCutoffIso)
         .select("id");
 
     if (error) {

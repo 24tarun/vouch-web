@@ -55,6 +55,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
         DEFAULT_POMO_DURATION_MINUTES
     );
     const viewerCurrency = normalizeCurrency((profile as any)?.currency);
+    const autoSubmitAfterProofUpload = (profile as any)?.auto_submit_after_proof_upload ?? true;
 
     return (
         <TaskDetailClient
@@ -66,6 +67,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
             viewerCurrency={viewerCurrency}
             potentialRp={potentialRp}
             hasUsedOverrideThisMonth={hasUsedOverrideThisMonth}
+            autoSubmitAfterProofUpload={autoSubmitAfterProofUpload}
         />
     );
 }

@@ -1,5 +1,7 @@
 import { setup, assign } from "xstate";
 
+const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
+
 // Task status types — V2 lifecycle
 export type TaskStatus =
     | "ACTIVE"
@@ -89,10 +91,10 @@ export const taskMachine = setup({
             return context.postponedAt === undefined;
         },
         canPostponeBeforeDeadline: ({ context }) => {
-            return context.postponedAt === undefined && new Date() < context.deadline;
+            return context.postponedAt === undefined && new Date().getTime() < context.deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS;
         },
         isBeforeDeadline: ({ context }) => {
-            return new Date() < context.deadline;
+            return new Date().getTime() < context.deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS;
         },
     },
 }).createMachine({

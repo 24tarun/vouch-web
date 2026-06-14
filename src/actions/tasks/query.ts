@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 import { invalidateActiveTasksCache, enqueueGoogleCalendarUpsert } from "./helpers";
 import { revalidatePath } from "next/cache";
+import { DEADLINE_INCLUSIVE_MINUTE_MS } from "@/lib/task-submission-window";
 
 export async function getTask(taskId: string) {
     const supabase = await createClient();
@@ -40,7 +41,7 @@ export async function getTask(taskId: string) {
             const now = new Date();
             const deadline = new Date((task as any).deadline);
             const shouldAutoFail =
-                now >= deadline &&
+                now.getTime() >= deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS &&
                 ["ACTIVE", "POSTPONED"].includes((task as any).status);
 
             if (shouldAutoFail) {

@@ -87,6 +87,7 @@ interface TaskDetailClientProps {
     viewerCurrency: SupportedCurrency;
     potentialRp: number | null;
     hasUsedOverrideThisMonth: boolean;
+    autoSubmitAfterProofUpload: boolean;
 }
 
 type ProofPickerMode = "draft" | "awaiting-upload";
@@ -100,6 +101,7 @@ export default function TaskDetailClient({
     viewerCurrency,
     potentialRp,
     hasUsedOverrideThisMonth,
+    autoSubmitAfterProofUpload,
 }: TaskDetailClientProps) {
     const router = useRouter();
     const { session } = usePomodoro();
@@ -493,6 +495,7 @@ export default function TaskDetailClient({
         setShowWebcamModal,
         proofInputRef,
         proofPickerModeRef,
+        autoSubmitAfterProofUpload,
     });
     const googleSyncDirectionLabel =
         taskState.google_sync_linked && taskState.google_sync_last_origin === "APP"
@@ -1040,7 +1043,7 @@ export default function TaskDetailClient({
                                 </Button>
                             )}
                             {buttonVisibility.actions.markComplete && (
-                                <Button onClick={handleMarkComplete}
+                                <Button onClick={() => void handleMarkComplete()}
                                     className={cn(activeRowActionButtonClass, "w-full justify-center transition-all border",
                                         TASK_DETAIL_BUTTON_CLASSES.actions.markCompleteEnabled)}
                                     title={isBeforeStart ? beforeStartMessage : "Mark complete"}>

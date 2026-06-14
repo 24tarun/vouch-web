@@ -164,6 +164,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
         deadline,
         deadlineOneHourWarningEnabled: true,
         deadlineFinalWarningEnabled: true,
+        deadlineDueWarningEnabled: true,
         now: new Date(),
     });
     await insertTaskReminderRows(supabase as SupabaseClient<Database>, seededDefaultReminders, { ignoreDuplicates: true });
@@ -278,7 +279,7 @@ export async function createTask(formData: FormData) {
 
     const { data: reminderDefaultsProfile } = await supabase
         .from("profiles")
-        .select("deadline_one_hour_warning_enabled, deadline_final_warning_enabled, currency, default_event_duration_minutes")
+        .select("deadline_one_hour_warning_enabled, deadline_final_warning_enabled, deadline_due_warning_enabled, currency, default_event_duration_minutes")
         .eq("id", user.id as any)
         .maybeSingle();
 
@@ -483,6 +484,8 @@ export async function createTask(formData: FormData) {
         deadlineFinalWarningEnabled:
             (((reminderDefaultsProfile as any)?.deadline_final_warning_enabled as boolean | undefined) ?? true) &&
             includeDefaultTenMinuteReminder,
+        deadlineDueWarningEnabled:
+            ((reminderDefaultsProfile as any)?.deadline_due_warning_enabled as boolean | undefined) ?? true,
         now: new Date(),
     });
     const seededReminderInsert = await insertTaskReminderRows(

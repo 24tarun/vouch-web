@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { getTaskSubmissionWindowState } from "../../src/lib/task-submission-window.ts";
+import {
+    getTaskSubmissionWindowState,
+    isWithinInclusiveDeadlineMinute,
+} from "../../src/lib/task-submission-window.ts";
 
 function buildIso(
     year: number,
@@ -50,6 +53,7 @@ test("submission is blocked before start when start is in the future", () => {
     const state = getTaskSubmissionWindowState({
         startAtIso: "2026-03-23T10:00:00.000Z",
         deadlineIso: "2026-03-23T12:00:00.000Z",
+        isStrict: true,
         now: new Date("2026-03-23T09:59:00.000Z"),
     });
 
@@ -129,26 +133,58 @@ test("invalid start timestamp is treated as absent and does not block submission
     assert.equal(state.completionBlocked, false);
 });
 
-test("submission is blocked once deadline is reached or passed", () => {
+test("submission remains allowed through the displayed deadline minute", () => {
     /*
      * What and why this test checks:
-     * This preserves the existing end-boundary behavior where deadline is the hard stop for submission.
+     * This preserves the user-facing minute boundary where a 10:00 deadline is still completable until 10:00:59.
      *
      * Passing scenario:
-     * When now is equal to deadline, pastDeadline is true and canSubmitNow is false.
+     * When now is within the displayed deadline minute, pastDeadline is false and canSubmitNow is true.
      *
      * Failing scenario:
-     * If deadline equality is allowed, users could submit outside the intended end of the allowed interval.
+     * If the inclusive displayed deadline minute regresses, users could miss tasks even though the displayed deadline minute has not ended.
      */
     const deadlineIso = "2026-03-23T10:00:00.000Z";
     const state = getTaskSubmissionWindowState({
         startAtIso: "2026-03-23T09:00:00.000Z",
         deadlineIso,
-        now: new Date(deadlineIso),
+        now: new Date("2026-03-23T10:00:59.999Z"),
+    });
+
+    assert.equal(state.beforeStart, false);
+    assert.equal(state.pastDeadline, false);
+    assert.equal(state.canSubmitNow, true);
+    assert.equal(state.completionBlocked, false);
+});
+
+test("submission is blocked after the displayed deadline minute ends", () => {
+    /*
+     * What and why this test checks:
+     * This pins missed processing to the first instant after the displayed deadline minute has elapsed.
+     *
+     * Passing scenario:
+     * When now is exactly 60 seconds after deadline, pastDeadline is true and canSubmitNow is false.
+     *
+     * Failing scenario:
+     * If the comparison drifts later, users could submit after the intended deadline minute.
+     */
+    const deadlineIso = "2026-03-23T10:00:00.000Z";
+    const state = getTaskSubmissionWindowState({
+        startAtIso: "2026-03-23T09:00:00.000Z",
+        deadlineIso,
+        now: new Date("2026-03-23T10:01:00.000Z"),
     });
 
     assert.equal(state.beforeStart, false);
     assert.equal(state.pastDeadline, true);
     assert.equal(state.canSubmitNow, false);
     assert.equal(state.completionBlocked, true);
+});
+
+test("task actions remain available until the displayed deadline minute ends", () => {
+    const deadline = new Date("2026-03-23T23:00:00.000Z");
+
+    assert.equal(isWithinInclusiveDeadlineMinute(deadline, new Date("2026-03-23T23:00:00.000Z")), true);
+    assert.equal(isWithinInclusiveDeadlineMinute(deadline, new Date("2026-03-23T23:00:59.999Z")), true);
+    assert.equal(isWithinInclusiveDeadlineMinute(deadline, new Date("2026-03-23T23:01:00.000Z")), false);
 });

@@ -13,6 +13,7 @@ import type { TaskStatus } from "@/lib/xstate/task-machine";
 import {
     DEFAULT_DEADLINE_1H_REMINDER_SOURCE,
     DEFAULT_DEADLINE_10M_REMINDER_SOURCE,
+    DEFAULT_DEADLINE_DUE_REMINDER_SOURCE,
     MANUAL_REMINDER_SOURCE,
 } from "@/lib/task-reminder-defaults";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
@@ -36,11 +37,13 @@ interface ReminderTask {
 const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
 const ONE_HOUR_REMINDER_EVENT = "DEADLINE_WARNING_1H";
 const TEN_MIN_REMINDER_EVENT = "DEADLINE_WARNING_10M";
+const DUE_REMINDER_EVENT = "DEADLINE_WARNING_DUE";
 const NOTIFICATION_TTL_MS = 30 * 60 * 1000;
 
 function getReminderEventType(source: string): string | null {
     if (source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE) return ONE_HOUR_REMINDER_EVENT;
     if (source === DEFAULT_DEADLINE_10M_REMINDER_SOURCE) return TEN_MIN_REMINDER_EVENT;
+    if (source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE) return DUE_REMINDER_EVENT;
     return null;
 }
 
@@ -173,12 +176,36 @@ async function processDueTaskReminders(
 
     const nowMs = Date.now();
     const remindersToRetry = new Set<string>();
+    const dueReminderUserIds = Array.from(new Set(
+        claimedReminders
+            .filter((reminder) => reminder.source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE)
+            .map((reminder) => reminder.user_id)
+    ));
+    const dueWarningEnabledByUser = new Map<string, boolean>();
+    if (dueReminderUserIds.length > 0) {
+        const { data: profileRows, error: profileError } = await supabase
+            .from("profiles")
+            .select("id, deadline_due_warning_enabled")
+            .in("id", dueReminderUserIds);
+        if (profileError) {
+            console.error("Failed to load final-call notification preferences:", profileError);
+        }
+        for (const profile of ((profileRows as Array<{ id: string; deadline_due_warning_enabled?: boolean | null }> | null) || [])) {
+            dueWarningEnabledByUser.set(profile.id, profile.deadline_due_warning_enabled ?? true);
+        }
+    }
 
     for (const reminder of claimedReminders) {
         const task = tasksById.get(reminder.parent_task_id);
         const reminderAtMs = new Date(reminder.reminder_at).getTime();
         const isExpired = !Number.isFinite(reminderAtMs) || (nowMs - reminderAtMs) > NOTIFICATION_TTL_MS;
         if (isExpired) {
+            continue;
+        }
+        if (
+            reminder.source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE &&
+            dueWarningEnabledByUser.get(reminder.user_id) === false
+        ) {
             continue;
         }
 
@@ -207,10 +234,17 @@ async function processDueTaskReminders(
                     }
                 } else {
                     const isOneHour = reminder.source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE;
-                    const title = isOneHour ? "Deadline in 1 hour" : "Deadline in 10 minutes";
-                    const text = isOneHour
-                        ? `1 hour left for ${task.title}`
-                        : `10 minutes left for ${task.title}`;
+                    const isDue = reminder.source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE;
+                    const title = isDue
+                        ? "Final call"
+                        : isOneHour
+                            ? "Deadline in 1 hour"
+                            : "Deadline in 10 minutes";
+                    const text = isDue
+                        ? `Mark "${task.title}" complete now or it will be missed.`
+                        : isOneHour
+                            ? `1 hour left for ${task.title}`
+                            : `10 minutes left for ${task.title}`;
 
                     const sendResult = await sendWithWebRetry({
                         userId: reminder.user_id,
@@ -224,7 +258,7 @@ async function processDueTaskReminders(
                         data: {
                             taskId: task.id,
                             reminderId: reminder.id,
-                            kind: reminderEventType || "DEADLINE_WARNING",
+                            kind: isDue ? "DEADLINE_FINAL_CALL" : (reminderEventType || "DEADLINE_WARNING"),
                             category: "DEADLINE_REMINDER",
                             reminderAt: reminder.reminder_at,
                             source: reminder.source,

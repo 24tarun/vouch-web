@@ -142,11 +142,20 @@ export default function SettingsClient({
     const [deadlineFinalWarningEnabled, setDeadlineFinalWarningEnabled] = useState(
         profile.deadline_final_warning_enabled ?? true
     );
+    const [deadlineDueWarningEnabled, setDeadlineDueWarningEnabled] = useState(
+        profile.deadline_due_warning_enabled ?? true
+    );
     const [voucherCanViewActiveTasksEnabled, setVoucherCanViewActiveTasksEnabled] = useState(
         profile.voucher_can_view_active_tasks ?? false
     );
+    const [alwaysShowActiveTasks, setAlwaysShowActiveTasks] = useState(
+        profile.always_show_active_tasks ?? false
+    );
     const [defaultRequiresProofForAllTasks, setDefaultRequiresProofForAllTasks] = useState(
         profile.default_requires_proof_for_all_tasks ?? false
+    );
+    const [autoSubmitAfterProofUpload, setAutoSubmitAfterProofUpload] = useState(
+        profile.auto_submit_after_proof_upload ?? true
     );
     const [webNotificationsEnabled, setWebNotificationsEnabled] = useState(
         profile.web_notifications_enabled ?? false
@@ -237,8 +246,11 @@ export default function SettingsClient({
                 effectiveDefaultVoucherId,
                 deadlineOneHourWarningEnabled,
                 deadlineFinalWarningEnabled,
+                deadlineDueWarningEnabled,
                 voucherCanViewActiveTasksEnabled,
+                alwaysShowActiveTasks,
                 defaultRequiresProofForAllTasks,
+                autoSubmitAfterProofUpload,
                 webNotificationsEnabled,
                 currency,
                 timeZone,
@@ -253,8 +265,11 @@ export default function SettingsClient({
             effectiveDefaultVoucherId,
             deadlineOneHourWarningEnabled,
             deadlineFinalWarningEnabled,
+            deadlineDueWarningEnabled,
             voucherCanViewActiveTasksEnabled,
+            alwaysShowActiveTasks,
             defaultRequiresProofForAllTasks,
+            autoSubmitAfterProofUpload,
             webNotificationsEnabled,
             currency,
             timeZone,
@@ -581,8 +596,11 @@ export default function SettingsClient({
                     effectiveDefaultVoucherId,
                     deadlineOneHourWarningEnabled,
                     deadlineFinalWarningEnabled,
+                    deadlineDueWarningEnabled,
                     voucherCanViewActiveTasksEnabled,
+                    alwaysShowActiveTasks,
                     defaultRequiresProofForAllTasks,
+                    autoSubmitAfterProofUpload,
                     webNotificationsEnabled,
                     currency,
                     timeZone,
@@ -1267,6 +1285,22 @@ export default function SettingsClient({
                     <div className="py-3 border-b border-slate-900">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
+                                <Label htmlFor="deadlineDueWarningEnabled" className="flex items-center gap-2 cursor-pointer font-medium text-slate-200">
+                                    Final call at deadline
+                                </Label>
+                                <p className="text-xs text-slate-400">Last chance to mark a task complete before it is missed.</p>
+                            </div>
+                            <GlassToggle
+                                id="deadlineDueWarningEnabled"
+                                checked={deadlineDueWarningEnabled}
+                                onChange={setDeadlineDueWarningEnabled}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="py-3 border-b border-slate-900">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="defaultRequiresProofForAllTasks" className="text-slate-200">
                                     Require proof for all new tasks
                                 </Label>
@@ -1282,6 +1316,21 @@ export default function SettingsClient({
                     <div className="py-3 border-b border-slate-900">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
+                                <Label htmlFor="autoSubmitAfterProofUpload" className="text-slate-200">
+                                    Auto-submit after proof upload
+                                </Label>
+                            </div>
+                            <GlassToggle
+                                id="autoSubmitAfterProofUpload"
+                                checked={autoSubmitAfterProofUpload}
+                                onChange={setAutoSubmitAfterProofUpload}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="py-3 border-b border-slate-900">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="voucherCanViewActiveTasksEnabled" className="text-slate-200">
                                     Allow vouchers to view my active tasks
                                 </Label>
@@ -1290,6 +1339,21 @@ export default function SettingsClient({
                                 id="voucherCanViewActiveTasksEnabled"
                                 checked={voucherCanViewActiveTasksEnabled}
                                 onChange={setVoucherCanViewActiveTasksEnabled}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="py-3 border-b border-slate-900">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 min-w-0 space-y-1">
+                                <Label htmlFor="alwaysShowActiveTasks" className="text-slate-200">
+                                    Always show future tasks
+                                </Label>
+                            </div>
+                            <GlassToggle
+                                id="alwaysShowActiveTasks"
+                                checked={alwaysShowActiveTasks}
+                                onChange={setAlwaysShowActiveTasks}
                             />
                         </div>
                     </div>

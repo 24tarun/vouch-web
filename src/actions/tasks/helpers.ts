@@ -573,7 +573,7 @@ export async function realignTaskRemindersAfterPostpone(
     }
 
     const { data: reminderDefaultsProfile, error: reminderDefaultsError } = await (supabase.from("profiles") as any)
-        .select("deadline_one_hour_warning_enabled, deadline_final_warning_enabled")
+        .select("deadline_one_hour_warning_enabled, deadline_final_warning_enabled, deadline_due_warning_enabled")
         .eq("id", userId as any)
         .maybeSingle();
 
@@ -631,6 +631,8 @@ export async function realignTaskRemindersAfterPostpone(
             ((reminderDefaultsProfile as any)?.deadline_one_hour_warning_enabled as boolean | undefined) ?? true,
         deadlineFinalWarningEnabled:
             ((reminderDefaultsProfile as any)?.deadline_final_warning_enabled as boolean | undefined) ?? true,
+        deadlineDueWarningEnabled:
+            ((reminderDefaultsProfile as any)?.deadline_due_warning_enabled as boolean | undefined) ?? true,
         now,
     });
 

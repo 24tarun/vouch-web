@@ -164,7 +164,7 @@ export type ActivityTone =
 
 export function getActivityStepTone(event: TaskEvent): ActivityTone {
     // Event-specific tones must win over status transitions.
-    if (event.event_type === "DEADLINE_WARNING_1H" || event.event_type === "DEADLINE_WARNING_10M" || event.event_type === "VOUCHER_TIMEOUT" || event.event_type === "POSTPONE") return "warning";
+    if (event.event_type === "DEADLINE_WARNING_1H" || event.event_type === "DEADLINE_WARNING_10M" || event.event_type === "DEADLINE_WARNING_DUE" || event.event_type === "VOUCHER_TIMEOUT" || event.event_type === "POSTPONE") return "warning";
     if (["PROOF_UPLOAD_FAILED_REVERT", "PROOF_REQUESTED", "PROOF_UPLOADED", "PROOF_REMOVED"].includes(event.event_type)) return "proof";
     if (event.event_type === "POMO_COMPLETED") return "info";
     if (["ACTIVE", "CREATED", "UNDO_COMPLETE", "ESCALATE", "AI_ESCALATE_TO_HUMAN"].includes(event.event_type)) return "statusBlue";

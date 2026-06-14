@@ -75,6 +75,7 @@ interface DashboardClientProps {
     userId: string;
     username: string;
     initialHideTips: boolean;
+    alwaysShowActiveTasks: boolean;
     reputationScore: ReputationScoreData | null;
 }
 
@@ -183,6 +184,7 @@ export default function DashboardClient({
     userId,
     username,
     initialHideTips,
+    alwaysShowActiveTasks,
     reputationScore,
 }: DashboardClientProps) {
     const router = useRouter();
@@ -238,6 +240,9 @@ export default function DashboardClient({
     );
     const activeDueSoonTasks = sortedActiveTaskBuckets.activeDueSoonTasks;
     const futureTasks = sortedActiveTaskBuckets.futureTasks;
+    const visibleActiveTasks = alwaysShowActiveTasks
+        ? [...activeDueSoonTasks, ...futureTasks]
+        : activeDueSoonTasks;
     const trimmedTaskSearchQuery = taskSearchQuery.trim();
     const isTaskSearchActive = trimmedTaskSearchQuery.length > 0;
     const prefetchTasks = useMemo(
@@ -1157,19 +1162,21 @@ export default function DashboardClient({
             ) : (
                 <>
                     <div className="flex flex-col">
-                        {activeDueSoonTasks.length === 0 ? (
+                        {visibleActiveTasks.length === 0 ? (
                             <div className="text-center py-12">
                                 <p className="text-slate-500 text-base">no tasks for today or tmrw, maybe check future?</p>
                             </div>
                         ) : (
-                            activeDueSoonTasks.map((task) => renderActiveTaskRow(task))
+                            visibleActiveTasks.map((task) => renderActiveTaskRow(task))
                         )}
                     </div>
 
-                    <CollapsibleFutureList
-                        tasks={futureTasks}
-                        renderTask={renderActiveTaskRow}
-                    />
+                    {!alwaysShowActiveTasks && (
+                        <CollapsibleFutureList
+                            tasks={futureTasks}
+                            renderTask={renderActiveTaskRow}
+                        />
+                    )}
                     {completedTasks.length > 0 && (
                         <CollapsibleCompletedList tasks={completedTasks} />
                     )}
