@@ -205,7 +205,7 @@ export async function ownerTempDeleteTask(taskId: string) {
     }
 
     if (getOwnerDeleteRemainingMs((task as any).created_at) <= 0) {
-        return { error: "Delete window expired. Tasks can only be deleted within 10 minutes." };
+        return { error: "Delete window expired. Tasks can only be deleted within 1 hour." };
     }
 
     const supabaseAdmin = createAdminClient();

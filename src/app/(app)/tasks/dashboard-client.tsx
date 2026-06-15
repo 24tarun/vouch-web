@@ -1129,7 +1129,7 @@ export default function DashboardClient({
                     <p>Voucher: use vouch bob or .v bob</p>
                     <p>Subtasks: separate with /</p>
                     <p>Ticking a task marks it complete instantly</p>
-                    <p>A new task can be deleted within 5 mins</p>
+                    <p>A new task can be deleted within 1 hour</p>
                     <p> hide tips with the bulb botton </p>
                 </div>
             )}

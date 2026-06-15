@@ -520,10 +520,10 @@ export function TaskRow({
                     )}
                     aria-label="Delete task"
                     title={canDelete
-                        ? "Delete task (available for 10 minutes after creation)"
+                        ? "Delete task (available for 1 hour after creation)"
                         : isTempTask
                             ? "Saving task..."
-                            : "Delete available only within 10 minutes of creation"}
+                            : "Delete available only within 1 hour of creation"}
                 >
                     <Trash2 className="h-[18px] w-[18px]" />
                 </Button>
@@ -670,10 +670,10 @@ export function TaskRow({
                                 )}
                                 aria-label="Delete task"
                                 title={canDelete
-                                    ? "Delete task (available for 10 minutes after creation)"
+                                    ? "Delete task (available for 1 hour after creation)"
                                     : isTempTask
                                         ? "Saving task..."
-                                        : "Delete available only within 10 minutes of creation"}
+                                        : "Delete available only within 1 hour of creation"}
                             >
                                 <Trash2 className="h-[18px] w-[18px]" />
                             </Button>
@@ -834,8 +834,8 @@ export function TaskRow({
                                     )}
                                     aria-label="Delete task"
                                     title={canDelete
-                                        ? "Delete task (available for 10 minutes after creation)"
-                                        : isTempTask ? "Saving task..." : "Delete available only within 10 minutes of creation"}
+                                        ? "Delete task (available for 1 hour after creation)"
+                                        : isTempTask ? "Saving task..." : "Delete available only within 1 hour of creation"}
                                 >
                                     <Trash2 className="h-[18px] w-[18px]" />
                                 </button>

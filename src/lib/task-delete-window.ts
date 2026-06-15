@@ -1,6 +1,6 @@
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 
-export const OWNER_TEMP_DELETE_WINDOW_MS = 10 * 60 * 1000;
+export const OWNER_TEMP_DELETE_WINDOW_MS = 60 * 60 * 1000;
 
 type TaskDeleteCandidate = {
     status: TaskStatus;
