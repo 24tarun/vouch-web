@@ -216,6 +216,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const {
         titleHighlightSegments,
         inlineKeywordCompletion,
+        showTitleOverlay,
     } = useMemo(
         () => buildTaskTitleOverlayModel(title, titleCaretIndex, isTitleFocused, isColorPickerVisible, friends),
         [friends, isColorPickerVisible, isTitleFocused, title, titleCaretIndex]
@@ -843,6 +844,19 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         <form ref={formRef} onSubmit={handleSubmit} className="relative space-y-3 mb-8">
             <div className="bg-slate-900/50 border border-slate-800/50 focus-within:border-slate-700/50 rounded-xl transition-all shadow-2xl overflow-visible">
                 <div className="relative">
+                    {showTitleOverlay && (
+                        <div
+                            ref={titleHighlightRef}
+                            aria-hidden="true"
+                            className={cn(
+                                "absolute inset-0 z-10 overflow-x-auto overflow-y-hidden whitespace-pre px-5 py-4 select-none",
+                                "text-white pointer-events-none",
+                                TITLE_TEXT_METRICS_CLASS
+                            )}
+                        >
+                            {titleOverlayRuns}
+                        </div>
+                    )}
 
                     <input
                         ref={titleInputRef}
@@ -888,8 +902,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                         enterKeyHint="done"
                         placeholder="click the bulb button on the right"
                         className={cn(
-                            "w-full bg-transparent border-none px-5 py-4 placeholder:text-slate-500/70 focus:outline-none transition-colors",
-                            "text-white caret-white",
+                            "relative z-20 w-full bg-transparent border-none px-5 py-4 placeholder:text-slate-500/70 focus:outline-none transition-colors",
+                            showTitleOverlay ? "text-transparent caret-white" : "text-white caret-white",
                             TITLE_TEXT_METRICS_CLASS
                         )}
                         disabled={isLoading}

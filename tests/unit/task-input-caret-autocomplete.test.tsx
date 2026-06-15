@@ -18,6 +18,8 @@ const globalAny = globalThis as typeof globalThis & {
     TextEncoder: typeof TextEncoder;
     TextDecoder: typeof TextDecoder;
     IS_REACT_ACT_ENVIRONMENT: boolean;
+    requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+    cancelAnimationFrame?: (handle: number) => void;
 };
 
 globalAny.window = dom.window as unknown as Window & typeof globalThis;
@@ -31,16 +33,27 @@ globalAny.Node = dom.window.Node;
 globalAny.TextEncoder = TextEncoder as unknown as typeof globalAny.TextEncoder;
 globalAny.TextDecoder = TextDecoder as unknown as typeof globalAny.TextDecoder;
 globalAny.IS_REACT_ACT_ENVIRONMENT = true;
+globalAny.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(0);
+    return 0;
+};
+globalAny.cancelAnimationFrame = () => {};
+globalAny.window.requestAnimationFrame = globalAny.requestAnimationFrame;
+globalAny.window.cancelAnimationFrame = globalAny.cancelAnimationFrame;
 
 const htmlElementPrototype = globalAny.HTMLElement.prototype as {
     attachEvent?: (...args: unknown[]) => void;
     detachEvent?: (...args: unknown[]) => void;
+    scrollIntoView?: (...args: unknown[]) => void;
 };
 if (!htmlElementPrototype.attachEvent) {
     htmlElementPrototype.attachEvent = () => { };
 }
 if (!htmlElementPrototype.detachEvent) {
     htmlElementPrototype.detachEvent = () => { };
+}
+if (!htmlElementPrototype.scrollIntoView) {
+    htmlElementPrototype.scrollIntoView = () => { };
 }
 
 test.afterEach(() => {
