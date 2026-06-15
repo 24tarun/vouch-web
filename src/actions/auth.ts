@@ -857,5 +857,6 @@ export async function updateUsername(formData: FormData) {
     }
 
     revalidatePath("/settings");
+    revalidatePath("/tasks");
     return { success: true };
 }

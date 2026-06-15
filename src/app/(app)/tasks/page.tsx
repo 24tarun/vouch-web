@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { Task } from "@/lib/types";
 import { getFriends } from "@/actions/friends";
@@ -13,6 +14,7 @@ import { getCachedActiveTasksForUser } from "@/actions/tasks";
 import { getUserReputationScore } from "@/actions/reputation";
 
 export default async function DashboardPage() {
+    noStore();
     const supabase = await createClient();
     const {
         data: { user },
@@ -42,7 +44,7 @@ export default async function DashboardPage() {
             .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, username, hide_tips, always_show_active_tasks")
             .eq("id", userId || "")
             .maybeSingle()
-            .then((result) => result.data),
+            .then((result) => { console.log("[tasks/page] profileDefaults result:", JSON.stringify(result)); return result.data; }),
         getCachedActiveTasksForUser(userId || ""),
         supabase
             .from("tasks")
