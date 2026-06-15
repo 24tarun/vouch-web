@@ -13,7 +13,6 @@ import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { notifyCommitmentFailureIfNeeded } from "@/actions/commitments";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 import { claimTasksByIdsAndStatus } from "@/trigger/claim-utils";
-import { sendNotification } from "@/lib/notifications";
 import { getDeadlineMissCutoffIso, isDeadlineMissEligible } from "@/lib/deadline-miss-window";
 
 export const deadlineFail = schedules.task({
@@ -122,53 +121,18 @@ export const deadlineFail = schedules.task({
             console.error("Failed inserting deadline-fail events:", eventError);
         }
 
-        // Group missed tasks by user for batched notifications
-        const tasksByUser = new Map<string, typeof claimedTasks>();
-        for (const task of claimedTasks) {
-            const existing = tasksByUser.get(task.user_id) || [];
-            existing.push(task);
-            tasksByUser.set(task.user_id, existing);
-        }
-
-        await Promise.all([
-            ...claimedTasks.map(async (task) => {
-                try {
-                    await enqueueGoogleCalendarOutbox(task.user_id, task.id, "UPSERT");
-                } catch (error) {
-                    console.error(`Failed to enqueue Google finalize for task ${task.id}:`, error);
-                }
-                try {
-                    await notifyCommitmentFailureIfNeeded(task.id, task.recurrence_rule_id ?? null);
-                } catch (error) {
-                    console.error(`Failed to notify commitment failure for task ${task.id}:`, error);
-                }
-            }),
-            ...Array.from(tasksByUser.entries()).map(async ([userId, tasks]) => {
-                try {
-                    const title = tasks.length === 1
-                        ? "Task missed"
-                        : `${tasks.length} tasks missed`;
-                    const text = tasks.length === 1
-                        ? `"${tasks[0].title}" deadline has passed.`
-                        : `${tasks.length} task deadlines have passed.`;
-                    await sendNotification({
-                        userId,
-                        title,
-                        text,
-                        email: false,
-                        push: true,
-                        url: tasks.length === 1 ? `/tasks/${tasks[0].id}` : "/tasks",
-                        tag: `deadline-missed-${nowIso.slice(0, 16)}`,
-                        data: {
-                            kind: "DEADLINE_MISSED",
-                            taskIds: tasks.map((t) => t.id),
-                        },
-                    });
-                } catch (error) {
-                    console.error(`Failed to send deadline-missed notification for user ${userId}:`, error);
-                }
-            }),
-        ]);
+        await Promise.all(claimedTasks.map(async (task) => {
+            try {
+                await enqueueGoogleCalendarOutbox(task.user_id, task.id, "UPSERT");
+            } catch (error) {
+                console.error(`Failed to enqueue Google finalize for task ${task.id}:`, error);
+            }
+            try {
+                await notifyCommitmentFailureIfNeeded(task.id, task.recurrence_rule_id ?? null);
+            } catch (error) {
+                console.error(`Failed to notify commitment failure for task ${task.id}:`, error);
+            }
+        }));
 
         console.log(`Failed ${claimedTasks.length} tasks due to passed deadline`);
     },
