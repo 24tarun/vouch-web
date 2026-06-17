@@ -578,6 +578,11 @@ export default function DashboardClient({
         }
     };
 
+    const closeWebcamProofPicker = () => {
+        setWebcamTaskId(null);
+        proofPickerTaskIdRef.current = null;
+    };
+
     const handleProofInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const pickedTaskId = proofPickerTaskIdRef.current;
         const selectedFile = event.target.files?.[0];
@@ -1192,13 +1197,17 @@ export default function DashboardClient({
             />
             <WebcamCaptureModal
                 open={webcamTaskId !== null}
-                onClose={() => setWebcamTaskId(null)}
+                onClose={closeWebcamProofPicker}
                 onCapture={async (file) => {
-                    const taskId = webcamTaskId;
+                    const taskId = proofPickerTaskIdRef.current ?? webcamTaskId;
                     setWebcamTaskId(null);
+                    proofPickerTaskIdRef.current = null;
                     if (taskId) await processPickedProofFile(taskId, file);
                 }}
                 onFallbackToFilePicker={() => {
+                    if (webcamTaskId) {
+                        proofPickerTaskIdRef.current = webcamTaskId;
+                    }
                     proofInputRef.current?.click();
                 }}
             />
