@@ -77,6 +77,7 @@ interface DashboardClientProps {
     initialHideTips: boolean;
     alwaysShowActiveTasks: boolean;
     reputationScore: ReputationScoreData | null;
+    autoSubmitAfterProofUpload: boolean;
 }
 
 function isDashboardActiveStatus(status: Task["status"]): boolean {
@@ -186,6 +187,7 @@ export default function DashboardClient({
     initialHideTips,
     alwaysShowActiveTasks,
     reputationScore,
+    autoSubmitAfterProofUpload,
 }: DashboardClientProps) {
     const router = useRouter();
     const supabase = useMemo(() => createBrowserSupabaseClient(), []);
@@ -214,6 +216,7 @@ export default function DashboardClient({
     const proofByTaskIdRef = useRef<Record<string, TaskProofDraft>>({});
     const proofPickerTaskIdRef = useRef<string | null>(null);
     const [webcamTaskId, setWebcamTaskId] = useState<string | null>(null);
+    const handleCompleteTaskRef = useRef<((task: Task, proofDraftOverride?: TaskProofDraft) => Promise<void>) | null>(null);
     const activeTasksRef = useRef<Task[]>(split.active);
     const completedTasksRef = useRef<Task[]>(split.completed.slice(0, MAX_COMPLETED_TASKS));
     const sortedActiveTaskBuckets = useMemo(() => {
@@ -546,6 +549,15 @@ export default function DashboardClient({
                 delete next[taskId];
                 return next;
             });
+
+            if (autoSubmitAfterProofUpload) {
+                const task = activeTasksRef.current.find((t) => t.id === taskId);
+                if (task) {
+                    await handleCompleteTaskRef.current?.(task, { proof: preparedProof, previewUrl });
+                }
+            } else {
+                toast.success("Proof attached — mark the task complete to submit it.");
+            }
         } catch (error) {
             const message = error instanceof Error ? error.message : "Could not process proof file.";
             toast.error(message);
@@ -786,7 +798,7 @@ export default function DashboardClient({
         });
     };
 
-    const handleCompleteTaskOptimistic = async (task: Task) => {
+    const handleCompleteTaskOptimistic = async (task: Task, proofDraftOverride?: TaskProofDraft) => {
         if (completingTaskIds.has(task.id)) return;
         const submissionWindow = getTaskSubmissionWindowState({
             startAtIso: task.start_at ?? null,
@@ -806,7 +818,7 @@ export default function DashboardClient({
         const requiresProofForCompletion =
             Boolean(task.requires_proof) &&
             !isSelfVouched;
-        const proofDraft = proofByTaskId[task.id] || null;
+        const proofDraft = proofDraftOverride ?? proofByTaskId[task.id] ?? null;
         if (requiresProofForCompletion && !proofDraft) {
             toast.error("Attach proof before marking this task complete.");
             return;
@@ -894,6 +906,7 @@ export default function DashboardClient({
 
         setTaskCompleting(task.id, false);
     };
+    handleCompleteTaskRef.current = handleCompleteTaskOptimistic;
 
     const handleDeleteTaskOptimistic = async (task: Task) => {
         if (deletingTaskIds.has(task.id) || task.id.startsWith("temp-")) return;
