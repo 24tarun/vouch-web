@@ -19,7 +19,7 @@ import {
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 import { claimRowsByIdsWithTimestamp, rollbackClaimByTimestamp } from "@/trigger/claim-utils";
 
-interface DueReminder {
+export interface DueReminder {
     id: string;
     parent_task_id: string;
     user_id: string;
@@ -27,11 +27,25 @@ interface DueReminder {
     source: string;
 }
 
-interface ReminderTask {
+export interface ReminderTask {
     id: string;
     title: string;
     status: TaskStatus;
     user_id: string;
+}
+
+export interface ReminderNotificationEntry {
+    reminder: DueReminder;
+    task: ReminderTask;
+    eventType: string | null;
+}
+
+export interface ReminderNotificationGroup {
+    key: string;
+    userId: string;
+    source: string;
+    reminderAtMinute: string;
+    entries: ReminderNotificationEntry[];
 }
 
 const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
@@ -45,6 +59,141 @@ function getReminderEventType(source: string): string | null {
     if (source === DEFAULT_DEADLINE_10M_REMINDER_SOURCE) return TEN_MIN_REMINDER_EVENT;
     if (source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE) return DUE_REMINDER_EVENT;
     return null;
+}
+
+export function getReminderAtMinuteKey(reminderAt: string): string {
+    const reminderDate = new Date(reminderAt);
+    const reminderMs = reminderDate.getTime();
+    if (!Number.isFinite(reminderMs)) return reminderAt;
+
+    reminderDate.setUTCSeconds(0, 0);
+    return reminderDate.toISOString();
+}
+
+export function groupReminderNotificationEntries(
+    entries: ReminderNotificationEntry[]
+): ReminderNotificationGroup[] {
+    const groupsByKey = new Map<string, ReminderNotificationGroup>();
+
+    for (const entry of entries) {
+        const reminderAtMinute = getReminderAtMinuteKey(entry.reminder.reminder_at);
+        const key = [
+            entry.reminder.user_id,
+            entry.reminder.source,
+            reminderAtMinute,
+        ].join("|");
+
+        const existingGroup = groupsByKey.get(key);
+        if (existingGroup) {
+            existingGroup.entries.push(entry);
+            continue;
+        }
+
+        groupsByKey.set(key, {
+            key,
+            userId: entry.reminder.user_id,
+            source: entry.reminder.source,
+            reminderAtMinute,
+            entries: [entry],
+        });
+    }
+
+    return Array.from(groupsByKey.values());
+}
+
+export function buildReminderNotificationParams(
+    group: ReminderNotificationGroup
+): Parameters<typeof sendNotification>[0] {
+    const [firstEntry] = group.entries;
+    if (!firstEntry) {
+        throw new Error("Cannot build reminder notification for an empty group.");
+    }
+
+    const { reminder, task, eventType } = firstEntry;
+    const isDue = reminder.source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE;
+    const isOneHour = reminder.source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE;
+
+    if (group.entries.length === 1) {
+        if (reminder.source === MANUAL_REMINDER_SOURCE) {
+            return {
+                userId: reminder.user_id,
+                title: "Task reminder",
+                text: `Reminder for "${task.title}".`,
+                email: false,
+                push: true,
+                url: `/tasks/${task.id}`,
+                tag: `task-reminder-${reminder.id}`,
+                data: {
+                    taskId: task.id,
+                    reminderId: reminder.id,
+                    kind: "TASK_REMINDER",
+                    category: "DEADLINE_REMINDER",
+                    reminderAt: reminder.reminder_at,
+                },
+            };
+        }
+
+        const title = isDue
+            ? "Final call"
+            : isOneHour
+                ? "Deadline in 1 hour"
+                : "Deadline in 10 minutes";
+        const text = isDue
+            ? `Mark "${task.title}" complete now or it will be missed.`
+            : isOneHour
+                ? `1 hour left for ${task.title}`
+                : `10 minutes left for ${task.title}`;
+
+        return {
+            userId: reminder.user_id,
+            subject: title,
+            title,
+            text,
+            email: false,
+            push: true,
+            url: `/tasks/${task.id}`,
+            tag: `deadline-reminder-${reminder.id}`,
+            data: {
+                taskId: task.id,
+                reminderId: reminder.id,
+                kind: isDue ? "DEADLINE_FINAL_CALL" : (eventType || "DEADLINE_WARNING"),
+                category: "DEADLINE_REMINDER",
+                reminderAt: reminder.reminder_at,
+                source: reminder.source,
+            },
+        };
+    }
+
+    const count = group.entries.length;
+    const title = isDue ? "Final call" : "Task reminders";
+    const text = isDue
+        ? `Last call for ${count} tasks.`
+        : `${count} tasks need attention.`;
+    const tagPrefix = isDue || reminder.source !== MANUAL_REMINDER_SOURCE
+        ? "deadline-reminder-aggregate"
+        : "task-reminder-aggregate";
+
+    return {
+        userId: group.userId,
+        subject: title,
+        title,
+        text,
+        email: false,
+        push: true,
+        url: "/tasks",
+        tag: `${tagPrefix}-${group.userId}-${group.source}-${group.reminderAtMinute}`,
+        data: {
+            aggregate: true,
+            taskIds: group.entries.map((entry) => entry.task.id),
+            reminderIds: group.entries.map((entry) => entry.reminder.id),
+            count,
+            source: group.source,
+            reminderAt: group.reminderAtMinute,
+            url: "/tasks",
+            kind: isDue ? "DEADLINE_FINAL_CALL" : "DEADLINE_REMINDER",
+            category: "DEADLINE_REMINDER",
+        },
+    };
 }
 
 function webNeedsRetry(webResult: {
@@ -195,6 +344,8 @@ async function processDueTaskReminders(
         }
     }
 
+    const notificationEntries: ReminderNotificationEntry[] = [];
+
     for (const reminder of claimedReminders) {
         const task = tasksById.get(reminder.parent_task_id);
         const reminderAtMs = new Date(reminder.reminder_at).getTime();
@@ -209,74 +360,31 @@ async function processDueTaskReminders(
             continue;
         }
 
+        if (task && ACTIVE_STATUSES.includes(task.status)) {
+            notificationEntries.push({
+                reminder,
+                task,
+                eventType: getReminderEventType(reminder.source),
+            });
+        }
+    }
+
+    for (const group of groupReminderNotificationEntries(notificationEntries)) {
         try {
-            if (task && ACTIVE_STATUSES.includes(task.status)) {
-                const reminderEventType = getReminderEventType(reminder.source);
-                if (reminder.source === MANUAL_REMINDER_SOURCE) {
-                    const sendResult = await sendWithWebRetry({
-                        userId: reminder.user_id,
-                        title: "Task reminder",
-                        text: `Reminder for "${task.title}".`,
-                        email: false,
-                        push: true,
-                        url: `/tasks/${task.id}`,
-                        tag: `task-reminder-${reminder.id}`,
-                        data: {
-                            taskId: task.id,
-                            reminderId: reminder.id,
-                            kind: "TASK_REMINDER",
-                            category: "DEADLINE_REMINDER",
-                            reminderAt: reminder.reminder_at,
-                        },
-                    });
-                    if (webNeedsRetry(sendResult.push.web)) {
-                        remindersToRetry.add(reminder.id);
-                    }
-                } else {
-                    const isOneHour = reminder.source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE;
-                    const isDue = reminder.source === DEFAULT_DEADLINE_DUE_REMINDER_SOURCE;
-                    const title = isDue
-                        ? "Final call"
-                        : isOneHour
-                            ? "Deadline in 1 hour"
-                            : "Deadline in 10 minutes";
-                    const text = isDue
-                        ? `Mark "${task.title}" complete now or it will be missed.`
-                        : isOneHour
-                            ? `1 hour left for ${task.title}`
-                            : `10 minutes left for ${task.title}`;
+            const sendResult = await sendWithWebRetry(buildReminderNotificationParams(group));
 
-                    const sendResult = await sendWithWebRetry({
-                        userId: reminder.user_id,
-                        subject: title,
-                        title,
-                        text,
-                        email: false,
-                        push: true,
-                        url: `/tasks/${task.id}`,
-                        tag: `deadline-reminder-${reminder.id}`,
-                        data: {
-                            taskId: task.id,
-                            reminderId: reminder.id,
-                            kind: isDue ? "DEADLINE_FINAL_CALL" : (reminderEventType || "DEADLINE_WARNING"),
-                            category: "DEADLINE_REMINDER",
-                            reminderAt: reminder.reminder_at,
-                            source: reminder.source,
-                        },
-                    });
+            if (webNeedsRetry(sendResult.push.web)) {
+                group.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
+            }
 
-                    if (webNeedsRetry(sendResult.push.web)) {
-                        remindersToRetry.add(reminder.id);
-                    }
-                }
-
-                if (reminder.source !== MANUAL_REMINDER_SOURCE && reminderEventType) {
-                    await logDefaultReminderEvent(supabase, task, reminder, reminderEventType);
+            for (const entry of group.entries) {
+                if (entry.reminder.source !== MANUAL_REMINDER_SOURCE && entry.eventType) {
+                    await logDefaultReminderEvent(supabase, entry.task, entry.reminder, entry.eventType);
                 }
             }
         } catch (error) {
-            console.error(`Failed to process task reminder ${reminder.id}:`, error);
-            remindersToRetry.add(reminder.id);
+            console.error(`Failed to process task reminder group ${group.key}:`, error);
+            group.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
         }
     }
 
