@@ -8,6 +8,7 @@
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendExpoDataPushToUser } from "@/lib/expo-push";
 import { sendNotification } from "@/lib/notifications";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 import {
@@ -101,6 +102,28 @@ export function groupReminderNotificationEntries(
     return Array.from(groupsByKey.values());
 }
 
+export function getReminderLocalBackupKey(group: ReminderNotificationGroup): string {
+    if (group.entries.length === 1) {
+        return group.entries[0].reminder.id;
+    }
+
+    return `aggregate|${group.source}|${group.reminderAtMinute}`;
+}
+
+export function buildReminderRemoteDeliveryMarkerData(group: ReminderNotificationGroup) {
+    return {
+        kind: "TASK_REMINDER_REMOTE_DELIVERED",
+        category: "DEADLINE_REMINDER",
+        localBackupKey: getReminderLocalBackupKey(group),
+        taskIds: group.entries.map((entry) => entry.task.id),
+        reminderIds: group.entries.map((entry) => entry.reminder.id),
+        count: group.entries.length,
+        source: group.source,
+        reminderAt: group.reminderAtMinute,
+        aggregate: group.entries.length > 1,
+    };
+}
+
 export function buildReminderNotificationParams(
     group: ReminderNotificationGroup
 ): Parameters<typeof sendNotification>[0] {
@@ -126,6 +149,7 @@ export function buildReminderNotificationParams(
                 data: {
                     taskId: task.id,
                     reminderId: reminder.id,
+                    localBackupKey: getReminderLocalBackupKey(group),
                     kind: "TASK_REMINDER",
                     category: "DEADLINE_REMINDER",
                     reminderAt: reminder.reminder_at,
@@ -156,6 +180,7 @@ export function buildReminderNotificationParams(
             data: {
                 taskId: task.id,
                 reminderId: reminder.id,
+                localBackupKey: getReminderLocalBackupKey(group),
                 kind: isDue ? "DEADLINE_FINAL_CALL" : (eventType || "DEADLINE_WARNING"),
                 category: "DEADLINE_REMINDER",
                 reminderAt: reminder.reminder_at,
@@ -184,6 +209,7 @@ export function buildReminderNotificationParams(
         tag: `${tagPrefix}-${group.userId}-${group.source}-${group.reminderAtMinute}`,
         data: {
             aggregate: true,
+            localBackupKey: getReminderLocalBackupKey(group),
             taskIds: group.entries.map((entry) => entry.task.id),
             reminderIds: group.entries.map((entry) => entry.reminder.id),
             count,
@@ -194,6 +220,28 @@ export function buildReminderNotificationParams(
             category: "DEADLINE_REMINDER",
         },
     };
+}
+
+async function sendRemoteDeliveryMarker(group: ReminderNotificationGroup) {
+    try {
+        const result = await sendExpoDataPushToUser(group.userId, {
+            data: buildReminderRemoteDeliveryMarkerData(group),
+            ttlSeconds: 60,
+        });
+
+        if (result.success === false) {
+            console.warn("[task-reminder-notify] remote delivery marker failed:", {
+                groupKey: group.key,
+                reason: result.reason,
+                failed: result.failed,
+            });
+        }
+    } catch (error) {
+        console.warn("[task-reminder-notify] remote delivery marker failed:", {
+            groupKey: group.key,
+            error,
+        });
+    }
 }
 
 function webNeedsRetry(webResult: {
@@ -376,6 +424,8 @@ async function processDueTaskReminders(
             if (webNeedsRetry(sendResult.push.web)) {
                 group.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
             }
+
+            await sendRemoteDeliveryMarker(group);
 
             for (const entry of group.entries) {
                 if (entry.reminder.source !== MANUAL_REMINDER_SOURCE && entry.eventType) {

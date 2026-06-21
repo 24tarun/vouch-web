@@ -24,11 +24,12 @@ export interface ExpoPushSendResult {
 
 interface ExpoMessage {
   to: string;
-  title: string;
-  body: string;
+  title?: string;
+  body?: string;
   data?: Record<string, unknown>;
   sound?: "default" | null;
   ttl?: number;
+  _contentAvailable?: boolean;
 }
 
 interface ExpoPushTicket {
@@ -38,14 +39,13 @@ interface ExpoPushTicket {
   details?: { error?: string };
 }
 
-export async function sendExpoPushToUser(
-  userId: string,
-  payload: ExpoPushPayload
-): Promise<ExpoPushSendResult> {
-  const ttlSeconds = Number.isFinite(payload.ttlSeconds) && (payload.ttlSeconds as number) > 0
-    ? Math.floor(payload.ttlSeconds as number)
+function resolveTtlSeconds(ttlSeconds: number | undefined): number {
+  return Number.isFinite(ttlSeconds) && (ttlSeconds as number) > 0
+    ? Math.floor(ttlSeconds as number)
     : 30 * 60;
+}
 
+async function loadDeliveryTokenEntries(userId: string) {
   const supabase = createAdminClient();
 
   const { data: tokenRows, error } = await supabase
@@ -59,6 +59,26 @@ export async function sendExpoPushToUser(
 
   if (error || deliveryTokenEntries.length === 0) {
     return {
+      supabase,
+      deliveryTokenEntries: [],
+      error,
+    };
+  }
+
+  return {
+    supabase,
+    deliveryTokenEntries,
+    error: null,
+  };
+}
+
+async function sendExpoMessages(
+  messages: ExpoMessage[],
+  deliveryTokenEntries: Array<{ token: string; user_client_instance_id: string | null }>,
+  supabase: ReturnType<typeof createAdminClient>
+): Promise<ExpoPushSendResult> {
+  if (deliveryTokenEntries.length === 0 || messages.length === 0) {
+    return {
       success: true,
       total: 0,
       delivered: 0,
@@ -67,15 +87,6 @@ export async function sendExpoPushToUser(
       reason: "no_tokens",
     };
   }
-
-  const messages: ExpoMessage[] = deliveryTokenEntries.map((row) => ({
-    to: row.token,
-    title: payload.title,
-    body: payload.body,
-    data: payload.data,
-    sound: payload.sound ?? "default",
-    ttl: ttlSeconds,
-  }));
 
   try {
     const response = await fetch("https://exp.host/--/api/v2/push/send", {
@@ -146,4 +157,64 @@ export async function sendExpoPushToUser(
       reason: "network_or_runtime_error",
     };
   }
+}
+
+export async function sendExpoPushToUser(
+  userId: string,
+  payload: ExpoPushPayload
+): Promise<ExpoPushSendResult> {
+  const ttlSeconds = resolveTtlSeconds(payload.ttlSeconds);
+
+  const { supabase, deliveryTokenEntries, error } = await loadDeliveryTokenEntries(userId);
+
+  if (error || deliveryTokenEntries.length === 0) {
+    return {
+      success: true,
+      total: 0,
+      delivered: 0,
+      failed: 0,
+      skipped: true,
+      reason: "no_tokens",
+    };
+  }
+
+  const messages: ExpoMessage[] = deliveryTokenEntries.map((row) => ({
+    to: row.token,
+    title: payload.title,
+    body: payload.body,
+    data: payload.data,
+    sound: payload.sound ?? "default",
+    ttl: ttlSeconds,
+  }));
+
+  return sendExpoMessages(messages, deliveryTokenEntries, supabase);
+}
+
+export async function sendExpoDataPushToUser(
+  userId: string,
+  payload: { data: Record<string, unknown>; ttlSeconds?: number }
+): Promise<ExpoPushSendResult> {
+  const ttlSeconds = payload.ttlSeconds == null ? 60 : resolveTtlSeconds(payload.ttlSeconds);
+
+  const { supabase, deliveryTokenEntries, error } = await loadDeliveryTokenEntries(userId);
+
+  if (error || deliveryTokenEntries.length === 0) {
+    return {
+      success: true,
+      total: 0,
+      delivered: 0,
+      failed: 0,
+      skipped: true,
+      reason: "no_tokens",
+    };
+  }
+
+  const messages: ExpoMessage[] = deliveryTokenEntries.map((row) => ({
+    to: row.token,
+    data: payload.data,
+    ttl: ttlSeconds,
+    _contentAvailable: true,
+  }));
+
+  return sendExpoMessages(messages, deliveryTokenEntries, supabase);
 }

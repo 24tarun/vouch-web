@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+    buildReminderRemoteDeliveryMarkerData,
     buildReminderNotificationParams,
+    getReminderLocalBackupKey,
     groupReminderNotificationEntries,
     type ReminderNotificationEntry,
 } from "../../src/trigger/task-reminder-notify.ts";
@@ -65,6 +67,7 @@ test("single reminder notification keeps task-specific payload", () => {
     assert.deepEqual(params.data, {
         taskId: "task-1",
         reminderId: "reminder-1",
+        localBackupKey: "reminder-1",
         kind: "DEADLINE_WARNING_10M",
         category: "DEADLINE_REMINDER",
         reminderAt: "2026-03-23T22:00:30.000Z",
@@ -86,6 +89,7 @@ test("multiple same-minute reminders produce one aggregate payload", () => {
     assert.match(params.tag ?? "", /^deadline-reminder-aggregate-user-1-DEFAULT_DEADLINE_1H-/);
     assert.deepEqual(params.data, {
         aggregate: true,
+        localBackupKey: "aggregate|DEFAULT_DEADLINE_1H|2026-03-23T22:00:00.000Z",
         taskIds: ["task-1", "task-2"],
         reminderIds: ["reminder-1", "reminder-2"],
         count: 2,
@@ -121,4 +125,31 @@ test("manual reminders aggregate when simultaneous", () => {
     assert.equal(params.title, "Task reminders");
     assert.equal(params.text, "2 tasks need attention.");
     assert.match(params.tag ?? "", /^task-reminder-aggregate-user-1-MANUAL-/);
+});
+
+test("remote delivery marker uses stable single and aggregate backup keys", () => {
+    const [singleGroup] = groupReminderNotificationEntries([
+        entry({ reminderId: "reminder-1", taskId: "task-1", title: "A", source: "DEFAULT_DEADLINE_10M" }),
+    ]);
+    const [aggregateGroup] = groupReminderNotificationEntries([
+        entry({ reminderId: "reminder-1", taskId: "task-1", title: "A", source: "DEFAULT_DEADLINE_1H" }),
+        entry({ reminderId: "reminder-2", taskId: "task-2", title: "B", source: "DEFAULT_DEADLINE_1H" }),
+    ]);
+
+    assert.equal(getReminderLocalBackupKey(singleGroup), "reminder-1");
+    assert.equal(
+        getReminderLocalBackupKey(aggregateGroup),
+        "aggregate|DEFAULT_DEADLINE_1H|2026-03-23T22:00:00.000Z"
+    );
+    assert.deepEqual(buildReminderRemoteDeliveryMarkerData(aggregateGroup), {
+        kind: "TASK_REMINDER_REMOTE_DELIVERED",
+        category: "DEADLINE_REMINDER",
+        localBackupKey: "aggregate|DEFAULT_DEADLINE_1H|2026-03-23T22:00:00.000Z",
+        taskIds: ["task-1", "task-2"],
+        reminderIds: ["reminder-1", "reminder-2"],
+        count: 2,
+        source: "DEFAULT_DEADLINE_1H",
+        reminderAt: "2026-03-23T22:00:00.000Z",
+        aggregate: true,
+    });
 });
