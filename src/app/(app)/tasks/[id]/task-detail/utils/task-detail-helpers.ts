@@ -1,4 +1,4 @@
-import type { TaskEvent, TaskWithRelations } from "@/lib/types";
+import type { TaskEvent, TaskReminder, TaskWithRelations } from "@/lib/types";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 
 export type RestoredTaskStatus = "ACTIVE" | "POSTPONED";
@@ -109,6 +109,45 @@ export function splitRemindersByTime<T extends { reminder_at: string }>(reminder
     };
 }
 
+export function mergeDueReminderTimelineEvents(
+    events: TaskEvent[],
+    reminders: TaskReminder[],
+    referenceNowMs: number
+): TaskEvent[] {
+    const hasFinalCallEvent = events.some((event) => event.event_type === "DEADLINE_WARNING_DUE");
+    if (hasFinalCallEvent) return events;
+
+    const dueReminder = reminders.find((reminder) => {
+        if (reminder.source !== "DEFAULT_DEADLINE_DUE") return false;
+        const reminderMs = new Date(reminder.reminder_at).getTime();
+        return Number.isFinite(reminderMs) && reminderMs <= referenceNowMs;
+    });
+    if (!dueReminder) return events;
+
+    const syntheticFinalCallEvent: TaskEvent = {
+        id: `reminder:${dueReminder.id}:deadline-warning-due`,
+        task_id: dueReminder.parent_task_id,
+        event_type: "DEADLINE_WARNING_DUE",
+        actor_id: null,
+        from_status: "ACTIVE",
+        to_status: "ACTIVE",
+        metadata: {
+            reminder_id: dueReminder.id,
+            reminder_at: dueReminder.reminder_at,
+            source: dueReminder.source,
+            synthetic_from_reminder: true,
+        },
+        created_at: dueReminder.reminder_at,
+    };
+
+    return [...events, syntheticFinalCallEvent].sort((a, b) => {
+        const aMs = new Date(a.created_at).getTime();
+        const bMs = new Date(b.created_at).getTime();
+        if (!Number.isFinite(aMs) || !Number.isFinite(bMs)) return 0;
+        return aMs - bMs;
+    });
+}
+
 export function formatFocusTime(seconds: number): string {
     if (!seconds || seconds <= 0) return "0m";
     if (seconds < 60) return `${seconds}s`;
@@ -168,7 +207,7 @@ export function getActivityStepTone(event: TaskEvent): ActivityTone {
     if (["PROOF_UPLOAD_FAILED_REVERT", "PROOF_REQUESTED", "PROOF_UPLOADED", "PROOF_REMOVED"].includes(event.event_type)) return "proof";
     if (event.event_type === "POMO_COMPLETED") return "info";
     if (["ACTIVE", "CREATED", "UNDO_COMPLETE", "ESCALATE", "AI_ESCALATE_TO_HUMAN"].includes(event.event_type)) return "statusBlue";
-    if (["REPETITION_STOPPED"].includes(event.event_type)) return "statusPurple";
+    if (["REPETITION_STOPPED", "REPETITION_PAUSED", "REPETITION_RESUMED"].includes(event.event_type)) return "statusPurple";
     if (["RECTIFY", "AI_DENIED_AUTO_HOP"].includes(event.event_type)) return "statusOrange";
     if (["VOUCHER_DELETE"].includes(event.event_type)) return "statusSlate";
     if (["VOUCHER_ACCEPT", "AI_APPROVE", "MARK_COMPLETE"].includes(event.event_type)) return "success";

@@ -6,7 +6,7 @@ import {
     postponeTask,
 } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
-import { Camera, Check, Plus, Repeat, Trash2, X } from "lucide-react";
+import { Camera, Check, Pause, Play, Plus, Repeat, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -254,6 +254,7 @@ export default function TaskDetailClient({
         if (!taskState.recurrence_rule) return null;
         return formatRecurrenceSummary(taskState.recurrence_rule, taskState.deadline);
     }, [taskState.recurrence_rule, taskState.deadline]);
+    const isRecurrencePaused = Boolean(taskState.recurrence_rule?.paused_at);
     const iterationNumber = taskState.iteration_number ?? null;
     const iterationLabel = iterationNumber !== null
         ? `${formatOrdinal(iterationNumber)} iteration`
@@ -586,6 +587,7 @@ export default function TaskDetailClient({
 
     const {
         handleOverride,
+        handleSetRecurrencePaused,
         handleCancelRepetition,
         handleTempDelete,
         loadFriendsForEscalation,
@@ -610,7 +612,7 @@ export default function TaskDetailClient({
         pushToTasks: () => router.push("/tasks"),
     });
 
-    const activitySteps = useTaskDetailActivitySteps(events, aiVouches);
+    const activitySteps = useTaskDetailActivitySteps(events, aiVouches, reminders, nowMs);
     const activityDotClassByTone: Record<string, string> = {
         success: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.45)]",
         danger: "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.45)]",
@@ -680,9 +682,10 @@ export default function TaskDetailClient({
                             </div>
                             {recurrenceSummary && (
                                 <div className="mt-2 flex items-center justify-center gap-1.5 text-purple-400">
-                                    <RecurringIndicator className="text-purple-400" />
+                                    <RecurringIndicator className="text-purple-400" paused={isRecurrencePaused} />
                                     <p className="text-xs uppercase tracking-wider font-bold">
                                         {recurrenceSummary}
+                                        {isRecurrencePaused ? " · Repetitions paused" : ""}
                                     </p>
                                 </div>
                             )}
@@ -1057,13 +1060,40 @@ export default function TaskDetailClient({
                                     Postpone once?
                                 </Button>
                             )}
-                            {buttonVisibility.actions.cancelRepetition && (
-                                <Button variant="ghost" onClick={handleCancelRepetition}
-                                    className={cn(activeRowActionButtonClass, "w-full justify-center border",
-                                        TASK_DETAIL_BUTTON_CLASSES.actions.stopRepeatingEnabled)}>
-                                    <Repeat className="mr-1.5 h-3.5 w-3.5" />
-                                    Stop Repeating
-                                </Button>
+                            {(buttonVisibility.actions.pauseRepetition || buttonVisibility.actions.cancelRepetition) && (
+                                <div className="grid grid-cols-2 gap-3 sm:col-span-2 lg:col-span-2">
+                                    {buttonVisibility.actions.pauseRepetition && (
+                                        <Button
+                                            variant="ghost"
+                                            onClick={() => void handleSetRecurrencePaused()}
+                                            disabled={isActionPending("setRecurrencePaused") || isActionPending("cancelRepetition")}
+                                            className={cn(activeRowActionButtonClass, "w-full justify-center border",
+                                                TASK_DETAIL_BUTTON_CLASSES.actions.pauseRepeatingEnabled)}
+                                        >
+                                            {isRecurrencePaused
+                                                ? <Play className="mr-1.5 h-3.5 w-3.5" fill="currentColor" />
+                                                : <Pause className="mr-1.5 h-3.5 w-3.5" fill="currentColor" />}
+                                            {isActionPending("setRecurrencePaused")
+                                                ? (isRecurrencePaused ? "Pausing…" : "Resuming…")
+                                                : (
+                                                    <>
+                                                        <span className="sm:hidden">{isRecurrencePaused ? "Resume" : "Pause"}</span>
+                                                        <span className="hidden sm:inline">{isRecurrencePaused ? "Resume Repetitions" : "Pause Repetitions"}</span>
+                                                    </>
+                                                )}
+                                        </Button>
+                                    )}
+                                    {buttonVisibility.actions.cancelRepetition && (
+                                        <Button variant="ghost" onClick={handleCancelRepetition}
+                                            disabled={isActionPending("setRecurrencePaused") || isActionPending("cancelRepetition")}
+                                            className={cn(activeRowActionButtonClass, "w-full justify-center border",
+                                                TASK_DETAIL_BUTTON_CLASSES.actions.stopRepeatingEnabled)}>
+                                            <Repeat className="mr-1.5 h-3.5 w-3.5" />
+                                            <span className="sm:hidden">Stop</span>
+                                            <span className="hidden sm:inline">Stop Repetitions</span>
+                                        </Button>
+                                    )}
+                                </div>
                             )}
                             {buttonVisibility.actions.override && (
                                 <Button variant="ghost" onClick={handleOverride}

@@ -120,7 +120,7 @@ Deno.serve(async (request) => {
       .order("created_at", { ascending: true }),
     adminSupabase
       .from("recurrence_rules")
-      .select("id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, latest_iteration, created_at, updated_at")
+      .select("id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, latest_iteration, paused_at, created_at, updated_at")
       .eq("user_id", userId),
     adminSupabase
       .from("pomo_sessions")

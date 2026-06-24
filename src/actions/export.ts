@@ -53,7 +53,7 @@ export async function exportUserData(): Promise<{ data: Record<string, unknown> 
             .order("created_at", { ascending: true }),
 
         (supabase.from("recurrence_rules" as any) as any)
-            .select("id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, latest_iteration, created_at, updated_at, voucher:profiles!recurrence_rules_voucher_id_fkey(username)")
+            .select("id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, latest_iteration, paused_at, created_at, updated_at, voucher:profiles!recurrence_rules_voucher_id_fkey(username)")
             .eq("user_id", uid)
             .order("created_at", { ascending: true }),
 

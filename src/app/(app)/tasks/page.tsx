@@ -48,7 +48,7 @@ export default async function DashboardPage() {
         getCachedActiveTasksForUser(userId || ""),
         supabase
             .from("tasks")
-            .select("*")
+            .select("*, recurrence_rule:recurrence_rules(paused_at)")
             .eq("user_id", userId || "")
             .in("status", finalStatuses)
             .order("updated_at", { ascending: false })

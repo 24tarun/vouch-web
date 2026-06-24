@@ -215,6 +215,50 @@ export async function cancelRepetition(taskId: string) {
     return { success: true };
 }
 
+export async function setRecurrencePaused(taskId: string, paused: boolean) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) return { error: "Not authenticated" };
+
+    const actorUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    type SetRecurrencePausedRpc = (
+        functionName: "set_recurrence_paused",
+        args: {
+            p_task_id: string;
+            p_paused: boolean;
+            p_actor_user_client_instance_id: string | null;
+        }
+    ) => Promise<{
+        data: Array<{
+            recurrence_rule_id: string;
+            paused_at: string | null;
+            state_changed: boolean;
+        }> | null;
+        error: { message: string } | null;
+    }>;
+    const callSetRecurrencePaused = supabase.rpc.bind(supabase) as unknown as SetRecurrencePausedRpc;
+    const { data, error } = await callSetRecurrencePaused("set_recurrence_paused", {
+        p_task_id: taskId,
+        p_paused: paused,
+        p_actor_user_client_instance_id: actorUserClientInstanceId,
+    });
+
+    if (error) return { error: error.message };
+
+    const result = Array.isArray(data) ? data[0] : data;
+    revalidatePath("/tasks");
+    revalidatePath("/stats");
+    revalidatePath(`/tasks/${taskId}`);
+
+    return {
+        success: true,
+        recurrenceRuleId: result?.recurrence_rule_id as string | undefined,
+        pausedAt: (result?.paused_at as string | null | undefined) ?? null,
+        stateChanged: Boolean(result?.state_changed),
+    };
+}
+
 export async function markTaskComplete(taskId: string, userTimeZone?: string) {
     return markTaskCompleteWithProofIntent(taskId, userTimeZone);
 }

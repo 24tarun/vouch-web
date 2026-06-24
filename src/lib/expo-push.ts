@@ -5,11 +5,36 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
+type NotificationSoundKey = "default" | "tone_01" | "tone_02" | "tone_03";
+
+const NOTIFICATION_SOUND_CONFIGS: Record<NotificationSoundKey, {
+  soundFileName: "default" | `${string}.wav`;
+  androidChannelId: string;
+}> = {
+  default: {
+    soundFileName: "default",
+    androidChannelId: "reminder-default-v1",
+  },
+  tone_01: {
+    soundFileName: "notification_tone_01.wav",
+    androidChannelId: "reminder-tone-01-v1",
+  },
+  tone_02: {
+    soundFileName: "notification_tone_02.wav",
+    androidChannelId: "reminder-tone-02-v1",
+  },
+  tone_03: {
+    soundFileName: "notification_tone_03.wav",
+    androidChannelId: "reminder-tone-03-v1",
+  },
+};
+
 export interface ExpoPushPayload {
   title: string;
   body: string;
   data?: Record<string, unknown>;
-  sound?: "default" | null;
+  sound?: string | null;
+  channelId?: string | null;
   ttlSeconds?: number;
 }
 
@@ -27,7 +52,8 @@ interface ExpoMessage {
   title?: string;
   body?: string;
   data?: Record<string, unknown>;
-  sound?: "default" | null;
+  sound?: string | null;
+  channelId?: string | null;
   ttl?: number;
   _contentAvailable?: boolean;
 }
@@ -43,6 +69,30 @@ function resolveTtlSeconds(ttlSeconds: number | undefined): number {
   return Number.isFinite(ttlSeconds) && (ttlSeconds as number) > 0
     ? Math.floor(ttlSeconds as number)
     : 30 * 60;
+}
+
+function normalizeNotificationSoundKey(value: unknown): NotificationSoundKey {
+  return typeof value === "string" && value in NOTIFICATION_SOUND_CONFIGS
+    ? value as NotificationSoundKey
+    : "default";
+}
+
+async function getNotificationSoundKeyForUserAsync(
+  supabase: ReturnType<typeof createAdminClient>,
+  userId: string
+): Promise<NotificationSoundKey> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("notification_sound_key")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[expo-push] failed to resolve notification sound key:", error.message);
+    return "default";
+  }
+
+  return normalizeNotificationSoundKey((data as { notification_sound_key?: unknown } | null)?.notification_sound_key);
 }
 
 async function loadDeliveryTokenEntries(userId: string) {
@@ -178,12 +228,18 @@ export async function sendExpoPushToUser(
     };
   }
 
+  const notificationSoundKey = await getNotificationSoundKeyForUserAsync(supabase, userId);
+  const notificationSoundConfig = NOTIFICATION_SOUND_CONFIGS[notificationSoundKey];
+  const sound = payload.sound ?? notificationSoundConfig.soundFileName;
+  const channelId = payload.channelId ?? notificationSoundConfig.androidChannelId;
+
   const messages: ExpoMessage[] = deliveryTokenEntries.map((row) => ({
     to: row.token,
     title: payload.title,
     body: payload.body,
     data: payload.data,
-    sound: payload.sound ?? "default",
+    sound,
+    channelId,
     ttl: ttlSeconds,
   }));
 

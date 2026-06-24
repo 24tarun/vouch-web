@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import type { TaskEvent, TaskReminder } from "../../src/lib/types";
 
 import {
     buildVisibleEvents,
+    mergeDueReminderTimelineEvents,
     normalizeReminderIsos,
     splitRemindersByTime,
 } from "../../src/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
@@ -36,10 +38,12 @@ test("splitRemindersByTime separates past/future by reference time", () => {
 
 test("buildVisibleEvents deduplicates duplicate POMO session events", () => {
     // What/why: protects activity timeline from duplicated session entries.
-    const events = [
+    const events: TaskEvent[] = [
         {
             id: "1",
+            task_id: "task-1",
             event_type: "POMO_COMPLETED",
+            actor_id: null,
             metadata: { session_id: "session-1" },
             created_at: "2026-05-01T10:00:00.000Z",
             from_status: "ACTIVE",
@@ -47,15 +51,85 @@ test("buildVisibleEvents deduplicates duplicate POMO session events", () => {
         },
         {
             id: "2",
+            task_id: "task-1",
             event_type: "POMO_COMPLETED",
+            actor_id: null,
             metadata: { session_id: "session-1" },
             created_at: "2026-05-01T10:01:00.000Z",
             from_status: "ACTIVE",
             to_status: "ACTIVE",
         },
-    ] as any;
+    ];
     // Passing scenario: duplicate session id collapses to a single visible event.
     assert.equal(buildVisibleEvents(events).length, 1);
     // Failing scenario: without dedupe logic this would incorrectly remain at length 2.
     assert.notEqual(buildVisibleEvents(events).length, 2);
+});
+
+test("due reminder appears in the timeline when completion wins the deadline-minute race", () => {
+    const reminderAt = "2026-06-24T19:00:00.000Z";
+    const reminders: TaskReminder[] = [{
+        id: "reminder-final-call",
+        parent_task_id: "task-1",
+        user_id: "user-1",
+        reminder_at: reminderAt,
+        source: "DEFAULT_DEADLINE_DUE",
+        notified_at: reminderAt,
+        created_at: "2026-06-24T17:03:00.000Z",
+        updated_at: reminderAt,
+    }];
+    const events: TaskEvent[] = [{
+        id: "mark-complete",
+        task_id: "task-1",
+        event_type: "MARK_COMPLETE",
+        actor_id: "user-1",
+        from_status: "ACTIVE",
+        to_status: "AWAITING_VOUCHER",
+        metadata: null,
+        created_at: "2026-06-24T19:00:05.000Z",
+    }];
+
+    const merged = mergeDueReminderTimelineEvents(
+        events,
+        reminders,
+        new Date("2026-06-24T19:00:10.000Z").getTime()
+    );
+
+    assert.deepEqual(
+        merged.map((event) => event.event_type),
+        ["DEADLINE_WARNING_DUE", "MARK_COMPLETE"]
+    );
+});
+
+test("recorded final-call event is not duplicated by the reminder fallback", () => {
+    const reminderAt = "2026-06-24T19:00:00.000Z";
+    const events: TaskEvent[] = [{
+        id: "recorded-final-call",
+        task_id: "task-1",
+        event_type: "DEADLINE_WARNING_DUE",
+        actor_id: null,
+        from_status: "ACTIVE",
+        to_status: "ACTIVE",
+        metadata: null,
+        created_at: reminderAt,
+    }];
+    const reminders: TaskReminder[] = [{
+        id: "reminder-final-call",
+        parent_task_id: "task-1",
+        user_id: "user-1",
+        reminder_at: reminderAt,
+        source: "DEFAULT_DEADLINE_DUE",
+        notified_at: reminderAt,
+        created_at: "2026-06-24T17:03:00.000Z",
+        updated_at: reminderAt,
+    }];
+
+    const merged = mergeDueReminderTimelineEvents(
+        events,
+        reminders,
+        new Date("2026-06-24T19:01:00.000Z").getTime()
+    );
+
+    assert.equal(merged.length, 1);
+    assert.equal(merged[0].id, "recorded-final-call");
 });

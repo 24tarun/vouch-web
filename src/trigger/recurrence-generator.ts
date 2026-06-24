@@ -2,7 +2,7 @@
  * Trigger: recurrence-generator
  * Runs: Every hour at minute 0 (`0 * * * *`).
  * What it does when it runs:
- * 1) Loads all recurrence_rules (table only stores active rules).
+ * 1) Loads all unpaused recurrence_rules.
  * 2) For each rule, evaluates whether a task should be generated for the current date in the rule's timezone.
  * 3) If due, creates a new ACTIVE task using the rule settings (title, voucher, cost, deadline, recurrence_rule_id).
  * 4) Updates recurrence_rules.last_generated_date so the same date is not generated twice.
@@ -168,13 +168,15 @@ export const recurrenceGenerator = schedules.task({
         const supabase = createAdminClient();
         console.log("Starting recurrence generator check...");
 
-        // Fetch recurrence rules (table only stores active rules)
+        // Fetch only active recurrence rules. Paused rules retain their configuration
+        // but must not generate tasks or advance iteration numbers.
         // @ts-ignore
         const { data: rules, error } = await supabase
             .from("recurrence_rules")
             .select(
-                "id, user_id, voucher_id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, last_generated_date, created_at, manual_reminder_offsets_ms, google_sync_for_rule, time_bound_for_rule, window_start_offset_minutes, google_event_duration_minutes, google_event_color_id"
-            ) as { data: RecurrenceRule[] | null, error: any };
+                "id, user_id, voucher_id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, last_generated_date, paused_at, created_at, manual_reminder_offsets_ms, google_sync_for_rule, time_bound_for_rule, window_start_offset_minutes, google_event_duration_minutes, google_event_color_id"
+            )
+            .is("paused_at", null) as { data: RecurrenceRule[] | null, error: any };
 
         if (error) {
             console.error("Failed to fetch recurrence rules:", error);
@@ -389,6 +391,8 @@ async function processRule(
     supabase: any,
     reminderDefaultsByUser: Map<string, { deadlineOneHourWarningEnabled: boolean; deadlineFinalWarningEnabled: boolean; deadlineDueWarningEnabled: boolean }>
 ) {
+    if (rule.paused_at) return;
+
     const { frequency, interval, days_of_week, time_of_day } = rule.rule_config;
     const timezone = rule.timezone || "UTC";
     const normalizedInterval = Number.isFinite(interval) && interval > 0 ? Math.floor(interval) : 1;

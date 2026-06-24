@@ -44,6 +44,7 @@ test("active owner sees only currently actionable top-level task detail buttons"
         attachProof: true,
         markComplete: true,
         postpone: true,
+        pauseRepetition: true,
         cancelRepetition: true,
         override: false,
         tempDelete: true,
@@ -100,12 +101,38 @@ test("non-owner task detail view hides owner-only top-level buttons entirely", (
         attachProof: false,
         markComplete: false,
         postpone: false,
+        pauseRepetition: false,
         cancelRepetition: false,
         override: false,
         tempDelete: false,
         subtasksToggle: false,
         remindersToggle: false,
     });
+});
+
+test("historical owners can pause or stop a surviving recurrence rule", () => {
+    const visibility = getTaskDetailButtonVisibility({
+        status: "ACCEPTED",
+        pendingActions: [],
+        isOwner: true,
+        isActiveParentTask: false,
+        isOverdue: false,
+        isBeforeStart: false,
+        incompleteSubtasksCount: 0,
+        hasIncompletePomoRequirement: false,
+        hasRunningPomoForTask: false,
+        hasPostponedAt: false,
+        hasRecurrenceRule: true,
+        isRepetitionStopped: false,
+        canUseOverride: false,
+        canTempDelete: false,
+        canResubmit: false,
+        escalationPending: false,
+    });
+
+    assert.equal(visibility.actions.pauseRepetition, true);
+    assert.equal(visibility.actions.cancelRepetition, true);
+    assert.equal(visibility.actions.markComplete, false);
 });
 
 test("awaiting owner actions disappear when pending or when undo complete is blocked after deadline", () => {

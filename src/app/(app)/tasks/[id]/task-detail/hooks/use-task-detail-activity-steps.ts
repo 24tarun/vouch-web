@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { TaskEvent } from "@/lib/types";
+import type { TaskEvent, TaskReminder } from "@/lib/types";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 import {
     buildVisibleEvents,
@@ -9,6 +9,7 @@ import {
     getActivityStepTone,
     getPomoElapsedSeconds,
     isTaskStatus,
+    mergeDueReminderTimelineEvents,
 } from "@/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
 
 export interface ActivityStep {
@@ -43,8 +44,17 @@ const toneForStatus = (status: TaskStatus): ActivityStep["tone"] => {
     return "neutral";
 };
 
-export function useTaskDetailActivitySteps(events: TaskEvent[], aiVouches: Array<{ reason?: string | null }>): ActivityStep[] {
-    const visibleEvents = useMemo(() => buildVisibleEvents(events), [events]);
+export function useTaskDetailActivitySteps(
+    events: TaskEvent[],
+    aiVouches: Array<{ reason?: string | null }>,
+    reminders: TaskReminder[],
+    referenceNowMs: number
+): ActivityStep[] {
+    const timelineEvents = useMemo(
+        () => mergeDueReminderTimelineEvents(events, reminders, referenceNowMs),
+        [events, reminders, referenceNowMs]
+    );
+    const visibleEvents = useMemo(() => buildVisibleEvents(timelineEvents), [timelineEvents]);
 
     return useMemo<ActivityStep[]>(() => {
         return visibleEvents.flatMap((event, index) => {

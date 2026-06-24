@@ -44,6 +44,36 @@ interface ExpoTicket {
   details?: { error?: string };
 }
 
+type NotificationSoundKey = "default" | "tone_01" | "tone_02" | "tone_03";
+
+const NOTIFICATION_SOUND_CONFIGS: Record<NotificationSoundKey, {
+  soundFileName: "default" | `${string}.wav`;
+  androidChannelId: string;
+}> = {
+  default: {
+    soundFileName: "default",
+    androidChannelId: "reminder-default-v1",
+  },
+  tone_01: {
+    soundFileName: "notification_tone_01.wav",
+    androidChannelId: "reminder-tone-01-v1",
+  },
+  tone_02: {
+    soundFileName: "notification_tone_02.wav",
+    androidChannelId: "reminder-tone-02-v1",
+  },
+  tone_03: {
+    soundFileName: "notification_tone_03.wav",
+    androidChannelId: "reminder-tone-03-v1",
+  },
+};
+
+function normalizeNotificationSoundKey(value: unknown): NotificationSoundKey {
+  return typeof value === "string" && value in NOTIFICATION_SOUND_CONFIGS
+    ? value as NotificationSoundKey
+    : "default";
+}
+
 const FINAL_TASK_STATUSES = new Set([
   "ACCEPTED",
   "AUTO_ACCEPTED",
@@ -147,12 +177,22 @@ Deno.serve(async (request) => {
   if (tokens.length === 0) {
     results.expo = { success: true, skipped: true, reason: "no_tokens" };
   } else {
+    const { data: recipientSoundProfile } = await adminSupabase
+      .from("profiles")
+      .select("notification_sound_key")
+      .eq("id", recipientUserId)
+      .maybeSingle();
+    const notificationSoundKey = normalizeNotificationSoundKey(
+      (recipientSoundProfile as { notification_sound_key?: unknown } | null)?.notification_sound_key
+    );
+    const notificationSoundConfig = NOTIFICATION_SOUND_CONFIGS[notificationSoundKey];
     const messages = tokens.map((token) => ({
       to: token,
       title: notificationTitle,
       body: notificationBody,
       data: notificationData,
-      sound: "default",
+      sound: notificationSoundConfig.soundFileName,
+      channelId: notificationSoundConfig.androidChannelId,
       ttl: TTL,
     }));
 

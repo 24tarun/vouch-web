@@ -185,7 +185,7 @@ export async function getCachedActiveTasksForUser(userId: string) {
     const supabaseAdmin = createAdminClient();
     // @ts-ignore
     const { data, error } = await (supabaseAdmin.from("tasks") as any)
-        .select("*")
+        .select("*, recurrence_rule:recurrence_rules(paused_at)")
         .eq("user_id", userId as any)
         .in("status", ["ACTIVE", "POSTPONED"])
         .order("deadline", { ascending: true });

@@ -98,11 +98,14 @@ export function getTaskDetailButtonVisibility(input: TaskDetailButtonVisibilityI
                 !hasPostponedAt &&
                 !isOverdue &&
                 !hasPendingAction(pendingActions, "postpone"),
+            pauseRepetition:
+                isOwner &&
+                hasRecurrenceRule &&
+                !isRepetitionStopped,
             cancelRepetition:
                 isOwner &&
                 hasRecurrenceRule &&
-                !isRepetitionStopped &&
-                !hasPendingAction(pendingActions, "cancelRepetition"),
+                !isRepetitionStopped,
             override:
                 canUseOverride &&
                 !hasPendingAction(pendingActions, "override"),

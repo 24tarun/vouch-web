@@ -1,6 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
-import { cancelRepetition, overrideTask, ownerTempDeleteTask } from "@/actions/tasks";
+import { cancelRepetition, overrideTask, ownerTempDeleteTask, setRecurrencePaused } from "@/actions/tasks";
 import { escalateToHumanVoucher } from "@/actions/voucher";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
@@ -112,6 +112,39 @@ export function useTaskDetailActions({
         setActionPending("cancelRepetition", false);
     }, [isActionPending, isRepetitionStopped, refreshInBackground, setActionPending, setIsRepetitionStopped, setTaskState, taskState]);
 
+    const handleSetRecurrencePaused = useCallback(async () => {
+        if (!taskState.recurrence_rule || isActionPending("setRecurrencePaused")) return;
+
+        const nextPaused = !Boolean(taskState.recurrence_rule.paused_at);
+        setActionPending("setRecurrencePaused", true);
+
+        const response = await runOptimisticMutation({
+            captureSnapshot: () => ({ taskState }),
+            applyOptimistic: () => {
+                setTaskState((prev) => ({
+                    ...prev,
+                    recurrence_rule: prev.recurrence_rule
+                        ? {
+                            ...prev.recurrence_rule,
+                            paused_at: nextPaused ? new Date().toISOString() : null,
+                        }
+                        : null,
+                }));
+            },
+            runMutation: () => setRecurrencePaused(taskState.id, nextPaused),
+            rollback: (snapshot) => {
+                setTaskState(snapshot.taskState);
+            },
+            onSuccess: () => {
+                toast.success(nextPaused ? "Repetitions paused" : "Repetitions resumed");
+                refreshInBackground();
+            },
+        });
+
+        setActionPending("setRecurrencePaused", false);
+        return response;
+    }, [isActionPending, refreshInBackground, setActionPending, setTaskState, taskState]);
+
     const handleTempDelete = useCallback(async () => {
         if (isActionPending("tempDelete") || !canTempDelete) return;
         setActionPending("tempDelete", true);
@@ -170,6 +203,7 @@ export function useTaskDetailActions({
 
     return {
         handleOverride,
+        handleSetRecurrencePaused,
         handleCancelRepetition,
         handleTempDelete,
         loadFriendsForEscalation,

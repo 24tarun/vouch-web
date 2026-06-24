@@ -19,6 +19,9 @@ export interface CompactStatsTask {
     voucher_timeout_auto_accepted?: boolean | null;
     proof_request_open?: boolean | null;
     recurrence_rule_id?: string | null;
+    recurrence_rule?: {
+        paused_at?: string | null;
+    } | null;
     voucher?: {
         username?: string | null;
     } | null;
@@ -116,7 +119,7 @@ export function CompactStatsItem({
                     </p>
                     <TaskStatusBadge status={statusBadge} className="font-medium tracking-normal" />
                     {task.recurrence_rule_id && (
-                        <StatsRecurringBadge />
+                        <StatsRecurringBadge paused={Boolean(task.recurrence_rule?.paused_at)} />
                     )}
                     {!isActiveTask && (
                         <StatsPomoBadge totalSeconds={pomoTotalSeconds} />

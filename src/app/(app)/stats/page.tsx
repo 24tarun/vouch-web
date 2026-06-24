@@ -25,7 +25,7 @@ export default async function OverviewPage() {
     const [tasksResult, pomoSessionsResult] = await Promise.all([
         supabase
             .from("tasks")
-            .select("*, voucher:profiles!tasks_voucher_id_fkey(id, username, email)")
+            .select("*, voucher:profiles!tasks_voucher_id_fkey(id, username, email), recurrence_rule:recurrence_rules(paused_at)")
             .eq("user_id", userId)
             .order("updated_at", { ascending: false }),
         supabase

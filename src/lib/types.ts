@@ -86,6 +86,7 @@ export interface Task {
     resubmit_count?: number;
     ai_vouch_calls_count?: number;
     ai_vouches?: AiVouch[];
+    recurrence_rule?: RecurrenceRule | null;
 }
 
 export interface TaskSubtask {
@@ -325,6 +326,7 @@ export interface RecurrenceRule {
     manual_reminder_offsets_ms?: number[] | null;
     last_generated_date: string | null; // YYYY-MM-DD
     latest_iteration?: number;
+    paused_at?: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -501,6 +503,18 @@ export interface Database {
                     p_calendar_id?: string | null
                 }
                 Returns: EnqueueGoogleCalendarTaskResult[]
+            }
+            set_recurrence_paused: {
+                Args: {
+                    p_task_id: string
+                    p_paused: boolean
+                    p_actor_user_client_instance_id?: string | null
+                }
+                Returns: Array<{
+                    recurrence_rule_id: string
+                    paused_at: string | null
+                    state_changed: boolean
+                }>
             }
         }
         Enums: {

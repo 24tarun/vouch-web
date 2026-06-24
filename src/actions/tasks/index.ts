@@ -2,6 +2,7 @@ export { createTaskSimple, getCachedActiveTasksForUser, createTask } from "./cre
 
 export {
     cancelRepetition,
+    setRecurrencePaused,
     markTaskComplete,
     markTaskCompleteWithProofIntent,
     undoTaskComplete,

@@ -55,6 +55,10 @@ const TEN_MIN_REMINDER_EVENT = "DEADLINE_WARNING_10M";
 const DUE_REMINDER_EVENT = "DEADLINE_WARNING_DUE";
 const NOTIFICATION_TTL_MS = 30 * 60 * 1000;
 
+export function isReminderTaskActive(task: ReminderTask): boolean {
+    return ACTIVE_STATUSES.includes(task.status);
+}
+
 function getReminderEventType(source: string): string | null {
     if (source === DEFAULT_DEADLINE_1H_REMINDER_SOURCE) return ONE_HOUR_REMINDER_EVENT;
     if (source === DEFAULT_DEADLINE_10M_REMINDER_SOURCE) return TEN_MIN_REMINDER_EVENT;
@@ -352,6 +356,7 @@ async function processDueTaskReminders(
 
     const tasksResponse = await supabase.from("tasks")
         .select("id, title, status, user_id")
+        .in("status", ACTIVE_STATUSES)
         .in("id", taskIds);
 
     if (tasksResponse.error) {
@@ -408,7 +413,7 @@ async function processDueTaskReminders(
             continue;
         }
 
-        if (task && ACTIVE_STATUSES.includes(task.status)) {
+        if (task && isReminderTaskActive(task)) {
             notificationEntries.push({
                 reminder,
                 task,

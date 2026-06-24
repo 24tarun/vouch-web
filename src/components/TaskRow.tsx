@@ -611,7 +611,7 @@ export function TaskRow({
                         >
                             {task.title}
                         </p>
-                        {task.recurrence_rule_id && <RecurringIndicator />}
+                        {task.recurrence_rule_id && <RecurringIndicator paused={Boolean(task.recurrence_rule?.paused_at)} />}
                         {hasSubtasks && (
                             <span className="text-xs text-slate-500 font-mono shrink-0">
                                 {completedSubtasksCount}/{subtasks.length}
@@ -724,7 +724,7 @@ export function TaskRow({
                             >
                                 {task.title}
                             </p>
-                            {task.recurrence_rule_id && <RecurringIndicator />}
+                            {task.recurrence_rule_id && <RecurringIndicator paused={Boolean(task.recurrence_rule?.paused_at)} />}
                             {hasSubtasks && (
                                 <span className="text-xs text-slate-500 font-mono shrink-0">
                                     {completedSubtasksCount}/{subtasks.length}
@@ -771,7 +771,7 @@ export function TaskRow({
                                 >
                                     {task.title}
                                 </p>
-                                {task.recurrence_rule_id && <RecurringIndicator />}
+                                {task.recurrence_rule_id && <RecurringIndicator paused={Boolean(task.recurrence_rule?.paused_at)} />}
                                 {hasSubtasks && (
                                     <span className="text-xs text-slate-500 font-mono shrink-0">
                                         {completedSubtasksCount}/{subtasks.length}

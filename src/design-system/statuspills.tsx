@@ -148,6 +148,8 @@ const ACTIVITY_EVENT_BADGE_CLASS_BY_EVENT_TYPE: Record<string, string> = {
     GOOGLE_EVENT_CANCELLED: "bg-red-500/20 text-red-300 border border-red-500/30",
     POSTPONE: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     REPETITION_STOPPED: "bg-purple-400/10 text-purple-400 border border-purple-400/30",
+    REPETITION_PAUSED: "bg-purple-400/10 text-purple-400 border border-purple-400/30",
+    REPETITION_RESUMED: "bg-purple-400/10 text-purple-400 border border-purple-400/30",
     AI_APPROVE: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     AI_DENY: "bg-red-500/10 text-red-500 border border-red-500/30",
     AI_DENIED_AUTO_HOP: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
@@ -189,6 +191,8 @@ function formatActivityEventLabel(eventType: string, elapsedSeconds?: number): s
     if (eventType === "DEADLINE_WARNING_10M") return "10MIN LEFT REMINDER SENT";
     if (eventType === "DEADLINE_WARNING_DUE") return "FINAL CALL REMINDER SENT";
     if (eventType === "REPETITION_STOPPED") return "REPETITIONS STOPPED";
+    if (eventType === "REPETITION_PAUSED") return "REPETITIONS PAUSED";
+    if (eventType === "REPETITION_RESUMED") return "REPETITIONS RESUMED";
     return eventType.replace(/_/g, " ");
 }
 
@@ -212,8 +216,8 @@ export function ActivityEventBadge({ eventType, elapsedSeconds, className }: Act
     );
 }
 
-export function StatsRecurringBadge() {
-    return <RecurringIndicator />;
+export function StatsRecurringBadge({ paused = false }: { paused?: boolean }) {
+    return <RecurringIndicator paused={paused} />;
 }
 
 interface StatsPomoBadgeProps {

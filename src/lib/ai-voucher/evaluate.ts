@@ -309,16 +309,11 @@ async function denyTask(
     },
   ]);
 
-  // Determine remaining appeals (cap: 3 total reviews)
-  const attemptsRemaining = 3 - attemptNumber;
-
   // Push notification only (no email)
   await sendNotification({
     userId: task.user.id,
     title: "Proof denied by AI",
-    text: attemptsRemaining > 0
-      ? `AI denied your proof for "${task.title}". You can appeal (${attemptsRemaining} left), escalate, or accept the denial.`
-      : `AI denied your proof for "${task.title}". You can escalate to a friend or accept the denial.`,
+    text: `AI denied your proof for "${task.title}"`,
     url: `/tasks/${taskId}`,
     tag: `task-denied-resubmit-${taskId}`,
     data: { taskId, kind: "TASK_AI_DENIED_RESUBMIT" },
@@ -384,7 +379,7 @@ async function failTask(
     await sendNotification({
       userId: task.user.id,
       title: "Proof issue — AI needs evidence",
-      text: `${reason}. You can resubmit, escalate to a friend, or accept the denial.`,
+      text: `AI denied your proof for "${task.title}"`,
       email: false,
       push: true,
       url: `/tasks/${taskId}`,

@@ -5,6 +5,7 @@ import {
     buildReminderNotificationParams,
     getReminderLocalBackupKey,
     groupReminderNotificationEntries,
+    isReminderTaskActive,
     type ReminderNotificationEntry,
 } from "../../src/trigger/task-reminder-notify.ts";
 
@@ -15,6 +16,7 @@ function entry(input: {
     source: string;
     reminderAt?: string;
     userId?: string;
+    status?: ReminderNotificationEntry["task"]["status"];
 }): ReminderNotificationEntry {
     return {
         reminder: {
@@ -27,7 +29,7 @@ function entry(input: {
         task: {
             id: input.taskId,
             title: input.title,
-            status: "ACTIVE",
+            status: input.status ?? "ACTIVE",
             user_id: input.userId ?? "user-1",
         },
         eventType: input.source === "DEFAULT_DEADLINE_DUE"
@@ -99,6 +101,49 @@ test("multiple same-minute reminders produce one aggregate payload", () => {
         kind: "DEADLINE_REMINDER",
         category: "DEADLINE_REMINDER",
     });
+});
+
+test("inactive tasks are excluded before grouping reminder notifications", () => {
+    const candidateEntries = [
+        entry({ reminderId: "reminder-1", taskId: "task-1", title: "Active", source: "DEFAULT_DEADLINE_DUE" }),
+        entry({
+            reminderId: "reminder-2",
+            taskId: "task-2",
+            title: "Completed",
+            source: "DEFAULT_DEADLINE_DUE",
+            status: "AWAITING_VOUCHER",
+        }),
+    ];
+    const activeEntries = candidateEntries.filter((candidate) => isReminderTaskActive(candidate.task));
+    const [group] = groupReminderNotificationEntries(activeEntries);
+    const params = buildReminderNotificationParams(group);
+
+    assert.equal(params.title, "Final call");
+    assert.equal(params.text, 'Mark "Active" complete now or it will be missed.');
+    assert.equal((params.data as Record<string, unknown>).reminderId, "reminder-1");
+    assert.equal((params.data as Record<string, unknown>).aggregate, undefined);
+});
+
+test("no reminder group is produced when every task is inactive", () => {
+    const inactiveEntries = [
+        entry({
+            reminderId: "reminder-1",
+            taskId: "task-1",
+            title: "Awaiting voucher",
+            source: "DEFAULT_DEADLINE_DUE",
+            status: "AWAITING_VOUCHER",
+        }),
+        entry({
+            reminderId: "reminder-2",
+            taskId: "task-2",
+            title: "Missed",
+            source: "DEFAULT_DEADLINE_DUE",
+            status: "MISSED",
+        }),
+    ];
+    const activeEntries = inactiveEntries.filter((candidate) => isReminderTaskActive(candidate.task));
+
+    assert.deepEqual(groupReminderNotificationEntries(activeEntries), []);
 });
 
 test("due-time aggregate reminder uses final-call copy", () => {

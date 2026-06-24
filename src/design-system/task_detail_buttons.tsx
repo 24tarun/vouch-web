@@ -28,6 +28,7 @@ export const TASK_DETAIL_BUTTON_CLASSES = {
         markCompleteDisabled: "border-slate-800 bg-transparent text-slate-500 cursor-not-allowed",
         postponeEnabled: "border-amber-500/35 bg-amber-500/8 text-amber-300 hover:bg-amber-500/15 hover:border-amber-500/45 hover:text-amber-200",
         postponeDisabled: "border-slate-800 bg-transparent text-slate-500 cursor-not-allowed",
+        pauseRepeatingEnabled: "border-purple-400/35 bg-purple-400/10 text-purple-400 hover:bg-purple-400/20 hover:text-purple-300",
         stopRepeatingEnabled: "border-purple-400/35 bg-purple-400/10 text-purple-400 hover:bg-purple-400/20 hover:text-purple-300",
         stopRepeatingDisabled: "border-slate-800 text-slate-600 cursor-not-allowed",
         overrideEnabled: "border-[#a21caf]/70 bg-[#a21caf]/20 text-[#f5d0fe] hover:bg-[#a21caf]/30 hover:text-[#fae8ff]",
