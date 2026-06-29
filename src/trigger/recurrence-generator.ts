@@ -17,6 +17,7 @@ import {
 import { isGoogleEventColorId } from "@/lib/task-title-event-color";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
+import { isRecurrenceDateAlreadyGenerated } from "@/lib/recurrence-cursor";
 
 type DateParts = { year: number; month: number; day: number };
 
@@ -404,7 +405,10 @@ async function processRule(
     const currentLocalDateStr = toDateStr(currentLocalParts);
     const createdLocalDateStr = toDateStr(getLocalDateParts(new Date(rule.created_at)));
 
-    if (rule.last_generated_date === currentLocalDateStr) {
+    // The initial task may be scheduled for a future local date. Treat that
+    // future cursor as already generated too; otherwise this run creates an
+    // overdue task for today and moves the cursor backward.
+    if (isRecurrenceDateAlreadyGenerated(rule.last_generated_date, currentLocalDateStr)) {
         return;
     }
 
@@ -430,6 +434,29 @@ async function processRule(
         const eventStartIso = hasWindowStartOffset
             ? new Date(new Date(deadlineIso).getTime() - windowStartOffsetMinutes * 60 * 1000).toISOString()
             : null;
+
+        // Reconcile safely if the cursor was lost or an earlier run inserted
+        // the task but failed before updating the rule.
+        const { data: existingTask, error: existingTaskError } = await supabase
+            .from("tasks")
+            .select("id")
+            .eq("recurrence_rule_id", rule.id)
+            .eq("deadline", deadlineIso)
+            .limit(1)
+            .maybeSingle();
+
+        if (existingTaskError) {
+            console.error(`Failed to check existing occurrence for recurrence rule ${rule.id}:`, existingTaskError);
+            return;
+        }
+
+        if (existingTask?.id) {
+            await supabase.from("recurrence_rules")
+                .update({ last_generated_date: currentLocalDateStr, updated_at: new Date().toISOString() })
+                .eq("id", rule.id)
+                .or(`last_generated_date.is.null,last_generated_date.lt.${currentLocalDateStr}`);
+            return;
+        }
 
         // Create Task
         // @ts-ignore
@@ -508,7 +535,8 @@ async function processRule(
         // @ts-ignore
         await supabase.from("recurrence_rules")
             .update({ last_generated_date: currentLocalDateStr, updated_at: new Date().toISOString() })
-            .eq("id", rule.id);
+            .eq("id", rule.id)
+            .or(`last_generated_date.is.null,last_generated_date.lt.${currentLocalDateStr}`);
 
         console.log(`Successfully generated task for rule ${rule.id}`);
     }
