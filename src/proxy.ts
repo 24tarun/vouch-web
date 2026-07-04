@@ -26,7 +26,7 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
             "worker-src 'self' blob:",
             "media-src 'self' blob: https:",
             "manifest-src 'self'",
-            "upgrade-insecure-requests",
+            ...(process.env.NODE_ENV === "production" ? ["upgrade-insecure-requests"] : []),
         ].join("; ")
     );
     if (process.env.NODE_ENV === "production") {

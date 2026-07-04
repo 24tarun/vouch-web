@@ -1,13 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import type { TaskWithRelations } from "@/lib/types";
 import { HardRefreshButton } from "@/components/HardRefreshButton";
-import { StatsActiveTaskList } from "@/components/StatsActiveTaskList";
 import { StatsHistoryTaskList } from "@/components/StatsHistoryTaskList";
-import { sortStatsActiveTasks } from "@/lib/stats-active-task-sort";
 
-const ACTIVE_SECTION_STATUSES = new Set([
-    "ACTIVE",
-    "POSTPONED",
+const HIDDEN_STATS_STATUSES = new Set(["ACTIVE", "POSTPONED"]);
+const AWAITING_STATS_STATUSES = new Set([
     "MARKED_COMPLETE",
     "AWAITING_VOUCHER",
     "AWAITING_AI",
@@ -71,9 +68,7 @@ export default async function OverviewPage() {
     const totalHours = Math.floor(totalSeconds / 3600);
     const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
 
-    const activeTasks = sortStatsActiveTasks(tasks.filter((t) => ACTIVE_SECTION_STATUSES.has(t.status)));
-
-    const activeTasksCount = activeTasks.length;
+    const activeTasksCount = tasks.filter((t) => HIDDEN_STATS_STATUSES.has(t.status)).length;
     const pendingVouchCount = tasks.filter((t) =>
         ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(t.status)
     ).length;
@@ -81,7 +76,11 @@ export default async function OverviewPage() {
     const failedCount = tasks.filter((t) => t.status === "MISSED").length;
     const deniedCount = tasks.filter((t) => t.status === "DENIED").length;
 
-    const historyTasks = tasks.filter((t) => !ACTIVE_SECTION_STATUSES.has(t.status));
+    const historyTasks = tasks
+        .filter((t) => !HIDDEN_STATS_STATUSES.has(t.status))
+        .toSorted(
+            (a, b) => Number(AWAITING_STATS_STATUSES.has(b.status)) - Number(AWAITING_STATS_STATUSES.has(a.status))
+        );
 
     const taskPomoTotals = allSessions.reduce((map, row) => {
         if (!row.task_id) return map;
@@ -89,11 +88,6 @@ export default async function OverviewPage() {
         map.set(row.task_id, current + (row.elapsed_seconds || 0));
         return map;
     }, new Map<string, number>());
-
-    const activeTasksWithPomo = activeTasks.map((task) => ({
-        ...task,
-        pomo_total_seconds: taskPomoTotals.get(task.id) || 0,
-    }));
 
     const historyTasksWithPomo = historyTasks.map((task) => ({
         ...task,
@@ -142,25 +136,7 @@ export default async function OverviewPage() {
                 </div>
             </div>
 
-            {/* Active Tasks Section */}
-            <section className="space-y-4">
-                <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
-                    Active Tasks
-                </h2>
-                {activeTasks.length === 0 ? (
-                    <div className="bg-slate-900/40 border border-slate-800/20 rounded-xl py-12 text-center">
-                        <p className="text-slate-600 text-sm italic">No active tasks at the moment.</p>
-                    </div>
-                ) : (
-                    <div className="flex flex-col">
-                        <StatsActiveTaskList
-                            initialTasks={activeTasksWithPomo}
-                        />
-                    </div>
-                )}
-            </section>
-
-            {/* History Section - Collapsible + paged like voucher history */}
+            {/* History Section - Paged like voucher history */}
             <StatsHistoryTaskList tasks={historyTasksWithPomo} />
         </div>
     );
