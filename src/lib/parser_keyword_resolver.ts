@@ -142,11 +142,11 @@ export function resolveTaskDeadline(
     }
 
     if (parsedTime) {
-        const deadline = new Date(now);
+        const deadline = new Date(defaultDeadline);
         deadline.setHours(parsedTime.hours, parsedTime.minutes, 0, 0);
 
         if (deadline.getTime() <= now.getTime()) {
-            return { deadline, error: "Deadline must be in the future." };
+            deadline.setDate(deadline.getDate() + 1);
         }
 
         return { deadline, error: null };
