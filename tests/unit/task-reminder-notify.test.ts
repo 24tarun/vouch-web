@@ -146,6 +146,18 @@ test("no reminder group is produced when every task is inactive", () => {
     assert.deepEqual(groupReminderNotificationEntries(activeEntries), []);
 });
 
+test("a completion timestamp suppresses reminders even if status is stale", () => {
+    const staleActiveEntry = entry({
+        reminderId: "reminder-1",
+        taskId: "task-1",
+        title: "Already submitted",
+        source: "DEFAULT_DEADLINE_DUE",
+    });
+    staleActiveEntry.task.marked_completed_at = "2026-03-23T21:55:00.000Z";
+
+    assert.equal(isReminderTaskActive(staleActiveEntry.task), false);
+});
+
 test("due-time aggregate reminder uses final-call copy", () => {
     const [group] = groupReminderNotificationEntries([
         entry({ reminderId: "reminder-1", taskId: "task-1", title: "A", source: "DEFAULT_DEADLINE_DUE" }),

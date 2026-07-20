@@ -443,8 +443,10 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                                 autoPlay
                                 playsInline
                                 muted
-                                className="absolute inset-0 w-full h-full bg-black -scale-x-100"
-                                style={{ objectFit: "contain" }}
+                                className="absolute inset-0 h-full w-full bg-black"
+                                // Capture uses the same centered 4:3 crop and horizontal flip,
+                                // so the uploaded proof matches this preview exactly.
+                                style={{ objectFit: "cover", transform: "scaleX(-1)" }}
                             />
                         </div>
                         {captureMode === "video" && (

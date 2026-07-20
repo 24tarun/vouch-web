@@ -33,6 +33,7 @@ export interface ReminderTask {
     title: string;
     status: TaskStatus;
     user_id: string;
+    marked_completed_at?: string | null;
 }
 
 export interface ReminderNotificationEntry {
@@ -56,7 +57,7 @@ const DUE_REMINDER_EVENT = "DEADLINE_WARNING_DUE";
 const NOTIFICATION_TTL_MS = 30 * 60 * 1000;
 
 export function isReminderTaskActive(task: ReminderTask): boolean {
-    return ACTIVE_STATUSES.includes(task.status);
+    return ACTIVE_STATUSES.includes(task.status) && !task.marked_completed_at;
 }
 
 function getReminderEventType(source: string): string | null {
@@ -315,6 +316,34 @@ async function logDefaultReminderEvent(
     });
 }
 
+async function refreshActiveEntriesBeforeDelivery(
+    supabase: ReturnType<typeof createAdminClient>,
+    entries: ReminderNotificationEntry[]
+): Promise<ReminderNotificationEntry[]> {
+    const taskIds = Array.from(new Set(entries.map((entry) => entry.task.id)));
+    if (taskIds.length === 0) return [];
+
+    const { data, error } = await supabase
+        .from("tasks")
+        .select("id, title, status, user_id, marked_completed_at")
+        .in("id", taskIds)
+        .in("status", ACTIVE_STATUSES);
+
+    if (error) {
+        throw new Error(`Failed to re-check tasks before reminder delivery: ${error.message}`);
+    }
+
+    const activeTasksById = new Map<string, ReminderTask>();
+    for (const task of ((data as ReminderTask[] | null) || [])) {
+        if (isReminderTaskActive(task)) activeTasksById.set(task.id, task);
+    }
+
+    return entries.flatMap((entry) => {
+        const activeTask = activeTasksById.get(entry.task.id);
+        return activeTask ? [{ ...entry, task: activeTask }] : [];
+    });
+}
+
 async function processDueTaskReminders(
     supabase: ReturnType<typeof createAdminClient>,
     nowIso: string
@@ -355,7 +384,7 @@ async function processDueTaskReminders(
     const taskIds = Array.from(new Set(claimedReminders.map((reminder) => reminder.parent_task_id)));
 
     const tasksResponse = await supabase.from("tasks")
-        .select("id, title, status, user_id")
+        .select("id, title, status, user_id, marked_completed_at")
         .in("status", ACTIVE_STATUSES)
         .in("id", taskIds);
 
@@ -424,15 +453,21 @@ async function processDueTaskReminders(
 
     for (const group of groupReminderNotificationEntries(notificationEntries)) {
         try {
-            const sendResult = await sendWithWebRetry(buildReminderNotificationParams(group));
+            // Completion can race the earlier bulk task lookup. Re-read the
+            // group immediately before delivery so a task that has since moved
+            // to proof/voucher review cannot receive a stale final call.
+            const liveEntries = await refreshActiveEntriesBeforeDelivery(supabase, group.entries);
+            if (liveEntries.length === 0) continue;
+            const liveGroup: ReminderNotificationGroup = { ...group, entries: liveEntries };
+            const sendResult = await sendWithWebRetry(buildReminderNotificationParams(liveGroup));
 
             if (webNeedsRetry(sendResult.push.web)) {
-                group.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
+                liveGroup.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
             }
 
-            await sendRemoteDeliveryMarker(group);
+            await sendRemoteDeliveryMarker(liveGroup);
 
-            for (const entry of group.entries) {
+            for (const entry of liveGroup.entries) {
                 if (entry.reminder.source !== MANUAL_REMINDER_SOURCE && entry.eventType) {
                     await logDefaultReminderEvent(supabase, entry.task, entry.reminder, entry.eventType);
                 }
