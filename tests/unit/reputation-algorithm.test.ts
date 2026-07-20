@@ -102,6 +102,26 @@ test("reputation includes recurring follow-through as discipline in the core sco
     assert.ok(strongScore.score > mixedScore.score);
 });
 
+test("surrendered tasks carry the same reputation consequence as missed tasks", () => {
+    const sharedTasks = [buildTask("accepted")];
+    const missedScore = computeFullReputationScore([
+        ...sharedTasks,
+        buildTask("failure", { status: "MISSED", marked_completed_at: null }),
+    ], USER_ID);
+    const surrenderedScore = computeFullReputationScore([
+        ...sharedTasks,
+        buildTask("failure", { status: "SURRENDERED", marked_completed_at: null }),
+    ], USER_ID);
+
+    assert.equal(surrenderedScore.score, missedScore.score);
+    for (const category of Object.keys(missedScore.categoryScores) as Array<keyof typeof missedScore.categoryScores>) {
+        assert.ok(
+            Math.abs(surrenderedScore.categoryScores[category] - missedScore.categoryScores[category]) < 0.001,
+            `${category} should be equivalent for missed and surrendered tasks`
+        );
+    }
+});
+
 test("community score rewards responsive voucher behavior instead of raw participation volume", () => {
     const responsiveVoucherTasks = [
         buildTask("owned-success-1"),

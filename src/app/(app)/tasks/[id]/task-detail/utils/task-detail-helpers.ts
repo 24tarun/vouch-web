@@ -17,6 +17,7 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
     "AI_ACCEPTED",
     "DENIED",
     "MISSED",
+    "SURRENDERED",
     "RECTIFIED",
     "DELETED",
     "SETTLED",
@@ -211,11 +212,11 @@ export function getActivityStepTone(event: TaskEvent): ActivityTone {
     if (["RECTIFY", "AI_DENIED_AUTO_HOP"].includes(event.event_type)) return "statusOrange";
     if (["VOUCHER_DELETE"].includes(event.event_type)) return "statusSlate";
     if (["VOUCHER_ACCEPT", "AI_APPROVE", "MARK_COMPLETE"].includes(event.event_type)) return "success";
-    if (["VOUCHER_DENY", "AI_DENY", "ACCEPT_DENIAL", "DEADLINE_MISSED", "GOOGLE_EVENT_CANCELLED"].includes(event.event_type)) return "danger";
+    if (["VOUCHER_DENY", "AI_DENY", "ACCEPT_DENIAL", "DEADLINE_MISSED", "SURRENDER", "GOOGLE_EVENT_CANCELLED"].includes(event.event_type)) return "danger";
 
     const toStatus = event.to_status;
     if (["MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"].includes(toStatus)) return "success";
-    if (["DENIED", "AI_DENIED", "MISSED"].includes(toStatus)) return "danger";
+    if (["DENIED", "AI_DENIED", "MISSED", "SURRENDERED"].includes(toStatus)) return "danger";
     if (["AWAITING_VOUCHER", "AWAITING_AI"].includes(toStatus)) return "warning";
     if (["ACTIVE", "POSTPONED", "ESCALATED"].includes(toStatus)) return "statusBlue";
     if (["AWAITING_USER", "RECTIFIED"].includes(toStatus)) return "statusOrange";

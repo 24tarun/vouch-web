@@ -47,7 +47,7 @@ const VOUCH_HISTORY_OPEN_SESSION_KEY = "voucher.history.open";
 const PENDING_FALLBACK_POLL_MS = 60000;
 const ACCEPTED_STATUS_ERROR = "Cannot accept task in ACCEPTED status";
 const ALL_PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_USER", "ESCALATED", "AI_DENIED"]);
-const HISTORY_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"]);
+const HISTORY_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "DELETED"]);
 
 function mergeTasksById(
     existing: HistoryTask[],
@@ -817,7 +817,7 @@ export function CompactHistoryItem({
 }) {
     const [renderNow] = useState(() => Date.now());
 
-    const isRectifiable = task.status === "DENIED" || task.status === "MISSED";
+    const isRectifiable = task.status === "DENIED" || task.status === "MISSED" || task.status === "SURRENDERED";
     const withinRectifyWindow = isWithinRectifyWindow(task.updated_at, renderNow);
     const passLimitReached = (task.rectify_passes_used ?? 0) >= 5;
     const updatedAt = new Date(task.updated_at);

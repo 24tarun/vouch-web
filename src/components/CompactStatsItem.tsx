@@ -50,6 +50,7 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
     "AI_ACCEPTED",
     "DENIED",
     "MISSED",
+    "SURRENDERED",
     "RECTIFIED",
     "DELETED",
     "SETTLED",

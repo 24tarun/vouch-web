@@ -537,7 +537,7 @@ export async function getPendingVouchRequests(): Promise<VoucherPendingTask[]> {
     return getPendingVouchRequestsForVoucher(user.id);
 }
 
-const FINAL_HISTORY_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
+const FINAL_HISTORY_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "DELETED"];
 
 export async function getVouchHistoryPage(offsetInput: number, limitInput: number) {
     const supabase = await createClient();

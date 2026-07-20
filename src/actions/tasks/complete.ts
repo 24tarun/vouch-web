@@ -579,8 +579,8 @@ export async function overrideTask(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if ((task as any).status !== "DENIED" && (task as any).status !== "MISSED") {
-        return { error: "Override can only be used on tasks that have been denied or missed." };
+    if (!["DENIED", "MISSED", "SURRENDERED"].includes((task as any).status)) {
+        return { error: "Override can only be used on tasks that have been denied, missed, or surrendered." };
     }
 
     const now = new Date();

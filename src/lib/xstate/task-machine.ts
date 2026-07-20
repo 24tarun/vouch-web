@@ -17,6 +17,7 @@ export type TaskStatus =
     | "AI_ACCEPTED"
     | "DENIED"
     | "MISSED"
+    | "SURRENDERED"
     | "RECTIFIED"
     | "DELETED"
     | "SETTLED";
@@ -26,6 +27,7 @@ export type TaskEvent =
     { type: "POSTPONE"; newDeadline: Date }
     | { type: "MARK_COMPLETE" }
     | { type: "DEADLINE_PASSED" }
+    | { type: "SURRENDER" }
     | { type: "VOUCHER_ACCEPT" }
     | { type: "VOUCHER_DENY" }
     | { type: "AI_APPROVE" }
@@ -124,6 +126,10 @@ export const taskMachine = setup({
                     target: "MISSED",
                     actions: ["updateTimestamp"],
                 },
+                SURRENDER: {
+                    target: "SURRENDERED",
+                    actions: ["updateTimestamp"],
+                },
                 OVERRIDE: {
                     target: "SETTLED",
                     actions: ["updateTimestamp"],
@@ -139,6 +145,10 @@ export const taskMachine = setup({
                 },
                 DEADLINE_PASSED: {
                     target: "MISSED",
+                    actions: ["updateTimestamp"],
+                },
+                SURRENDER: {
+                    target: "SURRENDERED",
                     actions: ["updateTimestamp"],
                 },
                 OVERRIDE: {
@@ -277,6 +287,18 @@ export const taskMachine = setup({
                 },
             },
         },
+        SURRENDERED: {
+            on: {
+                RECTIFY: {
+                    target: "RECTIFIED",
+                    actions: ["updateTimestamp"],
+                },
+                MONTH_CLOSE: {
+                    target: "SETTLED",
+                    actions: ["updateTimestamp"],
+                },
+            },
+        },
         RECTIFIED: {
             on: {
                 MONTH_CLOSE: {
@@ -297,8 +319,8 @@ export const taskMachine = setup({
 // Helper function to get valid transitions from a state
 export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     const transitions: Record<TaskStatus, TaskEvent["type"][]> = {
-        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "OVERRIDE"],
-        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "OVERRIDE"],
+        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "SURRENDER", "OVERRIDE"],
+        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "SURRENDER", "OVERRIDE"],
         MARKED_COMPLETE: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER", "AI_APPROVE", "AI_DENY"],
         AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER"],
         AWAITING_AI: ["AI_APPROVE", "AI_DENY"],
@@ -310,6 +332,7 @@ export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
         AI_ACCEPTED: ["MONTH_CLOSE"],
         DENIED: ["RECTIFY", "MONTH_CLOSE"],
         MISSED: ["RECTIFY", "MONTH_CLOSE"],
+        SURRENDERED: ["RECTIFY", "MONTH_CLOSE"],
         RECTIFIED: ["MONTH_CLOSE"],
         DELETED: [],
         SETTLED: [],
@@ -329,7 +352,7 @@ export function canTransition(
 export const SUCCESS_STATUSES: TaskStatus[] = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"];
 
 // Failure statuses (task not completed)
-export const FAILURE_STATUSES: TaskStatus[] = ["DENIED", "MISSED"];
+export const FAILURE_STATUSES: TaskStatus[] = ["DENIED", "MISSED", "SURRENDERED"];
 
 // Active (pre-completion) statuses
 export const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];

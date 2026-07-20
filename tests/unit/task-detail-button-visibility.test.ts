@@ -13,6 +13,7 @@ test("active owner sees only currently actionable top-level task detail buttons"
         isOwner: true,
         isActiveParentTask: true,
         isOverdue: false,
+        isPastDeadline: false,
         isBeforeStart: false,
         incompleteSubtasksCount: 0,
         hasIncompletePomoRequirement: false,
@@ -22,6 +23,7 @@ test("active owner sees only currently actionable top-level task detail buttons"
         isRepetitionStopped: false,
         canUseOverride: false,
         canTempDelete: true,
+        canSurrender: false,
         canResubmit: false,
         escalationPending: false,
     });
@@ -48,6 +50,7 @@ test("active owner sees only currently actionable top-level task detail buttons"
         cancelRepetition: true,
         override: false,
         tempDelete: true,
+        surrender: false,
         subtasksToggle: true,
         remindersToggle: true,
     });
@@ -60,6 +63,7 @@ test("non-owner task detail view hides owner-only top-level buttons entirely", (
         isOwner: false,
         isActiveParentTask: true,
         isOverdue: false,
+        isPastDeadline: false,
         isBeforeStart: false,
         incompleteSubtasksCount: 0,
         hasIncompletePomoRequirement: false,
@@ -69,6 +73,7 @@ test("non-owner task detail view hides owner-only top-level buttons entirely", (
         isRepetitionStopped: false,
         canUseOverride: false,
         canTempDelete: false,
+        canSurrender: true,
         canResubmit: false,
         escalationPending: false,
     });
@@ -105,9 +110,36 @@ test("non-owner task detail view hides owner-only top-level buttons entirely", (
         cancelRepetition: false,
         override: false,
         tempDelete: false,
+        surrender: false,
         subtasksToggle: false,
         remindersToggle: false,
     });
+});
+
+test("owner sees surrender in place of delete after the delete window expires", () => {
+    const visibility = getTaskDetailButtonVisibility({
+        status: "ACTIVE",
+        pendingActions: [],
+        isOwner: true,
+        isActiveParentTask: true,
+        isOverdue: false,
+        isPastDeadline: false,
+        isBeforeStart: false,
+        incompleteSubtasksCount: 0,
+        hasIncompletePomoRequirement: false,
+        hasRunningPomoForTask: false,
+        hasPostponedAt: false,
+        hasRecurrenceRule: false,
+        isRepetitionStopped: false,
+        canUseOverride: false,
+        canTempDelete: false,
+        canSurrender: true,
+        canResubmit: false,
+        escalationPending: false,
+    });
+
+    assert.equal(visibility.actions.tempDelete, false);
+    assert.equal(visibility.actions.surrender, true);
 });
 
 test("historical owners can pause or stop a surviving recurrence rule", () => {
@@ -117,6 +149,7 @@ test("historical owners can pause or stop a surviving recurrence rule", () => {
         isOwner: true,
         isActiveParentTask: false,
         isOverdue: false,
+        isPastDeadline: false,
         isBeforeStart: false,
         incompleteSubtasksCount: 0,
         hasIncompletePomoRequirement: false,
@@ -126,6 +159,7 @@ test("historical owners can pause or stop a surviving recurrence rule", () => {
         isRepetitionStopped: false,
         canUseOverride: false,
         canTempDelete: false,
+        canSurrender: false,
         canResubmit: false,
         escalationPending: false,
     });
@@ -142,6 +176,7 @@ test("awaiting owner actions disappear when pending or when undo complete is blo
         isOwner: true,
         isActiveParentTask: false,
         isOverdue: true,
+        isPastDeadline: true,
         isBeforeStart: false,
         incompleteSubtasksCount: 0,
         hasIncompletePomoRequirement: false,
@@ -151,6 +186,7 @@ test("awaiting owner actions disappear when pending or when undo complete is blo
         isRepetitionStopped: false,
         canUseOverride: false,
         canTempDelete: false,
+        canSurrender: false,
         canResubmit: false,
         escalationPending: false,
     });
@@ -170,6 +206,40 @@ test("awaiting owner actions disappear when pending or when undo complete is blo
     assert.equal(visibility.awaiting.addProof, false);
     assert.equal(visibility.awaiting.undoComplete, false);
     assert.equal(visibility.proof.removeStored, false);
+});
+
+test("proof edits and undo remain visible before expiry and hide after expiry for every completed waiting state", () => {
+    for (const status of ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"] as const) {
+        const shared = {
+            status,
+            pendingActions: [],
+            isOwner: true,
+            isActiveParentTask: false,
+            isOverdue: false,
+            isBeforeStart: false,
+            incompleteSubtasksCount: 0,
+            hasIncompletePomoRequirement: false,
+            hasRunningPomoForTask: false,
+            hasPostponedAt: false,
+            hasRecurrenceRule: false,
+            isRepetitionStopped: false,
+            canUseOverride: false,
+            canTempDelete: false,
+            canSurrender: false,
+            canResubmit: false,
+            escalationPending: false,
+        };
+
+        const beforeExpiry = getTaskDetailButtonVisibility({ ...shared, isPastDeadline: false });
+        assert.equal(beforeExpiry.awaiting.addProof, true);
+        assert.equal(beforeExpiry.awaiting.undoComplete, true);
+        assert.equal(beforeExpiry.proof.removeStored, true);
+
+        const afterExpiry = getTaskDetailButtonVisibility({ ...shared, isPastDeadline: true });
+        assert.equal(afterExpiry.awaiting.addProof, false);
+        assert.equal(afterExpiry.awaiting.undoComplete, false);
+        assert.equal(afterExpiry.proof.removeStored, false);
+    }
 });
 
 test("nested subtask and reminder controls render only when their actions are available", () => {

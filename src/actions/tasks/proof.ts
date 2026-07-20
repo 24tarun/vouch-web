@@ -15,7 +15,11 @@ import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
 import { aiEvaluationLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
-import { DEADLINE_INCLUSIVE_MINUTE_MS } from "@/lib/task-submission-window";
+import {
+    DEADLINE_INCLUSIVE_MINUTE_MS,
+    isTaskCompletionLocked,
+    wasProofStagedBeforeCompletionLock,
+} from "@/lib/task-submission-window";
 import {
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
@@ -24,6 +28,8 @@ import {
     INVALID_TASK_PROOF_ERROR,
     type MarkTaskCompleteWithProofResult,
 } from "./helpers";
+
+const COMPLETION_EDIT_LOCKED_ERROR = "The task deadline has passed. Proof and completion can no longer be changed.";
 
 async function triggerAiEvaluationForProof(taskId: string, mediaKind: "image" | "video", ownerId: string): Promise<{ error?: string }> {
     const { limited } = await checkRateLimit(aiEvaluationLimiter, `ai-eval:${ownerId}`);
@@ -71,7 +77,7 @@ export async function initAwaitingVoucherProofUpload(
 
     const proofIntent = proofValidation.proofIntent;
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, voucher_id, status")
+        .select("id, user_id, voucher_id, status, deadline")
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .single();
@@ -82,6 +88,10 @@ export async function initAwaitingVoucherProofUpload(
 
     if (!canInitAwaitingProofUpload((task as any).status)) {
         return { error: "Task is no longer awaiting voucher response." };
+    }
+
+    if (isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
+        return { error: COMPLETION_EDIT_LOCKED_ERROR };
     }
 
     const objectPath = buildTaskProofObjectPath({
@@ -163,7 +173,7 @@ export async function removeTaskProofAttachment(taskId: string) {
     }
 
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, voucher_id, status")
+        .select("id, user_id, voucher_id, status, deadline")
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .single();
@@ -174,6 +184,10 @@ export async function removeTaskProofAttachment(taskId: string) {
 
     if (!["ACTIVE", "POSTPONED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes((task as any).status)) {
         return { error: `Proof cannot be removed in ${(task as any).status} status.` };
+    }
+
+    if (isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
+        return { error: COMPLETION_EDIT_LOCKED_ERROR };
     }
 
     const cleanup = await deleteTaskProof(taskId, "owner_remove_proof_attachment");
@@ -223,7 +237,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     }
 
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, voucher_id, status")
+        .select("id, user_id, voucher_id, status, deadline")
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .single();
@@ -237,7 +251,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     }
 
     const { data: proofRow, error: proofFetchError } = await (supabase.from("task_completion_proofs") as any)
-        .select("id, object_path, bucket, owner_id")
+        .select("id, object_path, bucket, owner_id, created_at, updated_at")
         .eq("task_id", taskId as any)
         .eq("owner_id", user.id as any)
         .maybeSingle();
@@ -248,6 +262,16 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
 
     if (!proofRow) {
         return { error: "Proof record not found." };
+    }
+
+    if (
+        isTaskCompletionLocked((task as any).status, (task as any).deadline) &&
+        !wasProofStagedBeforeCompletionLock(
+            (task as any).deadline,
+            (proofRow as any).updated_at || (proofRow as any).created_at
+        )
+    ) {
+        return { error: COMPLETION_EDIT_LOCKED_ERROR };
     }
 
     if (proofRow.bucket !== proofMeta.bucket || proofRow.object_path !== proofMeta.objectPath) {
@@ -413,7 +437,7 @@ export async function removeAwaitingVoucherProof(taskId: string) {
     }
 
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, voucher_id, status")
+        .select("id, user_id, voucher_id, status, deadline")
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .single();
@@ -424,6 +448,10 @@ export async function removeAwaitingVoucherProof(taskId: string) {
 
     if (!canFinalizeOrRevertProof((task as any).status)) {
         return { error: "Proof can only be removed while awaiting voucher response." };
+    }
+
+    if (isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
+        return { error: COMPLETION_EDIT_LOCKED_ERROR };
     }
 
     const cleanup = await deleteTaskProof(taskId, "owner_remove_awaiting_proof");

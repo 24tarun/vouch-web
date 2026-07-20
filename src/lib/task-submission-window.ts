@@ -1,5 +1,12 @@
 export const TASK_SUBMISSION_BEFORE_START_ERROR = "Task cannot be submitted before its start time.";
 export const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
+export const COMPLETION_EDITABLE_STATUSES = [
+    "AWAITING_VOUCHER",
+    "AWAITING_AI",
+    "MARKED_COMPLETE",
+] as const;
+
+const completionEditableStatusSet = new Set<string>(COMPLETION_EDITABLE_STATUSES);
 
 export interface TaskSubmissionWindowState {
     startDate: Date | null;
@@ -28,6 +35,30 @@ function parseIsoDate(value?: string | null): Date | null {
 
 export function isWithinInclusiveDeadlineMinute(deadlineDate: Date, now: Date): boolean {
     return now.getTime() < deadlineDate.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS;
+}
+
+export function isTaskCompletionLocked(
+    status: string | null | undefined,
+    deadlineIso: string | null | undefined,
+    now: Date = new Date()
+): boolean {
+    if (!status || !completionEditableStatusSet.has(status)) return false;
+
+    const deadlineDate = parseIsoDate(deadlineIso);
+    if (!deadlineDate) return true;
+
+    return !isWithinInclusiveDeadlineMinute(deadlineDate, now);
+}
+
+export function wasProofStagedBeforeCompletionLock(
+    deadlineIso: string | null | undefined,
+    stagedAtIso: string | null | undefined
+): boolean {
+    const deadlineDate = parseIsoDate(deadlineIso);
+    const stagedAt = parseIsoDate(stagedAtIso);
+    if (!deadlineDate || !stagedAt) return false;
+
+    return stagedAt.getTime() < deadlineDate.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS;
 }
 
 export function getTaskSubmissionWindowState(input: TaskSubmissionWindowInput): TaskSubmissionWindowState {

@@ -22,7 +22,7 @@ type OneOffTaskForTarget = Pick<Task, "id" | "failure_cost_cents">;
 
 const PENDING_STATUSES = new Set(["ACTIVE", "POSTPONED", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_USER", "ESCALATED"]);
 const PASSING_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "RECTIFIED"]);
-const FAILING_STATUSES = new Set(["DENIED", "MISSED"]);
+const FAILING_STATUSES = new Set(["DENIED", "MISSED", "SURRENDERED"]);
 
 function parseDateOnlyUtc(value: string): Date | null {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;

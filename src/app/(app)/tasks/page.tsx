@@ -32,6 +32,7 @@ export default async function DashboardPage() {
         "AI_ACCEPTED",
         "DENIED",
         "MISSED",
+        "SURRENDERED",
         "RECTIFIED",
         "SETTLED",
         "DELETED",

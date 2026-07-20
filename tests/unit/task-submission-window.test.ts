@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
     getTaskSubmissionWindowState,
+    isTaskCompletionLocked,
     isWithinInclusiveDeadlineMinute,
+    wasProofStagedBeforeCompletionLock,
 } from "../../src/lib/task-submission-window.ts";
 
 function buildIso(
@@ -187,4 +189,34 @@ test("task actions remain available until the displayed deadline minute ends", (
     assert.equal(isWithinInclusiveDeadlineMinute(deadline, new Date("2026-03-23T23:00:00.000Z")), true);
     assert.equal(isWithinInclusiveDeadlineMinute(deadline, new Date("2026-03-23T23:00:59.999Z")), true);
     assert.equal(isWithinInclusiveDeadlineMinute(deadline, new Date("2026-03-23T23:01:00.000Z")), false);
+});
+
+test("completed waiting states lock exactly after the inclusive deadline minute", () => {
+    const deadlineIso = "2026-03-23T23:00:00.000Z";
+
+    for (const status of ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"] as const) {
+        assert.equal(
+            isTaskCompletionLocked(status, deadlineIso, new Date("2026-03-23T23:00:59.999Z")),
+            false,
+            `${status} should remain editable during the displayed deadline minute`
+        );
+        assert.equal(
+            isTaskCompletionLocked(status, deadlineIso, new Date("2026-03-23T23:01:00.000Z")),
+            true,
+            `${status} should lock at the first instant after the displayed deadline minute`
+        );
+    }
+
+    assert.equal(
+        isTaskCompletionLocked("AWAITING_USER", deadlineIso, new Date("2026-03-23T23:01:00.000Z")),
+        false
+    );
+});
+
+test("proof staging records whether an upload was authorized before the lock", () => {
+    const deadlineIso = "2026-03-23T23:00:00.000Z";
+
+    assert.equal(wasProofStagedBeforeCompletionLock(deadlineIso, "2026-03-23T23:00:59.999Z"), true);
+    assert.equal(wasProofStagedBeforeCompletionLock(deadlineIso, "2026-03-23T23:01:00.000Z"), false);
+    assert.equal(wasProofStagedBeforeCompletionLock(deadlineIso, "invalid"), false);
 });

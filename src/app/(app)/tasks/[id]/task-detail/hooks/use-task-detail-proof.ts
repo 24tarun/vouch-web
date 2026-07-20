@@ -22,6 +22,7 @@ import { purgeLocalProofMedia } from "@/lib/proof-media-warmup";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import type { TaskWithRelations } from "@/lib/types";
 import { getRestoredStatusFromRevertResult } from "@/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
+import { isTaskCompletionLocked } from "@/lib/task-submission-window";
 
 export interface TaskProofDraft {
     proof: PreparedTaskProof;
@@ -64,7 +65,6 @@ interface UseTaskDetailProofArgs {
     isActionPending: (action: string) => boolean;
     refreshInBackground: () => void;
     setShowWebcamModal: Dispatch<SetStateAction<boolean>>;
-    proofInputRef: MutableRefObject<HTMLInputElement | null>;
     proofPickerModeRef: MutableRefObject<ProofPickerMode>;
     autoSubmitAfterProofUpload: boolean;
 }
@@ -152,13 +152,21 @@ export function useTaskDetailProof({
     isActionPending,
     refreshInBackground,
     setShowWebcamModal,
-    proofInputRef,
     proofPickerModeRef,
     autoSubmitAfterProofUpload,
 }: UseTaskDetailProofArgs) {
     const awaitingUploadSessionRef = useRef<AwaitingUploadSession | null>(null);
     const handleMarkCompleteRef = useRef<((freshUploadedProofReady?: boolean) => Promise<void>) | null>(null);
     const storageKey = getProofDraftStorageKey(taskState.id);
+    const completionEditingIsLocked = useCallback(
+        () => isTaskCompletionLocked(taskState.status, taskState.deadline, new Date()),
+        [taskState.deadline, taskState.status]
+    );
+    const rejectLockedCompletionEdit = useCallback(() => {
+        if (!completionEditingIsLocked()) return false;
+        toast.error("The task deadline has passed. Proof and completion can no longer be changed.");
+        return true;
+    }, [completionEditingIsLocked]);
     const clearPersistedProofDraft = useCallback(() => {
         if (typeof window === "undefined") return;
         try {
@@ -216,6 +224,7 @@ export function useTaskDetailProof({
     }, [clearPersistedProofDraft, proofDraft, setProofDraft, setProofUploadError, setProofUploadStatus, storageKey]);
 
     const uploadAwaitingProofToBucket = useCallback(async (taskId: string, draft: TaskProofDraft): Promise<boolean> => {
+        if (rejectLockedCompletionEdit()) return false;
         setProofUploadStatus("uploading");
         const init = await initAwaitingVoucherProofUpload(taskId, getProofIntentFromPreparedProof(draft.proof));
         if (init?.error) {
@@ -264,7 +273,7 @@ export function useTaskDetailProof({
         setProofUploadError(null);
         refreshInBackground();
         return true;
-    }, [refreshInBackground, setProofUploadError, setProofUploadStatus]);
+    }, [refreshInBackground, rejectLockedCompletionEdit, setProofUploadError, setProofUploadStatus]);
 
     const uploadProofInBackground = useCallback(async (taskId: string, draft: TaskProofDraft, uploadTarget: ProofUploadTarget) => {
         setProofUploadStatus("uploading");
@@ -357,6 +366,7 @@ export function useTaskDetailProof({
     }, [clearPersistedProofDraft, proofDraft, refreshInBackground, setActionPending, setProofDraft, setProofUploadError, setProofUploadStatus, storedProof, taskState.id]);
 
     const openProofPicker = useCallback(async (mode: ProofPickerMode = "draft") => {
+        if (rejectLockedCompletionEdit()) return;
         const canOpenForDraft = isOwner && isActiveParentTask && !isActionPending("markComplete");
         const canOpenForAwaitingUpload =
             isOwner &&
@@ -381,11 +391,7 @@ export function useTaskDetailProof({
         }
 
         proofPickerModeRef.current = mode;
-        if ((await import("@/components/WebcamCaptureModal")).isMobileDevice()) {
-            proofInputRef.current?.click();
-        } else {
-            setShowWebcamModal(true);
-        }
+        setShowWebcamModal(true);
     }, [
         clearPersistedProofDraft,
         isOwner,
@@ -397,11 +403,12 @@ export function useTaskDetailProof({
         setProofUploadStatus,
         setProofUploadError,
         proofPickerModeRef,
-        proofInputRef,
+        rejectLockedCompletionEdit,
         setShowWebcamModal,
     ]);
 
     const processSelectedProofFile = useCallback(async (selectedFile: File, mode: ProofPickerMode = "draft") => {
+        if (rejectLockedCompletionEdit()) return;
         try {
             const prepared = await prepareTaskProof(selectedFile);
             const previewUrl = URL.createObjectURL(prepared.file);
@@ -429,6 +436,7 @@ export function useTaskDetailProof({
         }
     }, [
         persistProofDraft,
+        rejectLockedCompletionEdit,
         setProofDraft,
         setProofUploadError,
         taskState.id,
@@ -567,10 +575,7 @@ export function useTaskDetailProof({
     const handleUndoComplete = useCallback(async () => {
         if (isActionPending("undoComplete")) return;
         if (!isOwner || (taskState.status !== "AWAITING_VOUCHER" && taskState.status !== "AWAITING_AI" && taskState.status !== "MARKED_COMPLETE")) return;
-        if (new Date() >= new Date(taskState.deadline)) {
-            toast.error("Cannot undo completion after the deadline.");
-            return;
-        }
+        if (rejectLockedCompletionEdit()) return;
 
         setActionPending("undoComplete", true);
         const restoredStatus: "ACTIVE" | "POSTPONED" = taskState.postponed_at ? "POSTPONED" : "ACTIVE";
@@ -605,13 +610,14 @@ export function useTaskDetailProof({
         });
 
         setActionPending("undoComplete", false);
-    }, [clearPersistedProofDraft, isActionPending, isOwner, refreshInBackground, setActionPending, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, taskState]);
+    }, [clearPersistedProofDraft, isActionPending, isOwner, refreshInBackground, rejectLockedCompletionEdit, setActionPending, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, taskState]);
 
     handleMarkCompleteRef.current = handleMarkComplete;
 
     const handleRemoveStoredProof = useCallback(async () => {
         if (isActionPending("removeStoredProof")) return;
         if (!isOwner || !storedProof) return;
+        if (rejectLockedCompletionEdit()) return;
         if (!["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status)) {
             toast.error("Proof can only be removed while awaiting voucher response.");
             return;
@@ -642,9 +648,10 @@ export function useTaskDetailProof({
         });
 
         setActionPending("removeStoredProof", false);
-    }, [isActionPending, isOwner, refreshInBackground, setActionPending, setProofUploadError, setTaskState, storedProof, taskState]);
+    }, [isActionPending, isOwner, refreshInBackground, rejectLockedCompletionEdit, setActionPending, setProofUploadError, setTaskState, storedProof, taskState]);
 
     const handleRemoveDraftProof = useCallback(async () => {
+        if (rejectLockedCompletionEdit()) return;
         clearPersistedProofDraft();
         setProofDraft(null);
         setProofUploadStatus("idle");
@@ -668,7 +675,7 @@ export function useTaskDetailProof({
         }));
         toast.success("Proof removed.");
         refreshInBackground();
-    }, [clearPersistedProofDraft, isOwner, refreshInBackground, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, storedProof, taskState.completion_proof, taskState.id]);
+    }, [clearPersistedProofDraft, isOwner, refreshInBackground, rejectLockedCompletionEdit, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, storedProof, taskState.completion_proof, taskState.id]);
 
     return {
         processSelectedProofFile,

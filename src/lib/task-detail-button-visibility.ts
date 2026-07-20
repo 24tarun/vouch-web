@@ -16,6 +16,7 @@ export interface TaskDetailButtonVisibilityInput {
     isOwner: boolean;
     isActiveParentTask: boolean;
     isOverdue: boolean;
+    isPastDeadline: boolean;
     isBeforeStart: boolean;
     incompleteSubtasksCount: number;
     hasIncompletePomoRequirement: boolean;
@@ -25,6 +26,7 @@ export interface TaskDetailButtonVisibilityInput {
     isRepetitionStopped: boolean;
     canUseOverride: boolean;
     canTempDelete: boolean;
+    canSurrender: boolean;
     canResubmit: boolean;
     escalationPending: boolean;
 }
@@ -36,6 +38,7 @@ export function getTaskDetailButtonVisibility(input: TaskDetailButtonVisibilityI
         isOwner,
         isActiveParentTask,
         isOverdue,
+        isPastDeadline,
         isBeforeStart,
         incompleteSubtasksCount,
         hasIncompletePomoRequirement,
@@ -45,6 +48,7 @@ export function getTaskDetailButtonVisibility(input: TaskDetailButtonVisibilityI
         isRepetitionStopped,
         canUseOverride,
         canTempDelete,
+        canSurrender,
         canResubmit,
         escalationPending,
     } = input;
@@ -53,11 +57,12 @@ export function getTaskDetailButtonVisibility(input: TaskDetailButtonVisibilityI
         awaiting: {
             addProof:
                 isOwner &&
+                !isPastDeadline &&
                 !hasPendingAction(pendingActions, "awaitingProofUpload"),
             undoComplete:
                 isOwner &&
                 !hasPendingAction(pendingActions, "undoComplete") &&
-                !isOverdue,
+                !isPastDeadline,
         },
         awaitingUser: {
             resubmitProof:
@@ -74,6 +79,7 @@ export function getTaskDetailButtonVisibility(input: TaskDetailButtonVisibilityI
         proof: {
             removeStored:
                 isOwner &&
+                !isPastDeadline &&
                 !hasPendingAction(pendingActions, "removeStoredProof"),
         },
         actions: {
@@ -113,6 +119,10 @@ export function getTaskDetailButtonVisibility(input: TaskDetailButtonVisibilityI
                 isOwner &&
                 canTempDelete &&
                 !hasPendingAction(pendingActions, "tempDelete"),
+            surrender:
+                isOwner &&
+                canSurrender &&
+                !hasPendingAction(pendingActions, "surrender"),
             subtasksToggle: isOwner,
             remindersToggle: isOwner,
         },

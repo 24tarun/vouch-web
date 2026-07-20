@@ -10,6 +10,7 @@ import {
     finalizeTaskProofUpload,
     markTaskCompleteWithProofIntent,
     ownerTempDeleteTask,
+    surrenderTask,
     postponeTask,
     revertTaskCompletionAfterProofFailure,
 } from "@/actions/tasks";
@@ -25,6 +26,7 @@ import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import type { Profile, Task } from "@/lib/types";
 import type { SupportedCurrency } from "@/lib/currency";
+import { formatCurrencyFromCents } from "@/lib/currency";
 import { toast } from "sonner";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 import {
@@ -45,7 +47,7 @@ import {
 } from "@/lib/task-submission-window";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { TaskStatusBadge } from "@/design-system";
-import { WebcamCaptureModal, isMobileDevice } from "@/components/WebcamCaptureModal";
+import { WebcamCaptureModal } from "@/components/WebcamCaptureModal";
 
 const MAX_COMPLETED_TASKS = 10;
 const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
@@ -470,7 +472,7 @@ export default function DashboardClient({
 
             // If the task moved to a terminal/non-active status, remove it from all lists
             // even if it wasn't previously tracked (e.g. AWAITING_AI -> AI_ACCEPTED).
-            const TERMINAL_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"];
+            const TERMINAL_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "DELETED"];
             if (!existingTask) {
                 if (change.newRow && TERMINAL_STATUSES.includes(change.newRow.status)) {
                     const nextActiveTasks = currentActiveTasks.filter((task) => task.id !== taskId);
@@ -525,7 +527,7 @@ export default function DashboardClient({
 
             clearTaskTransientState(taskId);
 
-            const finalStatuses = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED"]);
+            const finalStatuses = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED"]);
             if (finalStatuses.has(patchedTask.status)) {
                 refreshReputation();
             }
@@ -583,11 +585,7 @@ export default function DashboardClient({
         }
 
         proofPickerTaskIdRef.current = task.id;
-        if (isMobileDevice()) {
-            proofInputRef.current?.click();
-        } else {
-            setWebcamTaskId(task.id);
-        }
+        setWebcamTaskId(task.id);
     };
 
     const closeWebcamProofPicker = () => {
@@ -945,6 +943,48 @@ export default function DashboardClient({
         setTaskDeleting(task.id, false);
     };
 
+    const handleSurrenderTaskOptimistic = async (task: Task) => {
+        if (deletingTaskIds.has(task.id) || task.id.startsWith("temp-")) return;
+
+        const failureAmount = formatCurrencyFromCents(task.failure_cost_cents, currency);
+        const recurrenceNote = task.recurrence_rule_id
+            ? " Future repetitions will continue."
+            : "";
+        if (!window.confirm(
+            `Surrender this task? This immediately ends the task and adds ${failureAmount} to your failure ledger.${recurrenceNote}`
+        )) return;
+
+        setTaskDeleting(task.id, true);
+        const surrenderedTask: Task = {
+            ...task,
+            status: "SURRENDERED",
+            updated_at: new Date().toISOString(),
+        };
+
+        const result = await runOptimisticMutation({
+            captureSnapshot: () => ({ activeTasks, completedTasks }),
+            applyOptimistic: () => {
+                setActiveTasks((prev) => prev.filter((currentTask) => currentTask.id !== task.id));
+                setCompletedTasks((prev) => [
+                    surrenderedTask,
+                    ...prev.filter((currentTask) => currentTask.id !== task.id),
+                ].slice(0, MAX_COMPLETED_TASKS));
+            },
+            runMutation: () => surrenderTask(task.id),
+            rollback: (snapshot) => {
+                setActiveTasks(snapshot.activeTasks);
+                setCompletedTasks(snapshot.completedTasks);
+            },
+            onSuccess: () => {
+                refreshReputation();
+                refreshInBackground();
+            },
+        });
+
+        if (!result.ok) refreshInBackground();
+        setTaskDeleting(task.id, false);
+    };
+
     const handlePostponeTaskOptimistic = async (task: Task, newDeadlineIso: string): Promise<boolean> => {
         if (postponingTaskIds.has(task.id) || task.id.startsWith("temp-")) return false;
         if (!["ACTIVE", "POSTPONED"].includes(task.status)) return false;
@@ -1025,6 +1065,7 @@ export default function DashboardClient({
             isPostponing={postponingTaskIds.has(task.id)}
             defaultPomoDurationMinutes={defaultPomoDurationMinutes}
             onDelete={handleDeleteTaskOptimistic}
+            onSurrender={handleSurrenderTaskOptimistic}
             isDeleting={deletingTaskIds.has(task.id)}
             layoutVariant="active"
         />

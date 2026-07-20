@@ -28,6 +28,7 @@ export async function deleteAccountByUserId(
         "AI_ACCEPTED",
         "DENIED",
         "MISSED",
+        "SURRENDERED",
         "RECTIFIED",
         "SETTLED",
         "DELETED",

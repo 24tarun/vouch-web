@@ -1,6 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
-import { cancelRepetition, overrideTask, ownerTempDeleteTask, setRecurrencePaused } from "@/actions/tasks";
+import { cancelRepetition, overrideTask, ownerTempDeleteTask, setRecurrencePaused, surrenderTask } from "@/actions/tasks";
 import { escalateToHumanVoucher } from "@/actions/voucher";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
@@ -16,6 +16,8 @@ interface UseTaskDetailActionsArgs {
     taskState: TaskWithRelations;
     viewerId: string;
     canTempDelete: boolean;
+    canSurrender: boolean;
+    formattedFailureCost: string;
     hasUsedOverrideThisMonth: boolean;
     isRepetitionStopped: boolean;
     escalationPending: boolean;
@@ -36,6 +38,8 @@ export function useTaskDetailActions({
     taskState,
     viewerId,
     canTempDelete,
+    canSurrender,
+    formattedFailureCost,
     hasUsedOverrideThisMonth,
     isRepetitionStopped,
     escalationPending,
@@ -161,6 +165,41 @@ export function useTaskDetailActions({
         setActionPending("tempDelete", false);
     }, [canTempDelete, isActionPending, pushToTasks, refreshInBackground, setActionPending, taskState.id]);
 
+    const handleSurrender = useCallback(async () => {
+        if (isActionPending("surrender") || !canSurrender) return;
+        const recurrenceNote = taskState.recurrence_rule_id ? " Future repetitions will continue." : "";
+        if (!confirm(
+            `Surrender this task? This immediately ends the task and adds ${formattedFailureCost} to your failure ledger.${recurrenceNote}`
+        )) return;
+
+        setActionPending("surrender", true);
+        const optimisticUpdatedAt = new Date().toISOString();
+        const result = await runOptimisticMutation({
+            captureSnapshot: () => ({ taskState }),
+            applyOptimistic: () => {
+                setTaskState((prev) => ({
+                    ...prev,
+                    status: "SURRENDERED",
+                    updated_at: optimisticUpdatedAt,
+                }));
+            },
+            runMutation: () => surrenderTask(taskState.id),
+            rollback: (snapshot) => setTaskState(snapshot.taskState),
+            onSuccess: refreshInBackground,
+        });
+
+        if (!result.ok) refreshInBackground();
+        setActionPending("surrender", false);
+    }, [
+        canSurrender,
+        formattedFailureCost,
+        isActionPending,
+        refreshInBackground,
+        setActionPending,
+        setTaskState,
+        taskState,
+    ]);
+
     const loadFriendsForEscalation = useCallback(async () => {
         if (friendsLoading) return;
         setFriendsLoading(true);
@@ -206,6 +245,7 @@ export function useTaskDetailActions({
         handleSetRecurrencePaused,
         handleCancelRepetition,
         handleTempDelete,
+        handleSurrender,
         loadFriendsForEscalation,
         handleEscalateToFriend,
     };

@@ -33,6 +33,7 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
     "AI_ACCEPTED",
     "DENIED",
     "MISSED",
+    "SURRENDERED",
     "RECTIFIED",
     "DELETED",
     "SETTLED",
@@ -40,7 +41,9 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
 
 function resolveLedgerBadgeStatus(entryType: string, taskStatus?: string | null): TaskStatus {
     if (entryType === "failure") {
-        return taskStatus === "DENIED" ? "DENIED" : "MISSED";
+        if (taskStatus === "DENIED") return "DENIED";
+        if (taskStatus === "SURRENDERED") return "SURRENDERED";
+        return "MISSED";
     }
     if (entryType === "rectified") return "RECTIFIED";
     if (entryType === "override" || entryType === "force_majeure") return "SETTLED";

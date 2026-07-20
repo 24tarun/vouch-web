@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { TASK_PROOFS_BUCKET } from "@/lib/task-proof-shared";
 import { proofUploadLimiter, checkRateLimit } from "@/lib/rate-limit";
+import { parseHttpByteRange } from "@/lib/http-byte-range";
 
 interface ProofAccessTask {
     id: string;
@@ -131,17 +132,41 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
         );
     }
 
-    const buffer = await fileData.arrayBuffer();
+    const fileSize = fileData.size;
+    const rangeHeader = _req.headers.get("range");
+    const range = rangeHeader ? parseHttpByteRange(rangeHeader, fileSize) : null;
+
+    if (rangeHeader && !range) {
+        return new NextResponse(null, {
+            status: 416,
+            headers: {
+                "Accept-Ranges": "bytes",
+                "Content-Range": `bytes */${fileSize}`,
+                "Cache-Control": "private, no-store",
+            },
+        });
+    }
+
+    const responseBlob = range ? fileData.slice(range.start, range.end + 1) : fileData;
+    const buffer = await responseBlob.arrayBuffer();
+    const headers: Record<string, string> = {
+        "Accept-Ranges": "bytes",
+        "Content-Type": proof.mime_type || fileData.type || "application/octet-stream",
+        "Content-Length": String(buffer.byteLength),
+        "Cache-Control": "private, max-age=300, immutable",
+        "Content-Disposition": "inline",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+    };
+    if (range) {
+        headers["Content-Range"] = `bytes ${range.start}-${range.end}/${fileSize}`;
+    }
+
     return new NextResponse(buffer, {
-        status: 200,
+        status: range ? 206 : 200,
         headers: {
-            "Content-Type": proof.mime_type || "application/octet-stream",
-            "Content-Length": String(buffer.byteLength),
-            "Cache-Control": "private, max-age=300, immutable",
-            "Content-Disposition": "inline",
-            "Cross-Origin-Resource-Policy": "same-origin",
-            "Referrer-Policy": "no-referrer",
-            "X-Content-Type-Options": "nosniff",
+            ...headers,
         },
     });
 }

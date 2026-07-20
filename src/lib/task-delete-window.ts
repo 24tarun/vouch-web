@@ -28,3 +28,16 @@ export function canOwnerTemporarilyDelete(task: TaskDeleteCandidate, nowMs: numb
 
     return getOwnerDeleteRemainingMs(task.created_at, nowMs) > 0;
 }
+
+export function canOwnerSurrenderTask(task: TaskDeleteCandidate, nowMs: number = Date.now()): boolean {
+    if (!isOwnerTempDeletableStatus(task.status)) {
+        return false;
+    }
+
+    const createdAtMs = new Date(task.created_at).getTime();
+    if (Number.isNaN(createdAtMs)) {
+        return false;
+    }
+
+    return nowMs - createdAtMs >= OWNER_TEMP_DELETE_WINDOW_MS;
+}

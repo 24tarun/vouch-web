@@ -26,7 +26,7 @@ export {
     deleteTaskSubtask,
 } from "./subtasks";
 
-export { postponeTask, ownerTempDeleteTask } from "./manage";
+export { postponeTask, ownerTempDeleteTask, surrenderTask } from "./manage";
 
 export { getTask, getTaskEvents, getTaskPomoSummary } from "./query";
 

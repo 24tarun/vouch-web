@@ -103,7 +103,7 @@ const TASK_STATUS_GROUPS: {
     {
         group: "Terminal",
         description: "Final states. Task lifecycle is over - accepted, denied, missed, rectified, settled, or deleted.",
-        statuses: ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"],
+        statuses: ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "DELETED"],
     },
 ];
 
@@ -151,6 +151,7 @@ const ACTIVITY_STEPPER_STATUSES: TaskStatus[] = [
     "AI_ACCEPTED",
     "DENIED",
     "MISSED",
+    "SURRENDERED",
     "RECTIFIED",
     "DELETED",
     "SETTLED",

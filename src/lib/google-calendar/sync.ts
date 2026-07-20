@@ -26,6 +26,7 @@ const RETAINED_SYNC_TASK_STATUSES = new Set([
     "AI_ACCEPTED",
     "DENIED",
     "MISSED",
+    "SURRENDERED",
     "RECTIFIED",
     "SETTLED",
 ]);

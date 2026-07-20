@@ -183,9 +183,20 @@ async function bestEffortCompressVideo(file: File, durationMs: number): Promise<
     if (!("MediaRecorder" in window)) return null;
     if (!HTMLCanvasElement.prototype.captureStream) return null;
 
-    const preferredMimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
-        ? "video/webm;codecs=vp8"
-        : (MediaRecorder.isTypeSupported("video/webm") ? "video/webm" : "");
+    // Keep mobile-friendly MP4/MOV files intact when they are already a reasonable size.
+    // Re-encoding every clip as WebM made desktop uploads unplayable in some iOS webviews.
+    const normalizedType = (file.type || "").toLowerCase();
+    if (file.size <= 50 * 1024 * 1024 && (normalizedType === "video/mp4" || normalizedType === "video/quicktime")) {
+        return null;
+    }
+
+    const candidates = [
+        "video/mp4;codecs=avc1.42E01E",
+        "video/mp4",
+        "video/webm;codecs=vp8",
+        "video/webm",
+    ];
+    const preferredMimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
     if (!preferredMimeType) return null;
 
     const sourceUrl = URL.createObjectURL(file);
@@ -235,10 +246,12 @@ async function bestEffortCompressVideo(file: File, durationMs: number): Promise<
         const recordingDone = new Promise<File>((resolve, reject) => {
             recorder.onerror = () => reject(new Error("Video compression failed"));
             recorder.onstop = () => {
-                const output = new Blob(chunks, { type: preferredMimeType.split(";")[0] || "video/webm" });
+                const outputType = preferredMimeType.split(";")[0] || "video/webm";
+                const extension = outputType === "video/mp4" ? "mp4" : "webm";
+                const output = new Blob(chunks, { type: outputType });
                 resolve(
-                    new File([output], replaceExtension(file.name, "webm"), {
-                        type: output.type || "video/webm",
+                    new File([output], replaceExtension(file.name, extension), {
+                        type: output.type || outputType,
                         lastModified: Date.now(),
                     })
                 );

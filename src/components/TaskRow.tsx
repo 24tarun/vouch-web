@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { addTaskSubtask, deleteTaskSubtask, renameTaskSubtask, toggleTaskSubtask } from "@/actions/tasks";
 import type { Task } from "@/lib/types";
-import { Camera, Check, ChevronDown, ChevronRight, ExternalLink, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Camera, Check, ChevronDown, ChevronRight, CircleX, ExternalLink, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "./ui/button";
 import { PomoButton } from "./ui/PomoButton";
 import { usePomodoro } from "@/components/PomodoroProvider";
 import { cn } from "@/lib/utils";
-import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
+import { canOwnerSurrenderTask, canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
@@ -31,6 +31,7 @@ interface TaskRowProps {
     isPostponing?: boolean;
     defaultPomoDurationMinutes?: number;
     onDelete?: (task: Task) => void;
+    onSurrender?: (task: Task) => void;
     isDeleting?: boolean;
     layoutVariant?: "active" | "completed";
 }
@@ -48,6 +49,7 @@ export function TaskRow({
     isPostponing = false,
     defaultPomoDurationMinutes = DEFAULT_POMO_DURATION_MINUTES,
     onDelete,
+    onSurrender,
     isDeleting = false,
     layoutVariant = "active",
 }: TaskRowProps) {
@@ -76,6 +78,7 @@ export function TaskRow({
                 "AI_ACCEPTED",
                 "DENIED",
                 "MISSED",
+                "SURRENDERED",
                 "RECTIFIED",
                 "SETTLED",
                 "DELETED",
@@ -135,7 +138,9 @@ export function TaskRow({
         !isTempTask &&
         canDeleteWindowOpen
     );
-    const canDeleteButtonBeShown = Boolean(onDelete && isParentActive);
+    const canSurrender = Boolean(onSurrender && !isTempTask && canOwnerSurrenderTask(task, nowMs));
+    const canEndTask = canDelete || canSurrender;
+    const canEndTaskButtonBeShown = Boolean((onDelete || onSurrender) && isParentActive);
     const canAttachProof = Boolean(onAttachProof && !isActuallyCompleted && !isOverdue);
     const canPostpone = Boolean(
         onPostpone &&
@@ -198,9 +203,15 @@ export function TaskRow({
         onComplete(task);
     };
 
-    const handleDelete = () => {
-        if (!onDelete || isDeleting || !canDelete) return;
-        onDelete(task);
+    const handleEndTask = () => {
+        if (isDeleting) return;
+        if (canDelete && onDelete) {
+            onDelete(task);
+            return;
+        }
+        if (canSurrender && onSurrender) {
+            onSurrender(task);
+        }
     };
 
     const handlePostpone = () => {
@@ -375,7 +386,7 @@ export function TaskRow({
     }, [task.id, task.subtasks]);
 
     useEffect(() => {
-        if (!onDelete) return;
+        if (!onDelete && !onSurrender) return;
         const id = window.setInterval(() => {
             setNowMs(Date.now());
         }, 15000);
@@ -383,7 +394,7 @@ export function TaskRow({
         return () => {
             window.clearInterval(id);
         };
-    }, [onDelete]);
+    }, [onDelete, onSurrender]);
 
     useEffect(() => {
         try {
@@ -406,6 +417,7 @@ export function TaskRow({
         AI_ACCEPTED: "text-emerald-400 border-emerald-400",
         DENIED: "text-red-500 border-red-500",
         MISSED: "text-red-500 border-red-500",
+        SURRENDERED: "text-rose-400 border-rose-400",
         DELETED: "text-slate-400 border-slate-600 opacity-60",
         SETTLED: "text-[#F2C7D0] border-[#5B0A1E]",
         RECTIFIED: "text-orange-500 border-orange-500",
@@ -506,26 +518,26 @@ export function TaskRow({
                 className="h-10 w-10 p-0 justify-center text-cyan-300 hover:text-cyan-200 hover:bg-slate-800 disabled:text-slate-500 [&_svg]:h-[18px] [&_svg]:w-[18px]"
             />
 
-            {canDeleteButtonBeShown && (
+            {canEndTaskButtonBeShown && (
                 <Button
                     type="button"
                     variant="ghost"
-                    onClick={handleDelete}
-                    disabled={isDeleting || !canDelete}
+                    onClick={handleEndTask}
+                    disabled={isDeleting || !canEndTask}
                     className={cn(
                         quickActionButtonClass,
-                        canDelete
+                        canEndTask
                             ? "text-red-400 hover:text-red-300 hover:bg-slate-800"
                             : "text-slate-500 cursor-not-allowed"
                     )}
-                    aria-label="Delete task"
+                    aria-label={canSurrender ? "Surrender task" : "Delete task"}
                     title={canDelete
                         ? "Delete task (available for 1 hour after creation)"
-                        : isTempTask
-                            ? "Saving task..."
-                            : "Delete available only within 1 hour of creation"}
+                        : canSurrender
+                            ? "Surrender task"
+                            : "Saving task..."}
                 >
-                    <Trash2 className="h-[18px] w-[18px]" />
+                    {canSurrender ? <CircleX className="h-[18px] w-[18px]" /> : <Trash2 className="h-[18px] w-[18px]" />}
                 </Button>
             )}
 
@@ -656,26 +668,26 @@ export function TaskRow({
                             </Button>
                         )}
 
-                        {canDeleteButtonBeShown && (
+                        {canEndTaskButtonBeShown && (
                             <Button
                                 type="button"
                                 variant="ghost"
-                                onClick={handleDelete}
-                                disabled={isDeleting || !canDelete}
+                                onClick={handleEndTask}
+                                disabled={isDeleting || !canEndTask}
                                 className={cn(
                                     "h-9 w-9 p-0 border transition-colors",
-                                    canDelete
+                                    canEndTask
                                         ? "text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/30"
                                         : "text-slate-500 border-slate-700/80 cursor-not-allowed"
                                 )}
-                                aria-label="Delete task"
+                                aria-label={canSurrender ? "Surrender task" : "Delete task"}
                                 title={canDelete
                                     ? "Delete task (available for 1 hour after creation)"
-                                    : isTempTask
-                                        ? "Saving task..."
-                                        : "Delete available only within 1 hour of creation"}
+                                    : canSurrender
+                                        ? "Surrender task"
+                                        : "Saving task..."}
                             >
-                                <Trash2 className="h-[18px] w-[18px]" />
+                                {canSurrender ? <CircleX className="h-[18px] w-[18px]" /> : <Trash2 className="h-[18px] w-[18px]" />}
                             </Button>
                         )}
 
@@ -826,18 +838,18 @@ export function TaskRow({
 
                                 <button
                                     type="button"
-                                    onClick={handleDelete}
-                                    disabled={!canDelete}
+                                    onClick={handleEndTask}
+                                    disabled={isDeleting || !canEndTask}
                                     className={cn(
                                         "h-10 w-10 flex items-center justify-center transition-colors",
-                                        canDelete ? "text-red-400" : "text-slate-600 cursor-not-allowed"
+                                        canEndTask ? "text-red-400" : "text-slate-600 cursor-not-allowed"
                                     )}
-                                    aria-label="Delete task"
+                                    aria-label={canSurrender ? "Surrender task" : "Delete task"}
                                     title={canDelete
                                         ? "Delete task (available for 1 hour after creation)"
-                                        : isTempTask ? "Saving task..." : "Delete available only within 1 hour of creation"}
+                                        : canSurrender ? "Surrender task" : "Saving task..."}
                                 >
-                                    <Trash2 className="h-[18px] w-[18px]" />
+                                    {canSurrender ? <CircleX className="h-[18px] w-[18px]" /> : <Trash2 className="h-[18px] w-[18px]" />}
                                 </button>
 
                                 <button

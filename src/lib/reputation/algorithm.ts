@@ -14,7 +14,7 @@ import {
 import type { ReputationTaskInput, CategoryScores, ReputationScoreData } from "./types";
 
 const SUCCESS_STATUSES = new Set(["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "RECTIFIED", "SETTLED"]);
-const FAILURE_STATUSES = new Set(["DENIED", "MISSED"]);
+const FAILURE_STATUSES = new Set(["DENIED", "MISSED", "SURRENDERED"]);
 const FINALIZED_STATUSES = new Set([...SUCCESS_STATUSES, ...FAILURE_STATUSES]);
 
 interface RawCategoryScores {

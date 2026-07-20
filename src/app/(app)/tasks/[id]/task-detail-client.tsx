@@ -6,7 +6,7 @@ import {
     postponeTask,
 } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
-import { Camera, Check, Pause, Play, Plus, Repeat, Trash2, X } from "lucide-react";
+import { Camera, Check, CircleX, Pause, Play, Plus, Repeat, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -31,7 +31,7 @@ import type { TaskWithRelations, TaskEvent } from "@/lib/types";
 import { PomoButton } from "@/components/ui/PomoButton";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { usePomodoro } from "@/components/PomodoroProvider";
-import { canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
+import { canOwnerSurrenderTask, canOwnerTemporarilyDelete } from "@/lib/task-delete-window";
 import { cn } from "@/lib/utils";
 import { formatCurrencyFromCents, normalizeCurrency, type SupportedCurrency } from "@/lib/currency";
 import { formatRecurrenceSummary } from "@/lib/recurrence-display";
@@ -45,6 +45,8 @@ import { subscribeRealtimeTaskChanges } from "@/lib/realtime-task-events";
 import { isIncomingNewer, patchTaskScalars } from "@/lib/tasks-realtime-patch";
 import {
     buildBeforeStartSubmissionMessage,
+    COMPLETION_EDITABLE_STATUSES,
+    DEADLINE_INCLUSIVE_MINUTE_MS,
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
 import {
@@ -149,7 +151,7 @@ export default function TaskDetailClient({
     const deadline = new Date(taskState.deadline);
     const isOverdue =
         submissionWindow.pastDeadline &&
-        !["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ESCALATED", "AI_DENIED", "DELETED"].includes(taskState.status);
+        !["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ESCALATED", "AI_DENIED", "DELETED"].includes(taskState.status);
 
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
@@ -159,6 +161,7 @@ export default function TaskDetailClient({
         Boolean(taskState.requires_proof) &&
         !isSelfVouched;
     const isActiveParentTask = taskState.status === "ACTIVE" || taskState.status === "POSTPONED";
+    const canSurrender = canOwnerSurrenderTask(taskState, nowMs);
     const completedSubtasksCount = subtasks.filter((subtask) => subtask.is_completed).length;
     const incompleteSubtasksCount = subtasks.length - completedSubtasksCount;
     const totalPomoSeconds = pomoSummary?.totalSeconds || 0;
@@ -176,7 +179,7 @@ export default function TaskDetailClient({
     const activeRowActionButtonClass = TASK_DETAIL_BUTTON_CLASSES.size.active;
     const canUseOverride =
         isOwner &&
-        (taskState.status === "DENIED" || taskState.status === "MISSED") &&
+        (taskState.status === "DENIED" || taskState.status === "MISSED" || taskState.status === "SURRENDERED") &&
         !hasUsedOverrideThisMonth;
     const handleToggleSubtasksSection = () => {
         setSubtasksSectionOpen((prev) => {
@@ -204,6 +207,7 @@ export default function TaskDetailClient({
         isOwner,
         isActiveParentTask,
         isOverdue,
+        isPastDeadline: submissionWindow.pastDeadline,
         isBeforeStart,
         incompleteSubtasksCount,
         hasIncompletePomoRequirement,
@@ -213,6 +217,7 @@ export default function TaskDetailClient({
         isRepetitionStopped,
         canUseOverride,
         canTempDelete,
+        canSurrender,
         canResubmit,
         escalationPending,
     });
@@ -346,6 +351,19 @@ export default function TaskDetailClient({
             window.clearInterval(id);
         };
     }, []);
+
+    useEffect(() => {
+        if (!(COMPLETION_EDITABLE_STATUSES as readonly string[]).includes(taskState.status)) return;
+
+        const deadlineMs = new Date(taskState.deadline).getTime();
+        if (!Number.isFinite(deadlineMs)) return;
+
+        const delayMs = deadlineMs + DEADLINE_INCLUSIVE_MINUTE_MS - Date.now();
+        if (delayMs <= 0 || delayMs > 2_147_000_000) return;
+
+        const timeoutId = window.setTimeout(() => setNowMs(Date.now()), delayMs + 1);
+        return () => window.clearTimeout(timeoutId);
+    }, [taskState.deadline, taskState.status]);
 
     /*
      * This screen keeps local editable copies of task data so optimistic actions (subtasks, reminders,
@@ -494,7 +512,6 @@ export default function TaskDetailClient({
         isActionPending,
         refreshInBackground,
         setShowWebcamModal,
-        proofInputRef,
         proofPickerModeRef,
         autoSubmitAfterProofUpload,
     });
@@ -590,12 +607,15 @@ export default function TaskDetailClient({
         handleSetRecurrencePaused,
         handleCancelRepetition,
         handleTempDelete,
+        handleSurrender,
         loadFriendsForEscalation,
         handleEscalateToFriend,
     } = useTaskDetailActions({
         taskState,
         viewerId,
         canTempDelete,
+        canSurrender,
+        formattedFailureCost,
         hasUsedOverrideThisMonth,
         isRepetitionStopped,
         escalationPending,
@@ -1109,6 +1129,15 @@ export default function TaskDetailClient({
                                     title="Delete task"
                                     aria-label="Delete task">
                                     <Trash2 className="h-5 w-5" />
+                                </Button>
+                            )}
+                            {buttonVisibility.actions.surrender && (
+                                <Button type="button" variant="ghost" onClick={handleSurrender}
+                                    className={cn("h-12 w-full p-0 border transition-colors justify-center",
+                                        TASK_DETAIL_BUTTON_CLASSES.actions.deleteEnabled)}
+                                    title="Surrender task"
+                                    aria-label="Surrender task">
+                                    <CircleX className="h-5 w-5" />
                                 </Button>
                             )}
                             {buttonVisibility.actions.subtasksToggle && (

@@ -1,4 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import {
+  COMPLETION_EDIT_LOCKED_ERROR,
+  canMarkProofUploadFailed,
+  isCompletionEditingLocked,
+  wasProofStagedBeforeCompletionLock,
+} from './task-proof-deadline.ts';
 
 const TASK_PROOFS_BUCKET = 'task-proofs';
 const PROOF_TIMESTAMP_PLACEHOLDER = '??:?? ??/??/??';
@@ -61,6 +67,18 @@ interface ProofMeta extends ProofIntent {
 interface FinalizeProofAtomicResult {
   success: boolean;
   error: string | null;
+}
+
+interface AiQuotaReservationResult {
+  allowed: boolean;
+  error_code: string | null;
+  account_tier: 'free' | 'paid';
+  used: number;
+  pending: number;
+  monthly_limit: number | null;
+  remaining: number | null;
+  resets_at: string;
+  reservation_created: boolean;
 }
 
 interface InitRequestBody {
@@ -290,7 +308,7 @@ Deno.serve(async (request) => {
 
   const { data: task, error: taskError } = await adminClient
     .from('tasks')
-    .select('id, user_id, voucher_id, status')
+    .select('id, user_id, voucher_id, status, deadline')
     .eq('id', taskId)
     .single();
 
@@ -310,6 +328,15 @@ Deno.serve(async (request) => {
     && !ATTACHABLE_PROOF_STATUSES.has((task as { status: string }).status)
   ) {
     return json(400, { success: false, error: 'Proof can only be attached to active or awaiting tasks.' });
+  }
+
+  const taskStatus = (task as { status: string }).status;
+  const taskDeadline = (task as { deadline?: string | null }).deadline;
+  if (
+    (action === 'init' || action === 'remove-current')
+    && isCompletionEditingLocked(taskStatus, taskDeadline)
+  ) {
+    return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
   }
 
   if (action === 'init') {
@@ -400,7 +427,7 @@ Deno.serve(async (request) => {
 
     const { data: proofRow, error: proofFetchError } = await adminClient
       .from('task_completion_proofs')
-      .select('id, bucket, object_path, owner_id')
+      .select('id, bucket, object_path, owner_id, created_at, updated_at')
       .eq('task_id', taskId)
       .eq('owner_id', user.id)
       .maybeSingle();
@@ -411,6 +438,18 @@ Deno.serve(async (request) => {
 
     if (!proofRow) {
       return json(400, { success: false, error: 'Proof record not found.' });
+    }
+
+    const proofStagedAt = String(
+      (proofRow as { updated_at?: string | null }).updated_at
+      || (proofRow as { created_at?: string | null }).created_at
+      || '',
+    );
+    if (
+      isCompletionEditingLocked(taskStatus, taskDeadline)
+      && !wasProofStagedBeforeCompletionLock(taskDeadline, proofStagedAt)
+    ) {
+      return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
     }
 
     if (
@@ -456,14 +495,39 @@ Deno.serve(async (request) => {
       : TASK_PROOFS_BUCKET;
     const objectPath = typeof proofMeta?.objectPath === 'string' ? proofMeta.objectPath.trim() : '';
 
-    await adminClient
+    const { data: pendingProof, error: pendingProofError } = await adminClient
+      .from('task_completion_proofs')
+      .select('bucket, object_path, upload_state')
+      .eq('task_id', taskId)
+      .eq('owner_id', user.id)
+      .maybeSingle();
+
+    if (pendingProofError) {
+      return json(400, { success: false, error: pendingProofError.message });
+    }
+    if (!pendingProof || !canMarkProofUploadFailed((pendingProof as { upload_state?: string }).upload_state)) {
+      return json(400, { success: false, error: 'Only a pending proof upload can be marked failed.' });
+    }
+
+    const pendingBucket = String((pendingProof as { bucket?: string }).bucket || TASK_PROOFS_BUCKET);
+    const pendingObjectPath = String((pendingProof as { object_path?: string }).object_path || '');
+    if (objectPath && (bucket !== pendingBucket || objectPath !== pendingObjectPath)) {
+      return json(400, { success: false, error: 'Proof upload target mismatch.' });
+    }
+
+    const { error: failUpdateError } = await adminClient
       .from('task_completion_proofs')
       .update({
         upload_state: 'FAILED',
         updated_at: new Date().toISOString(),
       })
       .eq('task_id', taskId)
-      .eq('owner_id', user.id);
+      .eq('owner_id', user.id)
+      .eq('upload_state', 'PENDING');
+
+    if (failUpdateError) {
+      return json(400, { success: false, error: failUpdateError.message });
+    }
 
     await adminClient
       .from('tasks')
@@ -474,8 +538,8 @@ Deno.serve(async (request) => {
       .eq('id', taskId)
       .eq('user_id', user.id);
 
-    if (objectPath) {
-      await adminClient.storage.from(bucket).remove([objectPath]);
+    if (pendingObjectPath) {
+      await adminClient.storage.from(pendingBucket).remove([pendingObjectPath]);
     }
 
     return json(200, { success: true });
@@ -586,9 +650,55 @@ Deno.serve(async (request) => {
       return json(400, { success: false, error: `Task must be in AWAITING_AI status to queue evaluation (currently ${taskStatus}).` });
     }
 
+    const compensateFailedQueue = async (reason: string) => {
+      await adminClient.rpc('release_ai_voucher_credit', {
+        p_user_id: user.id,
+        p_task_id: taskId,
+      });
+      await adminClient.rpc('rollback_ai_voucher_submission', {
+        p_user_id: user.id,
+        p_task_id: taskId,
+        p_reason: reason,
+      });
+    };
+
+    const { data: reservationData, error: reservationError } = await adminClient
+      .rpc('reserve_ai_voucher_credit', {
+        p_user_id: user.id,
+        p_task_id: taskId,
+      });
+
+    if (reservationError) {
+      console.error('AI voucher quota reservation failed for task', taskId, reservationError);
+      return json(500, { success: false, error: 'Could not check AI voucher credits.' });
+    }
+
+    const reservation = (Array.isArray(reservationData)
+      ? reservationData[0]
+      : reservationData) as AiQuotaReservationResult | null;
+
+    if (!reservation?.allowed) {
+      await compensateFailedQueue('AI_QUOTA_EXHAUSTED');
+      return json(429, {
+        success: false,
+        code: reservation?.error_code || 'AI_QUOTA_EXHAUSTED',
+        error: 'Monthly AI voucher credits exhausted.',
+        quota: reservation ? {
+          accountTier: reservation.account_tier,
+          used: reservation.used,
+          pending: reservation.pending,
+          limit: reservation.monthly_limit,
+          remaining: reservation.remaining,
+          resetsAt: reservation.resets_at,
+          canStartReview: false,
+        } : null,
+      });
+    }
+
     const triggerSecretKey = Deno.env.get('TRIGGER_SECRET_KEY');
     if (!triggerSecretKey) {
       console.error('TRIGGER_SECRET_KEY not set — AI voucher evaluation will not run');
+      await compensateFailedQueue('AI_EVALUATION_NOT_CONFIGURED');
       return json(500, { success: false, error: 'AI evaluation service not configured.' });
     }
 
@@ -605,12 +715,14 @@ Deno.serve(async (request) => {
     });
 
     if (!triggerRes) {
+      await compensateFailedQueue('AI_EVALUATION_UNAVAILABLE');
       return json(500, { success: false, error: 'AI evaluation service unavailable.' });
     }
 
     if (!triggerRes.ok) {
       const responseBody = await triggerRes.text().catch(() => '');
       console.error(`AI voucher evaluation: HTTP ${triggerRes.status} for task ${taskId}:`, responseBody);
+      await compensateFailedQueue('AI_EVALUATION_TRIGGER_FAILED');
       return json(500, { success: false, error: `AI evaluation trigger failed (HTTP ${triggerRes.status}).` });
     }
 

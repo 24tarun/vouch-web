@@ -35,7 +35,7 @@ export interface ActivityStep {
 const isAiDecisionEvent = (event: TaskEvent) => event.event_type === "AI_APPROVE" || event.event_type === "AI_DENY";
 const toneForStatus = (status: TaskStatus): ActivityStep["tone"] => {
     if (["MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"].includes(status)) return "success";
-    if (["DENIED", "AI_DENIED", "MISSED"].includes(status)) return "danger";
+    if (["DENIED", "AI_DENIED", "MISSED", "SURRENDERED"].includes(status)) return "danger";
     if (["AWAITING_VOUCHER", "AWAITING_AI"].includes(status)) return "warning";
     if (["ACTIVE", "POSTPONED", "ESCALATED"].includes(status)) return "statusBlue";
     if (["AWAITING_USER", "RECTIFIED"].includes(status)) return "statusOrange";

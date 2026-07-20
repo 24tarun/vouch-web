@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
 import { isOwnerTempDeletableStatus, getOwnerDeleteRemainingMs } from "@/lib/task-delete-window";
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
+import { notifyCommitmentFailureIfNeeded } from "@/actions/commitments";
 import {
     canPostponeDailyRecurringTaskToDeadline,
     shouldRestrictDailyPostponeToSameRuleDay,
@@ -99,7 +100,7 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         }
     }
 
-    if (["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
+    if (["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
         return { error: `Cannot postpone task in ${(task as any).status} status` };
     }
 
@@ -253,4 +254,46 @@ export async function ownerTempDeleteTask(taskId: string) {
     revalidatePath("/stats");
     revalidatePath(`/tasks/${taskId}`);
     return { success: true };
+}
+
+export async function surrenderTask(taskId: string) {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        return { error: "Not authenticated" };
+    }
+
+    const actorUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    const { data, error } = await (supabase.rpc("surrender_task_atomic" as any, {
+        p_task_id: taskId,
+        p_actor_user_client_instance_id: actorUserClientInstanceId,
+    } as any) as any).single();
+
+    if (error || !data) {
+        return { error: error?.message ?? "Task could not be surrendered" };
+    }
+
+    await Promise.allSettled([
+        enqueueGoogleCalendarUpsert(user.id, taskId),
+        notifyCommitmentFailureIfNeeded(taskId, data.recurrence_rule_id ?? null),
+    ]);
+
+    invalidateActiveTasksCache(user.id);
+    invalidatePendingVoucherRequestsCache(data.voucher_id);
+    revalidatePath("/tasks");
+    revalidatePath("/friends");
+    revalidatePath("/stats");
+    revalidatePath("/ledger");
+    revalidatePath(`/tasks/${taskId}`);
+
+    return {
+        success: true,
+        task: {
+            id: data.task_id as string,
+            status: "SURRENDERED" as const,
+        },
+    };
 }

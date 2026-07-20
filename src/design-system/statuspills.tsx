@@ -40,6 +40,7 @@ const TASK_STATUS_BADGE_CLASS_BY_STATUS: Record<TaskStatus, string> = {
     AI_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     DENIED: "bg-red-500/10 text-red-500 border border-red-500/30",
     MISSED: "bg-red-500/10 text-red-500 border border-red-500/30",
+    SURRENDERED: "bg-rose-500/10 text-rose-400 border border-rose-500/30",
     RECTIFIED: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     DELETED: "bg-slate-600/40 text-slate-300 border border-slate-600/50",
     SETTLED: "bg-fuchsia-700/20 text-fuchsia-300 border border-fuchsia-700/40",
@@ -140,6 +141,7 @@ const ACTIVITY_EVENT_BADGE_CLASS_BY_EVENT_TYPE: Record<string, string> = {
     RECTIFY: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     OVERRIDE: "bg-[#5B0A1E]/35 text-[#F2C7D0] border border-[#5B0A1E]/80",
     DEADLINE_MISSED: "bg-red-500/10 text-red-500 border border-red-500/30",
+    SURRENDER: "bg-rose-500/10 text-rose-400 border border-rose-500/30",
     VOUCHER_TIMEOUT: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
     POMO_COMPLETED: "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30",
     DEADLINE_WARNING_1H: "bg-amber-400/15 text-amber-400 border border-amber-400/35",
@@ -185,6 +187,7 @@ function formatActivityEventLabel(eventType: string, elapsedSeconds?: number): s
     if (eventType === "VOUCHER_DELETE") return "DELETED";
     if (eventType === "RECTIFY") return "RECTIFIED";
     if (eventType === "DEADLINE_MISSED") return "MISSED";
+    if (eventType === "SURRENDER") return "SURRENDERED";
     if (eventType === "AI_APPROVE") return "AI APPROVED";
     if (eventType === "AI_DENY") return "AI DENIED";
     if (eventType === "DEADLINE_WARNING_1H") return "1HR LEFT REMINDER SENT";

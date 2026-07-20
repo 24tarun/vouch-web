@@ -44,10 +44,11 @@ function getSupportedVideoRecordingMimeType(): string | null {
     if (typeof window === "undefined" || typeof MediaRecorder === "undefined") return null;
 
     const candidates = [
+        "video/mp4;codecs=avc1.42E01E",
+        "video/mp4",
         "video/webm;codecs=vp9",
         "video/webm;codecs=vp8",
         "video/webm",
-        "video/mp4",
     ];
 
     for (const candidate of candidates) {
@@ -108,6 +109,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
 
         const context = canvas.getContext("2d");
         if (!context) return null;
+        if (typeof canvas.captureStream !== "function") return null;
 
         stopMirrorRenderLoop();
         const drawFrame = () => {
@@ -166,8 +168,11 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
         recordedChunksRef.current = [];
 
         const mirroredStream = startMirrorRenderLoop();
-        const recordingStream = mirroredStream ?? streamRef.current;
-        const recorder = new MediaRecorder(recordingStream, { mimeType: supportedMimeType });
+        if (!mirroredStream) {
+            setError("video_unsupported");
+            return;
+        }
+        const recorder = new MediaRecorder(mirroredStream, { mimeType: supportedMimeType });
         recorderRef.current = recorder;
 
         recorder.ondataavailable = (event) => {
@@ -326,6 +331,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({
                         video: {
+                            facingMode: { ideal: "user" },
                             aspectRatio: { exact: 4 / 3 },
                             width: { ideal: 1280, min: 640 },
                             height: { ideal: 960, min: 480 },
@@ -335,6 +341,7 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                 } catch {
                     stream = await navigator.mediaDevices.getUserMedia({
                         video: {
+                            facingMode: { ideal: "user" },
                             width: { ideal: 1280 },
                             height: { ideal: 960 },
                         },
@@ -529,10 +536,4 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
             </DialogContent>
         </Dialog>
     );
-}
-
-export function isMobileDevice(): boolean {
-    if (typeof window === "undefined") return false;
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-        || (navigator.maxTouchPoints > 1 && /Mobi|Android/i.test(navigator.userAgent));
 }

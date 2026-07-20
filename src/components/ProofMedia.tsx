@@ -49,6 +49,7 @@ export function ProofMedia({
                 <video
                     src={src}
                     className={videoClassName}
+                    playsInline
                     {...videoProps}
                 />
             )}

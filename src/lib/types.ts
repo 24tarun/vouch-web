@@ -516,6 +516,20 @@ export interface Database {
                     state_changed: boolean
                 }>
             }
+            surrender_task_atomic: {
+                Args: {
+                    p_task_id: string
+                    p_actor_user_client_instance_id?: string | null
+                }
+                Returns: Array<{
+                    task_id: string
+                    user_id: string
+                    voucher_id: string
+                    recurrence_rule_id: string | null
+                    failure_cost_cents: number
+                    previous_status: string
+                }>
+            }
         }
         Enums: {
             [_ in never]: never
