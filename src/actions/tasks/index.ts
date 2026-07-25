@@ -38,3 +38,9 @@ export {
     deletePomoSession,
     getActivePomoSession,
 } from "./pomodoro";
+
+export {
+    updatePausedRecurrenceSettings,
+    type PausedRecurrenceSettings,
+    type PausedRecurrenceSettingsPatch,
+} from "./recurrence";

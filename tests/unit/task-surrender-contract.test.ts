@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 const root = process.cwd();
 const migration = readFileSync(
-    join(root, "supabase/migrations/20260715211053_add_surrendered_task_status.sql"),
+    join(root, "supabase/migrations/20260720204756_add_surrendered_task_status.sql"),
     "utf8"
 );
 

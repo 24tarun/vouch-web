@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState, useTransition } from "reac
 import { useRouter } from "next/navigation";
 import {
     postponeTask,
+    type PausedRecurrenceSettings,
 } from "@/actions/tasks";
 import { Button } from "@/components/ui/button";
 import { Camera, Check, CircleX, Pause, Play, Plus, Repeat, Trash2, X } from "lucide-react";
@@ -74,6 +75,10 @@ import { useTaskDetailSubtasks } from "@/app/(app)/tasks/[id]/task-detail/hooks/
 import { useTaskDetailProof, type ProofUploadStatus, type TaskProofDraft } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-proof";
 import { useTaskDetailActions } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-actions";
 import { TaskDetailStatsStrip } from "@/app/(app)/tasks/[id]/task-detail/sections/task-detail-stats-strip";
+import {
+    PausedRecurrenceEditorDialog,
+    type RecurrenceEditorField,
+} from "@/app/(app)/tasks/[id]/task-detail/paused-recurrence-editor-dialog";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -93,6 +98,15 @@ interface TaskDetailClientProps {
 }
 
 type ProofPickerMode = "draft" | "awaiting-upload";
+
+function deadlineWithTimeOfDay(deadlineIso: string, timeOfDay: string | undefined): Date {
+    const nextDeadline = new Date(deadlineIso);
+    const match = timeOfDay?.match(/^(\d{2}):(\d{2})$/);
+    if (!match || Number.isNaN(nextDeadline.getTime())) return nextDeadline;
+
+    nextDeadline.setHours(Number(match[1]), Number(match[2]), 0, 0);
+    return nextDeadline;
+}
 
 export default function TaskDetailClient({
     task,
@@ -128,6 +142,8 @@ export default function TaskDetailClient({
     const [proofUploadStatus, setProofUploadStatus] = useState<ProofUploadStatus>(task.completion_proof?.upload_state === "UPLOADED" ? "uploaded" : "idle");
     const [isStoredProofFullscreen, setIsStoredProofFullscreen] = useState(false);
     const [isPostponeDialogOpen, setIsPostponeDialogOpen] = useState(false);
+    const [recurrenceEditorField, setRecurrenceEditorField] = useState<RecurrenceEditorField | null>(null);
+    const [editedRecurrenceFields, setEditedRecurrenceFields] = useState<Set<RecurrenceEditorField>>(new Set());
     const [showEscalationPicker, setShowEscalationPicker] = useState(false);
     const [escalationPending, setEscalationPending] = useState(false);
     const [friends, setFriends] = useState<Array<{ id: string; username: string | null; email: string }>>([]);
@@ -260,6 +276,17 @@ export default function TaskDetailClient({
         return formatRecurrenceSummary(taskState.recurrence_rule, taskState.deadline);
     }, [taskState.recurrence_rule, taskState.deadline]);
     const isRecurrencePaused = Boolean(taskState.recurrence_rule?.paused_at);
+    const canEditFutureRepetitions =
+        isOwner &&
+        Boolean(taskState.recurrence_rule) &&
+        isRecurrencePaused;
+    useEffect(() => {
+        if (!isRecurrencePaused) {
+            setEditedRecurrenceFields((previous) =>
+                previous.size === 0 ? previous : new Set()
+            );
+        }
+    }, [isRecurrencePaused]);
     const iterationNumber = taskState.iteration_number ?? null;
     const iterationLabel = iterationNumber !== null
         ? `${formatOrdinal(iterationNumber)} iteration`
@@ -297,6 +324,44 @@ export default function TaskDetailClient({
         }
         return "uploaded";
     }, [proofDraft, proofUploadStatus, storedProof]);
+    const futureVoucherLabel = useMemo(() => {
+        const futureVoucherId = taskState.recurrence_rule?.voucher_id;
+        if (!futureVoucherId) return "Unassigned";
+        if (futureVoucherId === viewerId) return "Self";
+        if (futureVoucherId === AI_PROFILE_ID) return "AI";
+        if (futureVoucherId === taskState.voucher_id) {
+            return taskState.voucher?.username || "Your voucher";
+        }
+        const friend = friends.find((entry) => entry.id === futureVoucherId);
+        return friend?.username || friend?.email || "Updated voucher";
+    }, [
+        friends,
+        taskState.recurrence_rule?.voucher_id,
+        taskState.voucher?.username,
+        taskState.voucher_id,
+        viewerId,
+    ]);
+    const displayedDeadline = canEditFutureRepetitions
+        && editedRecurrenceFields.has("deadline")
+        && taskState.recurrence_rule
+        ? deadlineWithTimeOfDay(
+            taskState.deadline,
+            taskState.recurrence_rule.rule_config.time_of_day
+        )
+        : deadline;
+    const displayedFailureCost = canEditFutureRepetitions
+        && editedRecurrenceFields.has("failureCost")
+        && taskState.recurrence_rule
+        ? formatCurrencyFromCents(taskState.recurrence_rule.failure_cost_cents, ownerCurrency)
+        : formattedFailureCost;
+    const displayedVoucherLabel = canEditFutureRepetitions && editedRecurrenceFields.has("voucher")
+        ? futureVoucherLabel
+        : (isAiVouched ? "AI" : (isSelfVouched ? "Self" : (taskState.voucher?.username || "Unassigned")));
+    const displayedProofRequired = canEditFutureRepetitions
+        && editedRecurrenceFields.has("requiresProof")
+        && taskState.recurrence_rule
+        ? Boolean(taskState.recurrence_rule.requires_proof)
+        : Boolean(taskState.requires_proof);
 
     const refreshInBackground = () => {
         startRefreshTransition(() => {
@@ -632,6 +697,42 @@ export default function TaskDetailClient({
         pushToTasks: () => router.push("/tasks"),
     });
 
+    const openRecurrenceEditor = (field: RecurrenceEditorField) => {
+        if (!canEditFutureRepetitions) {
+            toast.error("Pause repetitions before editing future settings.");
+            return;
+        }
+        if (field === "voucher" && !friends.length && !friendsLoading) {
+            void loadFriendsForEscalation();
+        }
+        setRecurrenceEditorField(field);
+    };
+
+    const handleRecurrenceSettingsSaved = (settings: PausedRecurrenceSettings) => {
+        if (recurrenceEditorField) {
+            setEditedRecurrenceFields((previous) => new Set(previous).add(recurrenceEditorField));
+        }
+        setTaskState((prev) => ({
+            ...prev,
+            recurrence_rule: prev.recurrence_rule
+                ? {
+                    ...prev.recurrence_rule,
+                    rule_config: {
+                        ...prev.recurrence_rule.rule_config,
+                        time_of_day: settings.timeOfDay,
+                    },
+                    failure_cost_cents: settings.failureCostCents,
+                    voucher_id: settings.voucherId,
+                    requires_proof: settings.requiresProof,
+                    updated_at: settings.updatedAt,
+                }
+                : null,
+        }));
+        setRecurrenceEditorField(null);
+        toast.success("Future repetitions updated");
+        refreshInBackground();
+    };
+
     const activitySteps = useTaskDetailActivitySteps(events, aiVouches, reminders, nowMs);
     const activityDotClassByTone: Record<string, string> = {
         success: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.45)]",
@@ -730,14 +831,16 @@ export default function TaskDetailClient({
                 <div className="space-y-7 lg:col-span-2">
                     {/* ② STATS STRIP */}
                     <TaskDetailStatsStrip
-                        deadline={deadline}
+                        deadline={displayedDeadline}
                         status={taskState.status}
-                        formattedFailureCost={formattedFailureCost}
-                        isAiVouched={isAiVouched}
-                        isSelfVouched={isSelfVouched}
-                        voucherUsername={taskState.voucher?.username}
+                        formattedFailureCost={displayedFailureCost}
+                        voucherLabel={displayedVoucherLabel}
                         totalPomoSeconds={totalPomoSeconds}
                         sessionCount={pomoSummary?.sessionCount ?? 0}
+                        proofRequired={displayedProofRequired}
+                        canEditFutureRepetitions={canEditFutureRepetitions}
+                        highlightedFields={editedRecurrenceFields}
+                        onEditFutureSetting={openRecurrenceEditor}
                     />
 
                     {/* Google Sync */}
@@ -1414,6 +1517,23 @@ export default function TaskDetailClient({
             <PostponeDeadlineDialog open={isPostponeDialogOpen} onOpenChange={setIsPostponeDialogOpen}
                 currentDeadlineIso={taskState.deadline} isSubmitting={isActionPending("postpone")}
                 onConfirm={(newDeadlineIso) => handlePostpone(newDeadlineIso)} />
+
+            {recurrenceEditorField && taskState.recurrence_rule && (
+                <PausedRecurrenceEditorDialog
+                    key={recurrenceEditorField}
+                    field={recurrenceEditorField}
+                    taskId={taskState.id}
+                    recurrenceRule={taskState.recurrence_rule}
+                    viewerId={viewerId}
+                    currency={ownerCurrency}
+                    friends={friends}
+                    friendsLoading={friendsLoading}
+                    onOpenChange={(open) => {
+                        if (!open) setRecurrenceEditorField(null);
+                    }}
+                    onSaved={handleRecurrenceSettingsSaved}
+                />
+            )}
 
             {/* Fullscreen proof overlay */}
             {isStoredProofFullscreen && storedProof && storedProofSrc && (

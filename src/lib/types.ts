@@ -516,6 +516,23 @@ export interface Database {
                     state_changed: boolean
                 }>
             }
+            update_paused_recurrence_settings: {
+                Args: {
+                    p_task_id: string
+                    p_time_of_day?: string | null
+                    p_failure_cost_cents?: number | null
+                    p_voucher_id?: string | null
+                    p_requires_proof?: boolean | null
+                }
+                Returns: Array<{
+                    recurrence_rule_id: string
+                    time_of_day: string
+                    failure_cost_cents: number
+                    voucher_id: string
+                    requires_proof: boolean
+                    updated_at: string
+                }>
+            }
             surrender_task_atomic: {
                 Args: {
                     p_task_id: string

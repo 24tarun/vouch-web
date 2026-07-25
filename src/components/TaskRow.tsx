@@ -417,7 +417,7 @@ export function TaskRow({
         AI_ACCEPTED: "text-emerald-400 border-emerald-400",
         DENIED: "text-red-500 border-red-500",
         MISSED: "text-red-500 border-red-500",
-        SURRENDERED: "text-rose-400 border-rose-400",
+        SURRENDERED: "text-red-500 border-red-500",
         DELETED: "text-slate-400 border-slate-600 opacity-60",
         SETTLED: "text-[#F2C7D0] border-[#5B0A1E]",
         RECTIFIED: "text-orange-500 border-orange-500",

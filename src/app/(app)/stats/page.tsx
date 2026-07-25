@@ -133,7 +133,7 @@ export default async function OverviewPage() {
                 </div>
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Surrendered</p>
-                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.6)]">{surrenderedCount}</p>
+                    <p className="text-2xl sm:text-3xl md:text-4xl font-light text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]">{surrenderedCount}</p>
                 </div>
                 <div className="space-y-1 md:whitespace-nowrap">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Denied</p>

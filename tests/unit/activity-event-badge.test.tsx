@@ -4,7 +4,7 @@ import { TextDecoder, TextEncoder } from "node:util";
 import { JSDOM } from "jsdom";
 import React from "react";
 import { cleanup, render } from "@testing-library/react";
-import { ActivityEventBadge } from "../../src/design-system/statuspills";
+import { ActivityEventBadge, TaskStatusBadge } from "../../src/design-system/statuspills";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
 
@@ -52,4 +52,25 @@ test("activity event badge renders undo completion as a first-class timeline lab
      * or omit the event semantics the settings activity view expects.
      */
     assert.ok(view.getByText("UNDO COMPLETE"));
+});
+
+test("surrendered task and activity badges use the missed failure colors", () => {
+    const failureClasses = ["bg-red-500/10", "text-red-500", "border-red-500/30"];
+    const renderBadge = (element: React.ReactNode) => {
+        const { container } = render(element);
+        return container.querySelector<HTMLElement>('[data-slot="badge"]');
+    };
+    const badges = [
+        renderBadge(<TaskStatusBadge status="MISSED" />),
+        renderBadge(<TaskStatusBadge status="SURRENDERED" />),
+        renderBadge(<ActivityEventBadge eventType="DEADLINE_MISSED" />),
+        renderBadge(<ActivityEventBadge eventType="SURRENDER" />),
+    ];
+
+    for (const badge of badges) {
+        assert.ok(badge);
+        for (const className of failureClasses) {
+            assert.ok(badge.classList.contains(className));
+        }
+    }
 });
