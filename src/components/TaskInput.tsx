@@ -107,6 +107,7 @@ interface TaskInputProps {
 export interface TaskInputCreatePayload {
     title: string;
     rawTitle: string;
+    description: string | null;
     subtasks: string[];
     requiredPomoMinutes: number | null;
     requiresProof: boolean;

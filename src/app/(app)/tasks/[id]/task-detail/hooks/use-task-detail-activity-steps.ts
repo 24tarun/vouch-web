@@ -48,11 +48,12 @@ export function useTaskDetailActivitySteps(
     events: TaskEvent[],
     aiVouches: Array<{ reason?: string | null }>,
     reminders: TaskReminder[],
-    referenceNowMs: number
+    referenceNowMs: number,
+    taskStatus: TaskStatus
 ): ActivityStep[] {
     const timelineEvents = useMemo(
-        () => mergeDueReminderTimelineEvents(events, reminders, referenceNowMs),
-        [events, reminders, referenceNowMs]
+        () => mergeDueReminderTimelineEvents(events, reminders, referenceNowMs, taskStatus),
+        [events, reminders, referenceNowMs, taskStatus]
     );
     const visibleEvents = useMemo(() => buildVisibleEvents(timelineEvents), [timelineEvents]);
 

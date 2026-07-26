@@ -111,6 +111,7 @@ export async function processAiVoucherDecision(
     try {
       decision = await evaluateProofWithGemini({
         taskTitle: task.title,
+        taskDescription: task.description,
         taskDeadline: task.deadline,
         proofBuffer: proofBytes,
         mimeType: proof.mime_type,

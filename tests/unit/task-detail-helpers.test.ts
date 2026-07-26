@@ -66,7 +66,7 @@ test("buildVisibleEvents deduplicates duplicate POMO session events", () => {
     assert.notEqual(buildVisibleEvents(events).length, 2);
 });
 
-test("due reminder appears in the timeline when completion wins the deadline-minute race", () => {
+test("due reminder is not synthesized after the task starts awaiting voucher", () => {
     const reminderAt = "2026-06-24T19:00:00.000Z";
     const reminders: TaskReminder[] = [{
         id: "reminder-final-call",
@@ -86,19 +86,42 @@ test("due reminder appears in the timeline when completion wins the deadline-min
         from_status: "ACTIVE",
         to_status: "AWAITING_VOUCHER",
         metadata: null,
-        created_at: "2026-06-24T19:00:05.000Z",
+        created_at: "2026-06-24T18:59:00.000Z",
     }];
 
     const merged = mergeDueReminderTimelineEvents(
         events,
         reminders,
-        new Date("2026-06-24T19:00:10.000Z").getTime()
+        new Date("2026-06-24T19:00:10.000Z").getTime(),
+        "AWAITING_VOUCHER"
     );
 
-    assert.deepEqual(
-        merged.map((event) => event.event_type),
-        ["DEADLINE_WARNING_DUE", "MARK_COMPLETE"]
-    );
+    assert.deepEqual(merged.map((event) => event.event_type), ["MARK_COMPLETE"]);
+});
+
+test("due reminder is synthesized only for active or postponed tasks", () => {
+    const reminderAt = "2026-06-24T19:00:00.000Z";
+    const reminders: TaskReminder[] = [{
+        id: "reminder-final-call",
+        parent_task_id: "task-1",
+        user_id: "user-1",
+        reminder_at: reminderAt,
+        source: "DEFAULT_DEADLINE_DUE",
+        notified_at: reminderAt,
+        created_at: "2026-06-24T17:03:00.000Z",
+        updated_at: reminderAt,
+    }];
+
+    for (const status of ["ACTIVE", "POSTPONED"] as const) {
+        const merged = mergeDueReminderTimelineEvents(
+            [],
+            reminders,
+            new Date("2026-06-24T19:00:10.000Z").getTime(),
+            status
+        );
+
+        assert.deepEqual(merged.map((event) => event.event_type), ["DEADLINE_WARNING_DUE"]);
+    }
 });
 
 test("recorded final-call event is not duplicated by the reminder fallback", () => {
@@ -127,7 +150,8 @@ test("recorded final-call event is not duplicated by the reminder fallback", () 
     const merged = mergeDueReminderTimelineEvents(
         events,
         reminders,
-        new Date("2026-06-24T19:01:00.000Z").getTime()
+        new Date("2026-06-24T19:01:00.000Z").getTime(),
+        "AWAITING_VOUCHER"
     );
 
     assert.equal(merged.length, 1);

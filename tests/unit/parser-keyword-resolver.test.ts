@@ -16,6 +16,7 @@ test("parser hint detection recognizes tomorrow and weekday variants", () => {
      */
     assert.equal(hasParserDrivenDeadlineHint("ship it tmr"), true);
     assert.equal(hasParserDrivenDeadlineHint("ship it tmrw"), true);
+    assert.equal(hasParserDrivenDeadlineHint("ship it @tmrw"), true);
     assert.equal(hasParserDrivenDeadlineHint("ship it tomorrow"), true);
     assert.equal(hasParserDrivenDeadlineHint("ship it wed"), true);
     assert.equal(hasParserDrivenDeadlineHint("ship it thur"), true);
@@ -29,6 +30,7 @@ test("tmr and tmrw resolve to next-day deadline", () => {
     const now = new Date(2026, 3, 24, 10, 0, 0, 0);
     const tmrResolution = resolveTaskDeadline("finish report tmr", now, 60);
     const tmrwResolution = resolveTaskDeadline("finish report tmrw", now, 60);
+    const atTmrwResolution = resolveTaskDeadline("finish report @tmrw", now, 60);
 
     /*
      * What and why this test checks:
@@ -54,6 +56,13 @@ test("tmr and tmrw resolve to next-day deadline", () => {
     assert.equal(tmrwResolution.deadline.getDate(), 25);
     assert.equal(tmrwResolution.deadline.getHours(), 23);
     assert.equal(tmrwResolution.deadline.getMinutes(), 0);
+
+    assert.equal(atTmrwResolution.error, null);
+    assert.equal(atTmrwResolution.deadline.getFullYear(), 2026);
+    assert.equal(atTmrwResolution.deadline.getMonth(), 3);
+    assert.equal(atTmrwResolution.deadline.getDate(), 25);
+    assert.equal(atTmrwResolution.deadline.getHours(), 23);
+    assert.equal(atTmrwResolution.deadline.getMinutes(), 0);
 });
 
 test("weekday variants and @14 parse to future deadlines", () => {

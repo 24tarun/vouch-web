@@ -18,7 +18,7 @@ import { MAX_TASK_PROOF_VIDEO_DURATION_MS, type TaskProofIntent } from "@/lib/ta
 import { type TaskStatus } from "@/lib/xstate/task-machine";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { stripEventColorTokens } from "@/lib/task-title-event-color";
-import { stripProofRequiredTokens } from "@/lib/task-title-parser";
+import { parseTaskDescription, stripProofRequiredTokens } from "@/lib/task-title-parser";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -167,9 +167,10 @@ export async function enqueueGoogleCalendarDelete(
 // ─── Title normalization ──────────────────────────────────────────────────────
 
 export function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTitle: string; googleSyncForTask: boolean; isStrict: boolean } {
-    const hasEventToken = /(^|\s)-event(?=\s|$)/i.test(rawTitle);
-    const hasBoundToken = /(^|\s)-bound(?=\s|$)/i.test(rawTitle);
-    const normalizedTitle = stripProofRequiredTokens(stripEventColorTokens(rawTitle)
+    const { taskInput } = parseTaskDescription(rawTitle);
+    const hasEventToken = /(^|\s)-event(?=\s|$)/i.test(taskInput);
+    const hasBoundToken = /(^|\s)-bound(?=\s|$)/i.test(taskInput);
+    const normalizedTitle = stripProofRequiredTokens(stripEventColorTokens(taskInput)
         .replace(/(^|\s)-event(?=\s|$)/gi, " ")
         .replace(/(^|\s)-bound(?=\s|$)/gi, " ")
         .replace(/(?:^|\s)-start\s*(?:\d{1,2}:\d{2}|\d{1,4})\b/gi, " ")

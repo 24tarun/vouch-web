@@ -155,7 +155,7 @@ const HIGHLIGHT_TIMER_TOKEN_REGEX = /\b(timer)\s+(\d+)\b/gi;
 const HIGHLIGHT_POMO_TOKEN_REGEX = /\b(pomo)\s+(\d+)\b/gi;
 const HIGHLIGHT_REMIND_TOKEN_REGEX = /(^|\s)(remind@(\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?))\b/gi;
 const HIGHLIGHT_REPEAT_TOKEN_REGEX = /\b(repeat)\s+(daily|weekly|monthly|yearly)\b/gi;
-const HIGHLIGHT_TOMORROW_TOKEN_REGEX = /\b(tmr|tmrw|tomorrow)\b/gi;
+const HIGHLIGHT_TOMORROW_TOKEN_REGEX = /(^|\s)(@?(?:tmr|tmrw|tomorrow))(?=\s|$)/gi;
 const HIGHLIGHT_VOUCH_TOKEN_REGEX = /(^|\s)(vouch|\.v)\s+(me|self|[^\s/]+)(?=\s|$|\/)/gi;
 const HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
 const HIGHLIGHT_SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
@@ -181,6 +181,7 @@ const PARSER_KEYWORD_COMPLETION_TOKENS = Array.from(new Set([
     "-end",
     "-color",
     "-proof",
+    "-d(",
     "remind@",
     "timer",
     "pomo",
@@ -188,6 +189,7 @@ const PARSER_KEYWORD_COMPLETION_TOKENS = Array.from(new Set([
     ".v",
     "repeat",
     "tmrw",
+    "@tmrw",
     "tomorrow",
     "monday",
     "tuesday",
@@ -199,6 +201,45 @@ const PARSER_KEYWORD_COMPLETION_TOKENS = Array.from(new Set([
     ...COLOR_COMPLETION_TOKENS,
 ]));
 const REPEAT_TYPE_OPTIONS = ["daily", "weekly", "monthly", "yearly"];
+
+interface TaskDescriptionCommandMatch {
+    commandStart: number;
+    contentStart: number;
+    contentEnd: number | null;
+    commandEnd: number | null;
+}
+
+function findTaskDescriptionCommand(text: string): TaskDescriptionCommandMatch | null {
+    const openingMatch = /(^|\s)-d\(/i.exec(text);
+    if (!openingMatch) return null;
+
+    const commandStart = (openingMatch.index ?? 0) + (openingMatch[1]?.length ?? 0);
+    const contentStart = commandStart + 3;
+    let depth = 1;
+
+    for (let index = contentStart; index < text.length; index += 1) {
+        if (text[index] === "(") {
+            depth += 1;
+        } else if (text[index] === ")") {
+            depth -= 1;
+            if (depth === 0) {
+                return {
+                    commandStart,
+                    contentStart,
+                    contentEnd: index,
+                    commandEnd: index + 1,
+                };
+            }
+        }
+    }
+
+    return {
+        commandStart,
+        contentStart,
+        contentEnd: null,
+        commandEnd: null,
+    };
+}
 
 export interface TaskTitleHighlightSegment {
     text: string;
@@ -228,6 +269,15 @@ export interface TaskTitleOverlayModel {
 export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighlightSegment[] {
     if (!text) return [{ text: "", className: "text-white" }];
 
+    const descriptionCommand = findTaskDescriptionCommand(text);
+    const descriptionMaskEnd = descriptionCommand?.commandEnd ?? (
+        descriptionCommand ? text.length : null
+    );
+    const metadataText = descriptionCommand && descriptionMaskEnd != null
+        ? `${text.slice(0, descriptionCommand.commandStart)}${" ".repeat(
+            descriptionMaskEnd - descriptionCommand.commandStart
+        )}${text.slice(descriptionMaskEnd)}`
+        : text;
     const classNames = Array<string>(text.length).fill("text-white");
     const inlineStyles = Array<CSSProperties | undefined>(text.length).fill(undefined);
     const applyKeywordRange = (start: number, end: number) => {
@@ -248,16 +298,16 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
         }
     };
 
-    const isEventTask = EVENT_TOKEN_REGEX.test(text);
+    const isEventTask = EVENT_TOKEN_REGEX.test(metadataText);
 
-    for (const match of text.matchAll(HIGHLIGHT_EVENT_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_EVENT_TOKEN_REGEX)) {
         if (!match[2]) continue;
         const start = (match.index ?? 0) + (match[1]?.length ?? 0);
         applyKeywordRange(start, start + match[2].length);
     }
 
     if (!isEventTask) {
-        for (const match of text.matchAll(HIGHLIGHT_TIME_TOKEN_REGEX)) {
+        for (const match of metadataText.matchAll(HIGHLIGHT_TIME_TOKEN_REGEX)) {
             if (!match[2] || !match[3]) continue;
             const rawToken = match[2];
             const parsed = parseTaskInputTimeToken(match[3], true);
@@ -268,7 +318,7 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
     }
 
     if (isEventTask) {
-        for (const match of text.matchAll(HIGHLIGHT_EVENT_START_TOKEN_REGEX)) {
+        for (const match of metadataText.matchAll(HIGHLIGHT_EVENT_START_TOKEN_REGEX)) {
             if (!match[2] || !match[3]) continue;
             const parsed = parseTaskInputTimeToken(match[3], true);
             if (!parsed) continue;
@@ -276,7 +326,7 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
             applyKeywordRange(start, start + match[2].length);
         }
 
-        for (const match of text.matchAll(HIGHLIGHT_EVENT_END_TOKEN_REGEX)) {
+        for (const match of metadataText.matchAll(HIGHLIGHT_EVENT_END_TOKEN_REGEX)) {
             if (!match[2] || !match[3]) continue;
             const parsed = parseTaskInputTimeToken(match[3], true);
             if (!parsed) continue;
@@ -284,20 +334,27 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
             applyKeywordRange(start, start + match[2].length);
         }
 
-        for (const match of text.matchAll(HIGHLIGHT_EVENT_COLOR_HELPER_TOKEN_REGEX)) {
+        for (const match of metadataText.matchAll(HIGHLIGHT_EVENT_COLOR_HELPER_TOKEN_REGEX)) {
             if (!match[2]) continue;
             const start = (match.index ?? 0) + (match[1]?.length ?? 0);
             applyKeywordRange(start, start + match[2].length);
         }
     }
 
-    for (const match of text.matchAll(HIGHLIGHT_PROOF_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_PROOF_TOKEN_REGEX)) {
         if (!match[2]) continue;
         const start = (match.index ?? 0) + (match[1]?.length ?? 0);
         applyKeywordRange(start, start + match[2].length);
     }
 
-    for (const match of text.matchAll(HIGHLIGHT_TIMER_TOKEN_REGEX)) {
+    if (descriptionCommand) {
+        applyKeywordRange(descriptionCommand.commandStart, descriptionCommand.contentStart);
+        if (descriptionCommand.contentEnd != null && descriptionCommand.commandEnd != null) {
+            applyKeywordRange(descriptionCommand.contentEnd, descriptionCommand.commandEnd);
+        }
+    }
+
+    for (const match of metadataText.matchAll(HIGHLIGHT_TIMER_TOKEN_REGEX)) {
         if (!match[0] || !match[2]) continue;
         const parsed = Number.parseInt(match[2], 10);
         if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10000) continue;
@@ -305,7 +362,7 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
         applyKeywordRange(start, start + match[0].length);
     }
 
-    for (const match of text.matchAll(HIGHLIGHT_POMO_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_POMO_TOKEN_REGEX)) {
         if (!match[0] || !match[2]) continue;
         const parsed = Number.parseInt(match[2], 10);
         if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_POMO_DURATION_MINUTES) continue;
@@ -313,7 +370,7 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
         applyKeywordRange(start, start + match[0].length);
     }
 
-    for (const match of text.matchAll(HIGHLIGHT_REMIND_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_REMIND_TOKEN_REGEX)) {
         if (!match[2] || !match[3]) continue;
         const parsed = parseTaskInputTimeToken(match[3], true);
         if (!parsed) continue;
@@ -321,31 +378,31 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
         applyKeywordRange(start, start + match[2].length);
     }
 
-    for (const match of text.matchAll(new RegExp(HIGHLIGHT_REPEAT_TOKEN_REGEX.source, "gi"))) {
+    for (const match of metadataText.matchAll(new RegExp(HIGHLIGHT_REPEAT_TOKEN_REGEX.source, "gi"))) {
         if (!match[0]) continue;
         const start = match.index ?? 0;
         applyKeywordRange(start, start + match[0].length);
     }
 
-    for (const match of text.matchAll(HIGHLIGHT_TOMORROW_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_TOMORROW_TOKEN_REGEX)) {
+        if (!match[2]) continue;
+        const start = (match.index ?? 0) + (match[1]?.length ?? 0);
+        applyKeywordRange(start, start + match[2].length);
+    }
+
+    for (const match of metadataText.matchAll(new RegExp(WEEKDAY_TOKEN_REGEX.source, "gi"))) {
         if (!match[0]) continue;
         const start = match.index ?? 0;
         applyKeywordRange(start, start + match[0].length);
     }
 
-    for (const match of text.matchAll(new RegExp(WEEKDAY_TOKEN_REGEX.source, "gi"))) {
-        if (!match[0]) continue;
-        const start = match.index ?? 0;
-        applyKeywordRange(start, start + match[0].length);
-    }
-
-    for (const match of text.matchAll(HIGHLIGHT_VOUCH_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_VOUCH_TOKEN_REGEX)) {
         if (!match[2] || !match[3]) continue;
         const start = (match.index ?? 0) + (match[1]?.length ?? 0);
         applyKeywordRange(start, start + `${match[2]} ${match[3]}`.length);
     }
 
-    for (const match of text.matchAll(HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_ORDINAL_DATE_TOKEN_REGEX)) {
         if (!match[0] || !match[1]) continue;
         const parsedDay = Number.parseInt(match[1], 10);
         if (!Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31) continue;
@@ -353,14 +410,14 @@ export function buildTaskTitleHighlightSegments(text: string): TaskTitleHighligh
         applyKeywordRange(start, start + match[0].length);
     }
 
-    for (const match of text.matchAll(HIGHLIGHT_SLASH_DATE_TOKEN_REGEX)) {
+    for (const match of metadataText.matchAll(HIGHLIGHT_SLASH_DATE_TOKEN_REGEX)) {
         if (!match[0]) continue;
         const start = match.index ?? 0;
         applyKeywordRange(start, start + match[0].length);
     }
 
     if (isEventTask) {
-        for (const colorMatch of extractEventColorMatches(text)) {
+        for (const colorMatch of extractEventColorMatches(metadataText)) {
             const colorOption = GOOGLE_EVENT_COLOR_OPTIONS.find((option) => option.colorId === colorMatch.colorId);
             if (!colorOption) continue;
             applyColorRange(colorMatch.start, colorMatch.end, colorOption.swatchHex);
@@ -397,6 +454,14 @@ export function getParserKeywordCompletion(
     if (caretIndex !== text.length) return null;
 
     const leading = text.slice(0, caretIndex);
+    const descriptionCommand = findTaskDescriptionCommand(leading);
+    if (
+        descriptionCommand &&
+        caretIndex >= descriptionCommand.contentStart &&
+        (descriptionCommand.commandEnd == null || caretIndex <= descriptionCommand.commandEnd)
+    ) {
+        return null;
+    }
     const isEventTask = EVENT_TOKEN_REGEX.test(text);
     const allowedCompletionTokens = isEventTask
         ? PARSER_KEYWORD_COMPLETION_TOKENS
@@ -517,7 +582,7 @@ export function buildTaskTitleOverlayModel(
 // Date helpers (extracted from TaskInput.tsx)
 // ---------------------------------------------------------------------------
 
-export const TOMORROW_KEYWORD_REGEX = /\b(?:tmr|tmrw|tomorrow)\b/i;
+export const TOMORROW_KEYWORD_REGEX = /(^|\s)@?(?:tmr|tmrw|tomorrow)(?=\s|$)/i;
 export const ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
 export const SLASH_DATE_TOKEN_REGEX = /\b(0?[1-9]|[12]\d|3[01])\/(0?[1-9]|1[0-2])(?:\/(\d{4}))?\b/g;
 
@@ -618,6 +683,36 @@ export function stripProofRequiredTokens(text: string): string {
         .replace(PROOF_REQUIRED_TOKEN_GLOBAL_REGEX, " ")
         .replace(/\s+/g, " ")
         .trim();
+}
+
+export interface ParsedTaskDescription {
+    taskInput: string;
+    description: string | null;
+}
+
+/**
+ * Removes an inline -d(...) command from parser input and returns its content as
+ * verification context. Parser metadata can appear before or after the command.
+ */
+export function parseTaskDescription(text: string): ParsedTaskDescription {
+    if (!text) {
+        return { taskInput: "", description: null };
+    }
+
+    const command = findTaskDescriptionCommand(text);
+    if (!command || command.contentEnd == null || command.commandEnd == null) {
+        return { taskInput: text.trim(), description: null };
+    }
+
+    const description = text.slice(command.contentStart, command.contentEnd).trim();
+    const taskInput = `${text.slice(0, command.commandStart)} ${text.slice(command.commandEnd)}`
+        .replace(/\s+/g, " ")
+        .trim();
+
+    return {
+        taskInput,
+        description: description || null,
+    };
 }
 
 export function parseReminderTimesFromTitle(text: string): Array<{ hours: number; minutes: number }> {

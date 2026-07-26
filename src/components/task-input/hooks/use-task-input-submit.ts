@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { createTask } from "@/actions/tasks";
 import { fromDateTimeLocalValue } from "@/lib/datetime-local";
 import { resolveEventSchedule } from "@/lib/task-title-event-time";
-import { EVENT_TOKEN_REGEX, getDefaultDeadline, parseProofRequiredFromTitle, parseReminderTimesFromTitle, parseRepeatTokenFromTitle, resolveEventAnchorDate } from "@/lib/task-title-parser";
+import { EVENT_TOKEN_REGEX, getDefaultDeadline, parseProofRequiredFromTitle, parseReminderTimesFromTitle, parseRepeatTokenFromTitle, parseTaskDescription, resolveEventAnchorDate } from "@/lib/task-title-parser";
 import { hasParserDrivenDeadlineHint, parseTaskTitleAndSubtasks, resolveTaskDeadline } from "@/lib/parser_keyword_resolver";
 import { normalizeReminderDates, resolveDateSheetDraftSubmission } from "@/lib/task-deadline-sheet";
 import { validateEventColorUsage } from "@/lib/task-title-event-color";
@@ -105,11 +105,13 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             effectiveReminders = draftResult.reminders;
         }
 
-        const { title: taskTitle, subtasks } = parseTaskTitleAndSubtasks(title);
-        const titleRequiresProof = parseProofRequiredFromTitle(title);
-        const requiredPomoParse = parseRequiredPomoFromTitle(title);
+        const parsedDescription = parseTaskDescription(title);
+        const parserTaskInput = parsedDescription.taskInput;
+        const { title: taskTitle, subtasks } = parseTaskTitleAndSubtasks(parserTaskInput);
+        const titleRequiresProof = parseProofRequiredFromTitle(parserTaskInput);
+        const requiredPomoParse = parseRequiredPomoFromTitle(parserTaskInput);
         const requiredPomoMinutes = requiredPomoParse.requiredPomoMinutes;
-        const parsedRepeatType = parseRepeatTokenFromTitle(title);
+        const parsedRepeatType = parseRepeatTokenFromTitle(parserTaskInput);
         const effectiveRecurrenceType = parsedRepeatType ?? (recurrenceType || null);
 
         if (!taskTitle || isLoading) return;
@@ -120,9 +122,9 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             return;
         }
 
-        const isEventTask = EVENT_TOKEN_REGEX.test(title);
-        const isStrict = /(^|\s)-bound(?=\s|$)/i.test(title);
-        const colorValidation = validateEventColorUsage(title, isEventTask);
+        const isEventTask = EVENT_TOKEN_REGEX.test(parserTaskInput);
+        const isStrict = /(^|\s)-bound(?=\s|$)/i.test(parserTaskInput);
+        const colorValidation = validateEventColorUsage(parserTaskInput, isEventTask);
         if (colorValidation.error) {
             setDeadlineError(colorValidation.error);
             return;
@@ -135,9 +137,9 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         const manuallyPickedEventWindow = effectiveIsDeadlineManuallyPicked && Boolean(effectiveEventStartDate);
         const shouldApplyParserDeadline =
             !effectiveIsDeadlineManuallyPicked ||
-            (hasParserDrivenDeadlineHint(title) && !manuallyPickedEventWindow);
+            (hasParserDrivenDeadlineHint(parserTaskInput) && !manuallyPickedEventWindow);
         const parserResolution = shouldApplyParserDeadline
-            ? resolveTaskDeadline(title, new Date(), normalizedDefaultEventDurationMinutes)
+            ? resolveTaskDeadline(parserTaskInput, new Date(), normalizedDefaultEventDurationMinutes)
             : null;
         if (parserResolution?.error) {
             setDeadlineError(parserResolution.error);
@@ -160,7 +162,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             } else {
                 const anchorDateResolution = effectiveIsDeadlineManuallyPicked
                     ? { anchorDate: effectiveSelectedDate ?? getDefaultDeadline(), error: null as string | null }
-                    : resolveEventAnchorDate(title);
+                    : resolveEventAnchorDate(parserTaskInput);
 
                 if (anchorDateResolution.error) {
                     setDeadlineError(anchorDateResolution.error);
@@ -168,7 +170,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
                 }
 
                 const eventResolution = resolveEventSchedule({
-                    rawTitle: title,
+                    rawTitle: parserTaskInput,
                     anchorDate: anchorDateResolution.anchorDate,
                     defaultDurationMinutes: normalizedDefaultEventDurationMinutes,
                 });
@@ -187,7 +189,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             return;
         }
 
-        const parsedReminderTimes = parseReminderTimesFromTitle(title);
+        const parsedReminderTimes = parseReminderTimesFromTitle(parserTaskInput);
         const parserReminderDates = parsedReminderTimes.map(({ hours, minutes }) =>
             buildReminderDateOnDeadlineDay(deadlineToSubmit, hours, minutes)
         );
@@ -213,6 +215,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         const payload: TaskInputCreatePayload = {
             title: taskTitle,
             rawTitle: title,
+            description: parsedDescription.description,
             subtasks,
             requiredPomoMinutes,
             requiresProof: requiresProof || titleRequiresProof,
@@ -253,6 +256,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             const formData = new FormData();
             formData.append("title", payload.title);
             formData.append("rawTitle", payload.rawTitle);
+            if (payload.description) formData.append("description", payload.description);
             formData.append("deadline", payload.deadlineIso);
             if (payload.eventStartIso) formData.append("eventStartIso", payload.eventStartIso);
             if (payload.eventEndIso) formData.append("eventEndIso", payload.eventEndIso);

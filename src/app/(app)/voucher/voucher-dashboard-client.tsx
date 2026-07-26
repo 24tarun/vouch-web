@@ -667,6 +667,11 @@ export function CompactPendingItem({
                     >
                         {task.title}
                     </div>
+                    {task.description && (
+                        <p className="mt-1.5 text-sm leading-relaxed text-slate-400 whitespace-pre-wrap break-words">
+                            {task.description}
+                        </p>
+                    )}
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">

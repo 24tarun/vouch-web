@@ -113,10 +113,12 @@ export function splitRemindersByTime<T extends { reminder_at: string }>(reminder
 export function mergeDueReminderTimelineEvents(
     events: TaskEvent[],
     reminders: TaskReminder[],
-    referenceNowMs: number
+    referenceNowMs: number,
+    taskStatus: TaskStatus
 ): TaskEvent[] {
     const hasFinalCallEvent = events.some((event) => event.event_type === "DEADLINE_WARNING_DUE");
     if (hasFinalCallEvent) return events;
+    if (taskStatus !== "ACTIVE" && taskStatus !== "POSTPONED") return events;
 
     const dueReminder = reminders.find((reminder) => {
         if (reminder.source !== "DEFAULT_DEADLINE_DUE") return false;

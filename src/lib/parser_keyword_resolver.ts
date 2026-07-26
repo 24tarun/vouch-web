@@ -6,6 +6,7 @@ import {
     isValidCalendarDate,
     parseDateTokens,
     parseTaskInputTimeToken,
+    parseTaskDescription,
     parseTimerMinutesToken,
     resolveEventAnchorDate,
     resolveUpcomingWeekdayDate,
@@ -157,14 +158,15 @@ export function resolveTaskDeadline(
 
 export function stripMetadata(text: string): string {
     if (!text) return "";
-    const withoutStandardTokens = text
+    const { taskInput } = parseTaskDescription(text);
+    const withoutStandardTokens = taskInput
         .replace(/(^|\s)@(?:\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?)\b/gi, "$1")
         .replace(/(?:^|\s)-start\s*(?:\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?)\b/gi, " ")
         .replace(/(?:^|\s)-end\s*(?:\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?)\b/gi, " ")
         .replace(/\b([12]?\d|3[01])(?:st|nd|rd|th)\b/gi, "")
         .replace(/\b(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])(?:\/\d{4})?\b/g, "")
         .replace(/(^|\s)remind@(?:\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?)\b/gi, "$1")
-        .replace(/\b(?:tmr|tmrw|tomorrow)\b/gi, "")
+        .replace(/(^|\s)@?(?:tmr|tmrw|tomorrow)(?=\s|$)/gi, "$1")
         .replace(new RegExp(WEEKDAY_TOKEN_REGEX.source, "gi"), "")
         .replace(/(?:\bvouch|\.v)\s+[^\s/]+/gi, "")
         .replace(/(?:^|\s)-proof(?=\s|$)/gi, " ")

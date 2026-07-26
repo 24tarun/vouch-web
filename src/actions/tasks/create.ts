@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { type Database } from "@/lib/types";
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
-import { parseProofRequiredFromTitle } from "@/lib/task-title-parser";
+import { parseProofRequiredFromTitle, parseTaskDescription } from "@/lib/task-title-parser";
 import {
     resolveEventColorFromTitle,
     validateEventColorUsage,
@@ -43,7 +43,9 @@ import {
 } from "./helpers";
 
 export async function createTaskSimple(title: string, subtasksInput?: string[]) {
-    const parsedTaskSimple = createTaskSchema.safeParse({ title });
+    const parsedDescription = parseTaskDescription(title);
+    const parserSourceTitle = parsedDescription.taskInput;
+    const parsedTaskSimple = createTaskSchema.safeParse({ title: parserSourceTitle });
     if (!parsedTaskSimple.success) {
         return { error: parsedTaskSimple.error.issues[0].message };
     }
@@ -54,13 +56,13 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
     if (!user) return { error: "Not authenticated" };
     const actorUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
 
-    const requiresProof = parseProofRequiredFromTitle(title);
-    const normalizedTitle = normalizeTaskTitleAndSyncKind(title);
-    const colorValidation = validateEventColorUsage(title, normalizedTitle.googleSyncForTask);
+    const requiresProof = parseProofRequiredFromTitle(parserSourceTitle);
+    const normalizedTitle = normalizeTaskTitleAndSyncKind(parserSourceTitle);
+    const colorValidation = validateEventColorUsage(parserSourceTitle, normalizedTitle.googleSyncForTask);
     if (colorValidation.error) {
         return { error: colorValidation.error };
     }
-    const colorSelection = resolveEventColorFromTitle(title);
+    const colorSelection = resolveEventColorFromTitle(parserSourceTitle);
     const googleEventColorId = normalizedTitle.googleSyncForTask ? colorSelection.colorId : null;
     if (!normalizedTitle.normalizedTitle) {
         return { error: TITLE_REQUIRED_ERROR };
@@ -114,7 +116,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
 
     if (normalizedTitle.googleSyncForTask) {
         const eventResolution = resolveEventSchedule({
-            rawTitle: title,
+            rawTitle: parserSourceTitle,
             anchorDate: deadline,
             defaultDurationMinutes: defaultEventDurationMinutes,
         });
@@ -140,7 +142,7 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             voucher_id: defaultVoucherId,
             title: normalizedTitle.normalizedTitle,
             creation_input: title,
-            description: null,
+            description: parsedDescription.description,
             failure_cost_cents: defaultFailureCostCents,
             requires_proof: finalRequiresProofSimple,
             deadline: deadline.toISOString(),
@@ -215,20 +217,27 @@ export async function createTask(formData: FormData) {
         typeof rawTitleForm === "string" && rawTitleForm.trim()
             ? rawTitleForm
             : (submittedTitle || "");
-    const parserSourceTitle = rawTitle || submittedTitle || "";
-    const titleSelection = normalizeTaskTitleAndSyncKind(rawTitle || "");
+    const creationInput = rawTitle || submittedTitle || "";
+    const parsedDescription = parseTaskDescription(creationInput);
+    const parserSourceTitle = parsedDescription.taskInput;
+    const titleSelection = normalizeTaskTitleAndSyncKind(parserSourceTitle);
     const title = normalizeTaskTitleAndSyncKind(submittedTitle || rawTitle).normalizedTitle;
     const requiresProofInput = parseRequiresProofFromFormData(
         formData.get("requiresProof"),
         parseProofRequiredFromTitle(parserSourceTitle)
     );
-    const colorValidation = validateEventColorUsage(rawTitle || "", titleSelection.googleSyncForTask);
+    const colorValidation = validateEventColorUsage(parserSourceTitle, titleSelection.googleSyncForTask);
     if (colorValidation.error) {
         return { error: colorValidation.error };
     }
-    const colorSelection = resolveEventColorFromTitle(rawTitle || "");
+    const colorSelection = resolveEventColorFromTitle(parserSourceTitle);
     const googleEventColorId = titleSelection.googleSyncForTask ? colorSelection.colorId : null;
-    const description = formData.get("description") as string;
+    const submittedDescription = formData.get("description");
+    const description =
+        parsedDescription.description ??
+        (typeof submittedDescription === "string" && submittedDescription.trim()
+            ? submittedDescription.trim()
+            : null);
     const failureCostMajor = Number(formData.get("failureCost"));
     const deadline = formData.get("deadline") as string;
     const submittedEventStartIsoRaw = formData.get("eventStartIso");
@@ -439,7 +448,7 @@ export async function createTask(formData: FormData) {
             user_id: (user as any).id,
             voucher_id: voucherId,
             title,
-            creation_input: parserSourceTitle,
+            creation_input: creationInput,
             description: description || null,
             failure_cost_cents: failureCostCents,
             required_pomo_minutes: requiredPomoInput.requiredPomoMinutes,

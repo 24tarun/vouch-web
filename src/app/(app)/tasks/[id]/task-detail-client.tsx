@@ -733,7 +733,7 @@ export default function TaskDetailClient({
         refreshInBackground();
     };
 
-    const activitySteps = useTaskDetailActivitySteps(events, aiVouches, reminders, nowMs);
+    const activitySteps = useTaskDetailActivitySteps(events, aiVouches, reminders, nowMs, taskState.status);
     const activityDotClassByTone: Record<string, string> = {
         success: "bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.45)]",
         danger: "bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.45)]",

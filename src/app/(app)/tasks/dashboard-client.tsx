@@ -134,6 +134,9 @@ function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
     const formData = new FormData();
     formData.append("title", payload.title);
     formData.append("rawTitle", payload.rawTitle);
+    if (payload.description) {
+        formData.append("description", payload.description);
+    }
     formData.append("deadline", payload.deadlineIso);
     if (payload.eventStartIso) {
         formData.append("eventStartIso", payload.eventStartIso);
@@ -700,7 +703,7 @@ export default function DashboardClient({
             user_id: userId,
             voucher_id: payload.voucherId,
             title: payload.title,
-            description: null,
+            description: payload.description,
             failure_cost_cents: Math.round(Number(payload.failureCost) * 100),
             required_pomo_minutes: payload.requiredPomoMinutes,
             requires_proof: payload.requiresProof,
