@@ -10,6 +10,7 @@ const AWAITING_STATS_STATUSES = new Set([
     "AWAITING_AI",
     "AWAITING_USER",
     "ESCALATED",
+    "AWAITING_RECTIFICATION",
 ]);
 
 export default async function OverviewPage() {
@@ -35,17 +36,25 @@ export default async function OverviewPage() {
     const rawTasks = (tasksResult.data as TaskWithRelations[] | null) || [];
     const taskIds = rawTasks.map((task) => task.id).filter(Boolean);
     const proofByTaskId = new Map<string, TaskWithRelations["completion_proof"]>();
+    const rectificationStatusByTaskId = new Map<string, string>();
 
     if (taskIds.length > 0) {
-        const { data: proofsResult } = await supabase
-            .from("task_completion_proofs")
-            .select("*")
-            .in("task_id", taskIds)
-            .eq("upload_state", "UPLOADED");
+        const [{ data: proofsResult }, { data: rectificationsResult }] = await Promise.all([
+            supabase.from("task_completion_proofs").select("*").in("task_id", taskIds).eq("upload_state", "UPLOADED"),
+            (supabase.from("rectification_requests") as any).select("task_id, original_status, created_at")
+                .in("task_id", taskIds)
+                .in("state", ["PENDING_HUMAN", "PENDING_AI", "AWAITING_AI_APPEAL"])
+                .order("created_at", { ascending: false }),
+        ]);
 
         for (const row of ((proofsResult as TaskWithRelations["completion_proof"][] | null) || [])) {
             if (!row?.task_id) continue;
             proofByTaskId.set(row.task_id, row);
+        }
+        for (const row of ((rectificationsResult as Array<{ task_id: string; original_status: string }> | null) || [])) {
+            if (!rectificationStatusByTaskId.has(row.task_id)) {
+                rectificationStatusByTaskId.set(row.task_id, row.original_status);
+            }
         }
     }
 
@@ -59,8 +68,9 @@ export default async function OverviewPage() {
     }> | null) || [];
 
     const taskStatusById = new Map(tasks.map((task) => [task.id, task.status]));
+    const effectiveStatus = (task: TaskWithRelations) => rectificationStatusByTaskId.get(task.id) || task.status;
     const validSessions = allSessions.filter((session) => {
-        const status = taskStatusById.get(session.task_id);
+        const status = rectificationStatusByTaskId.get(session.task_id) || taskStatusById.get(session.task_id);
         return status !== "DENIED" && status !== "MISSED" && status !== "SURRENDERED" && status !== "DELETED";
     });
 
@@ -73,9 +83,9 @@ export default async function OverviewPage() {
         ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(t.status)
     ).length;
     const acceptedCount = tasks.filter((t) => ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"].includes(t.status)).length;
-    const failedCount = tasks.filter((t) => t.status === "MISSED").length;
-    const surrenderedCount = tasks.filter((t) => t.status === "SURRENDERED").length;
-    const deniedCount = tasks.filter((t) => t.status === "DENIED").length;
+    const failedCount = tasks.filter((t) => effectiveStatus(t) === "MISSED").length;
+    const surrenderedCount = tasks.filter((t) => effectiveStatus(t) === "SURRENDERED").length;
+    const deniedCount = tasks.filter((t) => effectiveStatus(t) === "DENIED").length;
 
     const historyTasks = tasks
         .filter((t) => !HIDDEN_STATS_STATUSES.has(t.status))

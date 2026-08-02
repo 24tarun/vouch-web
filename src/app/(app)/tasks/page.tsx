@@ -27,6 +27,7 @@ export default async function DashboardPage() {
         "AWAITING_AI",
         "AWAITING_USER",
         "ESCALATED",
+        "AWAITING_RECTIFICATION",
         "ACCEPTED",
         "AUTO_ACCEPTED",
         "AI_ACCEPTED",

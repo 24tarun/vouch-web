@@ -35,6 +35,7 @@ const TASK_STATUS_BADGE_CLASS_BY_STATUS: Record<TaskStatus, string> = {
     AI_DENIED: "bg-red-500/10 text-red-500 border border-red-500/30",
     AWAITING_USER: "bg-orange-500/20 text-orange-300 border border-orange-500/30",
     ESCALATED: "bg-blue-500/20 text-blue-300 border border-blue-500/30",
+    AWAITING_RECTIFICATION: "bg-violet-500/20 text-violet-300 border border-violet-500/40",
     ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     AUTO_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",
     AI_ACCEPTED: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30",

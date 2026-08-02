@@ -29,6 +29,7 @@ const ATTACHABLE_PROOF_STATUSES = new Set([
   'AWAITING_AI',
   'AWAITING_USER',
   'ESCALATED',
+  'AWAITING_RECTIFICATION',
 ]);
 
 const FINAL_TASK_STATUSES = new Set([
@@ -37,6 +38,7 @@ const FINAL_TASK_STATUSES = new Set([
   'AI_ACCEPTED',
   'DENIED',
   'MISSED',
+  'SURRENDERED',
   'RECTIFIED',
   'SETTLED',
   'DELETED',
@@ -334,6 +336,7 @@ Deno.serve(async (request) => {
   const taskDeadline = (task as { deadline?: string | null }).deadline;
   if (
     (action === 'init' || action === 'remove-current')
+    && taskStatus !== 'AWAITING_RECTIFICATION'
     && isCompletionEditingLocked(taskStatus, taskDeadline)
   ) {
     return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });

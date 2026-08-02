@@ -161,7 +161,7 @@ export function MobileLanding() {
               { n: "02", title: "Work",            badge: "ACTIVE",            cls: "m-badge-cyan",    body: "Use the built-in Pomodoro timer. Required focus sessions block submission until met." },
               { n: "03", title: "Submit",          badge: "AWAITING VOUCHER",  cls: "m-badge-orange",  body: "Mark complete before the deadline. Optionally upload proof. Enters your voucher's queue." },
               { n: "04", title: "Review",          badge: "PENDING REVIEW",    cls: "m-badge-amber",   body: "Voucher has ~2 days to accept or deny. No response → auto-accepted, 30¢ penalty on them." },
-              { n: "05", title: "Outcome",         badge: "ACCEPTED / DENIED",  cls: "m-badge-emerald", body: "Accept → cleared. Deny → failure cost logged to your ledger. Rectify within 7 days." },
+              { n: "05", title: "Outcome",         badge: "ACCEPTED / DENIED",  cls: "m-badge-emerald", body: "Accept → cleared. Deny → failure cost logged to your ledger. Request rectification during the failure month." },
               { n: "06", title: "Settle",          badge: "SETTLED",           cls: "m-badge-purple",  body: "Month-end summary email. Outstanding balances go to a charity of your choice." },
             ].map(({ n, title, badge, cls, body }) => (
               <div key={n} style={{ padding: "20px 0", borderBottom: "1px solid var(--border)", display: "flex", gap: "16px", alignItems: "flex-start" }}>

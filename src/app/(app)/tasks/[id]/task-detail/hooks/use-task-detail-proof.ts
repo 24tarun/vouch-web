@@ -159,7 +159,8 @@ export function useTaskDetailProof({
     const handleMarkCompleteRef = useRef<((freshUploadedProofReady?: boolean) => Promise<void>) | null>(null);
     const storageKey = getProofDraftStorageKey(taskState.id);
     const completionEditingIsLocked = useCallback(
-        () => isTaskCompletionLocked(taskState.status, taskState.deadline, new Date()),
+        () => taskState.status !== "AWAITING_RECTIFICATION"
+            && isTaskCompletionLocked(taskState.status, taskState.deadline, new Date()),
         [taskState.deadline, taskState.status]
     );
     const rejectLockedCompletionEdit = useCallback(() => {
@@ -374,7 +375,8 @@ export function useTaskDetailProof({
                 taskState.status === "AWAITING_VOUCHER" ||
                 taskState.status === "AWAITING_AI" ||
                 taskState.status === "AWAITING_USER" ||
-                taskState.status === "MARKED_COMPLETE"
+                taskState.status === "MARKED_COMPLETE" ||
+                taskState.status === "AWAITING_RECTIFICATION"
             ) &&
             !isActionPending("awaitingProofUpload");
         if ((mode === "draft" && !canOpenForDraft) || (mode === "awaiting-upload" && !canOpenForAwaitingUpload)) return;
@@ -618,8 +620,8 @@ export function useTaskDetailProof({
         if (isActionPending("removeStoredProof")) return;
         if (!isOwner || !storedProof) return;
         if (rejectLockedCompletionEdit()) return;
-        if (!["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status)) {
-            toast.error("Proof can only be removed while awaiting voucher response.");
+        if (!["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"].includes(taskState.status)) {
+            toast.error("Proof can only be removed while awaiting review.");
             return;
         }
 

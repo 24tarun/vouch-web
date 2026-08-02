@@ -8,12 +8,14 @@ export const PROOF_UPLOAD_ENTRY_STATUSES = [
     "AWAITING_AI",
     "AWAITING_USER",
     "MARKED_COMPLETE",
+    "AWAITING_RECTIFICATION",
 ] as const;
 
 export const PROOF_FINALIZE_OR_REVERT_STATUSES = [
     "AWAITING_VOUCHER",
     "AWAITING_AI",
     "MARKED_COMPLETE",
+    "AWAITING_RECTIFICATION",
 ] as const;
 export const PROOF_STAGING_FINALIZE_STATUSES = [
     "ACTIVE",
@@ -22,6 +24,7 @@ export const PROOF_STAGING_FINALIZE_STATUSES = [
     "AWAITING_AI",
     "AWAITING_USER",
     "MARKED_COMPLETE",
+    "AWAITING_RECTIFICATION",
 ] as const;
 
 export function getAwaitingProofReviewStatus(voucherId: string): "AWAITING_VOUCHER" | "AWAITING_AI" {

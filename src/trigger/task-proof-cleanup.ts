@@ -72,9 +72,11 @@ export const taskProofCleanup = schedules.task({
                 candidate.upload_state === "PENDING" &&
                 nowMs - new Date(candidate.created_at).getTime() > STALE_PENDING_UPLOAD_MS;
             const responseExpired =
-                Boolean(task?.voucher_response_deadline) &&
+                task?.status === "AWAITING_VOUCHER" &&
+                Boolean(task.voucher_response_deadline) &&
                 nowMs > new Date(task!.voucher_response_deadline as string).getTime();
-            const noLongerAwaiting = Boolean(task) && task!.status !== "AWAITING_VOUCHER";
+            const noLongerAwaiting = Boolean(task) &&
+                !["AWAITING_VOUCHER", "AWAITING_RECTIFICATION"].includes(task!.status);
             const missingTask = !task;
 
             if (!stalePending && !responseExpired && !noLongerAwaiting && !missingTask) {

@@ -11,6 +11,7 @@ import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";
 import { formatCurrencyFromCents, normalizeCurrency } from "@/lib/currency";
+import { processDueRectifications } from "@/lib/rectification/process-due";
 
 interface SettlementCharity {
     key: string;
@@ -138,6 +139,12 @@ export const monthlySettlement = schedules.task({
             if (!shouldCompileNow(now, timeZone)) continue;
 
             const { period, monthName } = getPreviousLocalMonthPeriod(now, timeZone);
+            try {
+                await processDueRectifications(user.id);
+            } catch (rectificationError) {
+                console.error(`Skipping settlement for ${user.id} / ${period}; rectification preflight failed:`, rectificationError);
+                continue;
+            }
             const { data: entriesData, error: entriesError } = await (supabase.from("ledger_entries") as any)
                 .select("amount_cents, entry_type, task:tasks(title)")
                 .eq("user_id", user.id as any)

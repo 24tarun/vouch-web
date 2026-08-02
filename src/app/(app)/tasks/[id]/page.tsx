@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_POMO_DURATION_MINUTES } from "@/lib/constants";
 import { normalizeCurrency } from "@/lib/currency";
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
+import { getRectificationContext } from "@/actions/rectification";
 
 interface TaskPageProps {
     params: Promise<{ id: string }>;
@@ -30,7 +31,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
     const currentPeriod = new Date().toISOString().slice(0, 7);
 
-    const [events, pomoSummary, potentialRp, overrideUsage] = await Promise.all([
+    const [events, pomoSummary, potentialRp, overrideUsage, rectificationContext] = await Promise.all([
         getTaskEvents(id),
         getTaskPomoSummary(id),
         isActiveOwnerTask ? getPotentialRpGain(id, user!.id) : Promise.resolve(null),
@@ -40,6 +41,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
                 .eq("user_id", user.id as any)
                 .eq("period", currentPeriod))
             : Promise.resolve({ count: 0 }),
+        user?.id ? getRectificationContext(id) : Promise.resolve(null),
     ]);
     const hasUsedOverrideThisMonth = (overrideUsage.count || 0) >= 1;
 
@@ -68,6 +70,9 @@ export default async function TaskPage({ params }: TaskPageProps) {
             potentialRp={potentialRp}
             hasUsedOverrideThisMonth={hasUsedOverrideThisMonth}
             autoSubmitAfterProofUpload={autoSubmitAfterProofUpload}
+            initialRectification={rectificationContext && "success" in rectificationContext && rectificationContext.success
+                ? { request: rectificationContext.request, passes: rectificationContext.passes }
+                : null}
         />
     );
 }

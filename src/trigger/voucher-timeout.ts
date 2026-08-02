@@ -15,6 +15,7 @@ import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 import { claimTasksByIdsAndStatus } from "@/trigger/claim-utils";
+import { processDueRectifications } from "@/lib/rectification/process-due";
 
 const VOUCHER_TIMEOUT_PENALTY_CENTS = 30;
 
@@ -31,6 +32,15 @@ export const voucherTimeout = schedules.task({
         const supabase = createAdminClient();
         const now = new Date().toISOString();
         const currentPeriod = new Date().toISOString().slice(0, 7);
+
+        try {
+            const rectifications = await processDueRectifications();
+            if (rectifications.length > 0) {
+                console.log(`Resolved ${rectifications.length} due rectification requests`);
+            }
+        } catch (rectificationError) {
+            console.error("Failed processing due rectification requests:", rectificationError);
+        }
 
         const { data, error } = await (supabase
             .from("tasks")

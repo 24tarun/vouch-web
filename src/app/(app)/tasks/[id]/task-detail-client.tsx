@@ -28,7 +28,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import type { TaskWithRelations, TaskEvent } from "@/lib/types";
+import type { TaskWithRelations, TaskEvent, RectificationRequest } from "@/lib/types";
 import { PomoButton } from "@/components/ui/PomoButton";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { usePomodoro } from "@/components/PomodoroProvider";
@@ -57,6 +57,7 @@ import {
     TaskStatusBadge,
 } from "@/design-system/badges";
 import { TASK_DETAIL_BUTTON_CLASSES } from "@/design-system/task_detail_buttons";
+import { createClient } from "@/lib/supabase/client";
 import { WebcamCaptureModal } from "@/components/WebcamCaptureModal";
 import {
     getTaskDetailButtonVisibility,
@@ -79,6 +80,16 @@ import {
     PausedRecurrenceEditorDialog,
     type RecurrenceEditorField,
 } from "@/app/(app)/tasks/[id]/task-detail/paused-recurrence-editor-dialog";
+import {
+    appealAiRectification,
+    askForRectificationProof,
+    cancelTaskRectification,
+    decideTaskRectification,
+    escalateRectificationToOriginalVoucher,
+    requestTaskRectification,
+    updateTaskRectification,
+    type RectificationTarget,
+} from "@/actions/rectification";
 
 interface TaskDetailClientProps {
     task: TaskWithRelations;
@@ -95,6 +106,10 @@ interface TaskDetailClientProps {
     potentialRp: number | null;
     hasUsedOverrideThisMonth: boolean;
     autoSubmitAfterProofUpload: boolean;
+    initialRectification: {
+        request: RectificationRequest | null;
+        passes: { used: number; reserved: number; limit: number };
+    } | null;
 }
 
 type ProofPickerMode = "draft" | "awaiting-upload";
@@ -118,6 +133,7 @@ export default function TaskDetailClient({
     potentialRp,
     hasUsedOverrideThisMonth,
     autoSubmitAfterProofUpload,
+    initialRectification,
 }: TaskDetailClientProps) {
     const router = useRouter();
     const { session } = usePomodoro();
@@ -153,6 +169,12 @@ export default function TaskDetailClient({
     const proofPreviewUrlRef = useRef<string | null>(null);
     const proofPickerModeRef = useRef<ProofPickerMode>("draft");
     const [showWebcamModal, setShowWebcamModal] = useState(false);
+    const [rectificationRequest, setRectificationRequest] = useState<RectificationRequest | null>(initialRectification?.request ?? null);
+    const [rectificationPasses, setRectificationPasses] = useState(initialRectification?.passes ?? { used: 0, reserved: 0, limit: 5 });
+    const [rectificationDialogOpen, setRectificationDialogOpen] = useState(false);
+    const [rectificationTarget, setRectificationTarget] = useState<RectificationTarget>("ORIGINAL_VOUCHER");
+    const [rectificationReason, setRectificationReason] = useState(initialRectification?.request?.reason ?? "");
+    const [rectificationBusy, setRectificationBusy] = useState(false);
     const shouldRestoreSubtaskInputFocusRef = useRef(false);
 
     const submissionWindow = useMemo(
@@ -164,10 +186,34 @@ export default function TaskDetailClient({
         }),
         [nowMs, taskState.deadline, taskState.start_at, taskState.is_strict]
     );
+
+    useEffect(() => {
+        setRectificationRequest(initialRectification?.request ?? null);
+        setRectificationPasses(initialRectification?.passes ?? { used: 0, reserved: 0, limit: 5 });
+        setRectificationReason(initialRectification?.request?.reason ?? "");
+    }, [initialRectification]);
+
+    useEffect(() => {
+        const supabase = createClient();
+        const channel = supabase
+            .channel(`task-rectification:${task.id}`)
+            .on("postgres_changes", {
+                event: "*",
+                schema: "public",
+                table: "rectification_requests",
+                filter: `task_id=eq.${task.id}`,
+            }, () => {
+                startRefreshTransition(() => router.refresh());
+            })
+            .subscribe();
+        return () => {
+            void supabase.removeChannel(channel);
+        };
+    }, [router, startRefreshTransition, task.id]);
     const deadline = new Date(taskState.deadline);
     const isOverdue =
         submissionWindow.pastDeadline &&
-        !["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ESCALATED", "AI_DENIED", "DELETED"].includes(taskState.status);
+        !["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ESCALATED", "AI_DENIED", "AWAITING_RECTIFICATION", "DELETED"].includes(taskState.status);
 
     const userTimeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC", []);
     const canTempDelete = canOwnerTemporarilyDelete(taskState, nowMs);
@@ -197,6 +243,9 @@ export default function TaskDetailClient({
         isOwner &&
         (taskState.status === "DENIED" || taskState.status === "MISSED" || taskState.status === "SURRENDERED") &&
         !hasUsedOverrideThisMonth;
+    const canRequestRectification =
+        isOwner && ["DENIED", "MISSED", "SURRENDERED"].includes(taskState.status) &&
+        rectificationRequest?.state !== "DECLINED";
     const handleToggleSubtasksSection = () => {
         setSubtasksSectionOpen((prev) => {
             const next = !prev;
@@ -254,7 +303,7 @@ export default function TaskDetailClient({
     const showAwaitingUserActionRow =
         buttonVisibility.awaitingUser.resubmitProof ||
         buttonVisibility.awaitingUser.escalateToFriend;
-    const hasVisibleActionGridButtons = Object.values(buttonVisibility.actions).some(Boolean);
+    const hasVisibleActionGridButtons = Object.values(buttonVisibility.actions).some(Boolean) || canRequestRectification;
     const aiVouches = taskState.ai_vouches ?? [];
     const denials = aiVouches.filter((v) => v.decision === "denied");
     const latestDenial = denials.at(-1) ?? null;
@@ -292,10 +341,10 @@ export default function TaskDetailClient({
         ? `${formatOrdinal(iterationNumber)} iteration`
         : "one-off task";
     const canViewStoredProof =
-        taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE" || taskState.status === "AWAITING_USER";
+        taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE" || taskState.status === "AWAITING_USER" || taskState.status === "AWAITING_RECTIFICATION";
     const hasOpenProofRequest =
         Boolean(taskState.proof_request_open) &&
-        (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE");
+        (taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE" || taskState.status === "AWAITING_RECTIFICATION");
     const voucherDisplayLabel = isAiVouched
         ? "AI"
         : (isSelfVouched ? "Self" : (taskState.voucher?.username || "Your voucher"));
@@ -580,6 +629,128 @@ export default function TaskDetailClient({
         proofPickerModeRef,
         autoSubmitAfterProofUpload,
     });
+
+    const openRectificationDialog = () => {
+        const target: RectificationTarget = isSelfVouched || isAiVouched ? "AI" : "ORIGINAL_VOUCHER";
+        setRectificationTarget(rectificationRequest?.target_type ?? target);
+        setRectificationReason(rectificationRequest?.reason ?? "");
+        setRectificationDialogOpen(true);
+    };
+
+    const handleSaveRectification = async () => {
+        if (rectificationBusy) return;
+        setRectificationBusy(true);
+        try {
+            if (rectificationRequest && ["PENDING_HUMAN", "PENDING_AI", "AWAITING_AI_APPEAL"].includes(rectificationRequest.state)) {
+                const result = await updateTaskRectification(rectificationRequest.id, rectificationReason);
+                if ("error" in result) {
+                    toast.error(result.error);
+                    return;
+                }
+                setRectificationRequest(result.request);
+                toast.success("Rectification request updated");
+            } else {
+                const result = await requestTaskRectification(taskState.id, rectificationTarget, rectificationReason);
+                if ("error" in result) {
+                    toast.error(result.error);
+                    return;
+                }
+                setRectificationRequest(result.request);
+                setRectificationPasses((previous) => ({ ...previous, reserved: previous.reserved + 1 }));
+                setTaskState((previous) => ({ ...previous, status: "AWAITING_RECTIFICATION", updated_at: new Date().toISOString() }));
+                toast.success("Rectification requested");
+                if (rectificationTarget === "AI") {
+                    window.setTimeout(() => void openProofPicker("awaiting-upload"), 0);
+                }
+            }
+            setRectificationDialogOpen(false);
+            refreshInBackground();
+        } finally {
+            setRectificationBusy(false);
+        }
+    };
+
+    const handleCancelRectification = async () => {
+        if (!rectificationRequest || rectificationBusy) return;
+        if (!window.confirm("Cancel this request? Its reserved pass will be released, and you may resubmit during the failure month.")) return;
+        setRectificationBusy(true);
+        try {
+            const result = await cancelTaskRectification(rectificationRequest.id);
+            if ("error" in result) return void toast.error(result.error);
+            setRectificationRequest(result.request);
+            setRectificationPasses((previous) => ({ ...previous, reserved: Math.max(0, previous.reserved - 1) }));
+            setTaskState((previous) => ({ ...previous, status: result.request.original_status, has_proof: false, updated_at: new Date().toISOString() }));
+            setProofDraft(null);
+            toast.success("Rectification request cancelled");
+            refreshInBackground();
+        } finally {
+            setRectificationBusy(false);
+        }
+    };
+
+    const handleRectificationReview = async (decision: "APPROVE" | "DECLINE") => {
+        if (!rectificationRequest || rectificationBusy) return;
+        if (decision === "DECLINE" && !window.confirm("Decline this rectification request? This decision is final.")) return;
+        setRectificationBusy(true);
+        try {
+            const result = await decideTaskRectification(rectificationRequest.id, decision);
+            if ("error" in result) return void toast.error(result.error);
+            setRectificationRequest((previous) => previous ? {
+                ...previous,
+                state: decision === "APPROVE" ? "APPROVED" : "DECLINED",
+                resolved_at: new Date().toISOString(),
+            } : previous);
+            setTaskState((previous) => ({
+                ...previous,
+                status: decision === "APPROVE" ? "RECTIFIED" : rectificationRequest.original_status,
+                has_proof: false,
+                updated_at: new Date().toISOString(),
+            }));
+            toast.success(decision === "APPROVE" ? "Task rectified" : "Rectification declined");
+            refreshInBackground();
+        } finally {
+            setRectificationBusy(false);
+        }
+    };
+
+    const handleAskRectificationProof = async () => {
+        if (!rectificationRequest || rectificationBusy) return;
+        setRectificationBusy(true);
+        try {
+            const result = await askForRectificationProof(rectificationRequest.id);
+            if ("error" in result) return void toast.error(result.error);
+            setRectificationRequest(result.request);
+            toast.success("Proof requested; the deadline is unchanged");
+        } finally {
+            setRectificationBusy(false);
+        }
+    };
+
+    const handleAiRectificationAppeal = async () => {
+        if (!rectificationRequest || rectificationBusy) return;
+        setRectificationBusy(true);
+        try {
+            const result = await appealAiRectification(rectificationRequest.id, rectificationReason);
+            if ("error" in result) return void toast.error(result.error);
+            setRectificationRequest(result.request);
+            toast.success(`AI appeal ${result.request.ai_appeal_count} of 3 submitted`);
+        } finally {
+            setRectificationBusy(false);
+        }
+    };
+
+    const handleRectificationEscalation = async () => {
+        if (!rectificationRequest || rectificationBusy) return;
+        setRectificationBusy(true);
+        try {
+            const result = await escalateRectificationToOriginalVoucher(rectificationRequest.id);
+            if ("error" in result) return void toast.error(result.error);
+            setRectificationRequest(result.request);
+            toast.success("Sent to the original voucher");
+        } finally {
+            setRectificationBusy(false);
+        }
+    };
     const googleSyncDirectionLabel =
         taskState.google_sync_linked && taskState.google_sync_last_origin === "APP"
             ? "App -> Google Calendar"
@@ -746,6 +917,11 @@ export default function TaskDetailClient({
         statusSlate: "bg-slate-400 shadow-[0_0_6px_rgba(148,163,184,0.45)]",
         neutral: "bg-slate-500 shadow-[0_0_6px_rgba(100,116,139,0.45)]",
     };
+    const estimatedRectificationDeadline = (() => {
+        const now = new Date();
+        const nextLocalMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0);
+        return new Date(Math.max(nextLocalMonth.getTime(), now.getTime() + 48 * 60 * 60 * 1000));
+    })();
 
     return (
         <>
@@ -852,6 +1028,77 @@ export default function TaskDetailClient({
                     )}
 
                     {/* ③ STATUS CONTEXT BANNER */}
+                    {taskState.status === "AWAITING_RECTIFICATION" && (
+                        <div className="td-rise td-d3 rounded-xl border border-violet-500/30 bg-violet-950/15 overflow-hidden">
+                            <div className="h-px bg-gradient-to-r from-violet-500/70 via-violet-400/20 to-transparent" />
+                            <div className="px-5 py-4 space-y-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="h-px w-6 bg-violet-400" />
+                                    <span className="text-[10px] uppercase tracking-wider font-bold text-violet-400">awaiting rectification</span>
+                                </div>
+                                {rectificationRequest ? (
+                                    <>
+                                        <p className="text-base font-medium text-violet-200">
+                                            {rectificationRequest.state === "AWAITING_AI_APPEAL"
+                                                ? "AI declined this request"
+                                                : `Waiting for ${rectificationRequest.target_type === "AI" ? "AI" : (taskState.voucher?.username || "the original voucher")}`}
+                                        </p>
+                                        <div className="space-y-1 text-xs font-mono text-violet-300/70">
+                                            <p>Original outcome: {rectificationRequest.original_status.replace(/_/g, " ")}</p>
+                                            <p>Reserved passes: {rectificationPasses.used + rectificationPasses.reserved}/{rectificationPasses.limit}</p>
+                                            <p>Decision deadline: {formatDateTimeDdMmYy(new Date(rectificationRequest.auto_rectify_at))}</p>
+                                            {rectificationRequest.reason && <p className="font-sans text-sm text-violet-200/80">“{rectificationRequest.reason}”</p>}
+                                            {rectificationRequest.proof_requested_at && <p className="text-pink-300">Proof requested — timer still running</p>}
+                                            {rectificationRequest.target_type === "AI" && !storedProof && <p className="text-pink-300">AI proof is required</p>}
+                                            {rectificationRequest.state === "AWAITING_AI_APPEAL" && rectificationRequest.decision_reason && (
+                                                <p className="font-sans text-sm text-orange-200">{rectificationRequest.decision_reason}</p>
+                                            )}
+                                        </div>
+                                        {isOwner && (
+                                            <div className="flex flex-wrap gap-2 pt-1">
+                                                {rectificationRequest.state !== "AWAITING_AI_APPEAL" && (
+                                                    <Button variant="outline" onClick={openRectificationDialog} disabled={rectificationBusy}>Edit reason</Button>
+                                                )}
+                                                <Button variant="outline" onClick={() => openProofPicker("awaiting-upload")} disabled={rectificationBusy}>
+                                                    <Camera className="mr-1.5 h-3.5 w-3.5" />
+                                                    {storedProof ? "Replace proof" : "Add proof"}
+                                                </Button>
+                                                <Button variant="ghost" onClick={handleCancelRectification} disabled={rectificationBusy}>Cancel request</Button>
+                                                {rectificationRequest.state === "AWAITING_AI_APPEAL" && rectificationRequest.ai_appeal_count < 3 && (
+                                                    <Button onClick={handleAiRectificationAppeal} disabled={rectificationBusy}>Appeal to AI ({rectificationRequest.ai_appeal_count}/3)</Button>
+                                                )}
+                                                {rectificationRequest.state === "AWAITING_AI_APPEAL" &&
+                                                    rectificationRequest.original_voucher_id !== rectificationRequest.owner_id &&
+                                                    rectificationRequest.original_voucher_id !== AI_PROFILE_ID && (
+                                                    <Button variant="outline" onClick={handleRectificationEscalation} disabled={rectificationBusy}>Ask original voucher</Button>
+                                                )}
+                                            </div>
+                                        )}
+                                        {!isOwner && viewerId === rectificationRequest.target_voucher_id && rectificationRequest.state === "PENDING_HUMAN" && (
+                                            <div className="flex flex-wrap gap-2 pt-1">
+                                                <Button variant="destructive" onClick={() => void handleRectificationReview("DECLINE")} disabled={rectificationBusy}>Decline</Button>
+                                                <Button variant="outline" onClick={handleAskRectificationProof} disabled={rectificationBusy}>Ask for proof</Button>
+                                                <Button onClick={() => void handleRectificationReview("APPROVE")} disabled={rectificationBusy}>Rectify</Button>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <p className="text-sm text-violet-200">This task has an open rectification request.</p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {rectificationRequest?.state === "DECLINED" && taskState.status !== "AWAITING_RECTIFICATION" && (
+                        <div className="rounded-xl border border-red-500/25 bg-red-950/15 px-5 py-4 space-y-1">
+                            <p className="text-sm font-semibold text-red-300">Rectification denied</p>
+                            <p className="text-xs font-mono text-red-300/60">
+                                The original {rectificationRequest.original_status.toLowerCase()} outcome remains in the ledger.
+                            </p>
+                            {rectificationRequest.decision_reason && <p className="text-sm text-red-200/80">{rectificationRequest.decision_reason}</p>}
+                        </div>
+                    )}
+
                     {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETE") && (
                         <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
@@ -1035,7 +1282,7 @@ export default function TaskDetailClient({
                                     }
                                 />
                             )}
-                            {["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes(taskState.status) && buttonVisibility.proof.removeStored && (
+                            {["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"].includes(taskState.status) && (buttonVisibility.proof.removeStored || taskState.status === "AWAITING_RECTIFICATION") && (
                                 <Button type="button" variant="ghost" onClick={handleRemoveStoredProof}
                                     className={cn(uniformActionButtonClass, "inline-flex items-center", TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
                                     <Trash2 className="mr-1.5 h-3.5 w-3.5" />
@@ -1223,6 +1470,13 @@ export default function TaskDetailClient({
                                     className={cn(activeRowActionButtonClass, "w-full justify-center border",
                                         TASK_DETAIL_BUTTON_CLASSES.actions.overrideEnabled)}>
                                     Use Override
+                                </Button>
+                            )}
+                            {canRequestRectification && (
+                                <Button variant="outline" onClick={openRectificationDialog}
+                                    className={cn(activeRowActionButtonClass, "w-full justify-center border border-violet-500/40 text-violet-300 hover:bg-violet-500/10")}
+                                    disabled={rectificationPasses.used + rectificationPasses.reserved >= rectificationPasses.limit}>
+                                    Request rectification
                                 </Button>
                             )}
                             {buttonVisibility.actions.tempDelete && (
@@ -1512,6 +1766,52 @@ export default function TaskDetailClient({
                     </div>
                 </aside>
             </div>
+
+            <Dialog open={rectificationDialogOpen} onOpenChange={setRectificationDialogOpen}>
+                <DialogContent className="bg-slate-950 border-slate-800 text-slate-200">
+                    <DialogHeader>
+                        <DialogTitle>{rectificationRequest && taskState.status === "AWAITING_RECTIFICATION" ? "Edit rectification request" : "Request rectification"}</DialogTitle>
+                        <DialogDescription>
+                            The failure remains in your ledger until this request is approved or auto-approved.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        {!rectificationRequest || taskState.status !== "AWAITING_RECTIFICATION" ? (
+                            <div className="grid grid-cols-2 gap-2">
+                                {!isSelfVouched && !isAiVouched && (
+                                    <Button type="button" variant={rectificationTarget === "ORIGINAL_VOUCHER" ? "default" : "outline"}
+                                        onClick={() => setRectificationTarget("ORIGINAL_VOUCHER")}>Original voucher</Button>
+                                )}
+                                <Button type="button" variant={rectificationTarget === "AI" ? "default" : "outline"}
+                                    onClick={() => setRectificationTarget("AI")}>AI</Button>
+                            </div>
+                        ) : null}
+                        <label className="block space-y-2">
+                            <span className="text-xs font-mono text-slate-400">Reason / supplemental context (optional)</span>
+                            <textarea value={rectificationReason} onChange={(event) => setRectificationReason(event.target.value)}
+                                rows={4} maxLength={2000}
+                                placeholder={rectificationTarget === "AI" ? "Recommended: explain what the evidence shows. The original task description stays unchanged." : "Explain why this outcome should be rectified."}
+                                className="w-full resize-y rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-violet-500" />
+                        </label>
+                        <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs font-mono text-slate-400 space-y-1">
+                            <p>Passes used or reserved: {rectificationPasses.used + rectificationPasses.reserved}/{rectificationPasses.limit}</p>
+                            <p>Available: {Math.max(0, rectificationPasses.limit - rectificationPasses.used - rectificationPasses.reserved)}</p>
+                            <p>Auto-rectification: {rectificationRequest?.auto_rectify_at
+                                ? formatDateTimeDdMmYy(new Date(rectificationRequest.auto_rectify_at))
+                                : formatDateTimeDdMmYy(estimatedRectificationDeadline)}</p>
+                            {rectificationTarget === "AI" && <p className="text-pink-300">Proof is required. You will attach it immediately after creating the request.</p>}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <Button variant="ghost" onClick={() => setRectificationDialogOpen(false)}>Close</Button>
+                            <Button onClick={handleSaveRectification} disabled={rectificationBusy ||
+                                ((!rectificationRequest || taskState.status !== "AWAITING_RECTIFICATION") &&
+                                    rectificationPasses.used + rectificationPasses.reserved >= rectificationPasses.limit)}>
+                                {rectificationBusy ? "Saving…" : rectificationRequest && taskState.status === "AWAITING_RECTIFICATION" ? "Save changes" : "Send request"}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Postpone dialog */}
             <PostponeDeadlineDialog open={isPostponeDialogOpen} onOpenChange={setIsPostponeDialogOpen}

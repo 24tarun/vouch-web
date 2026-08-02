@@ -28,6 +28,7 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
     "AI_DENIED",
     "AWAITING_USER",
     "ESCALATED",
+    "AWAITING_RECTIFICATION",
     "ACCEPTED",
     "AUTO_ACCEPTED",
     "AI_ACCEPTED",

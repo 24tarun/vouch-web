@@ -309,7 +309,14 @@ export async function removeFriend(friendId: string) {
         .eq("voucher_id", friendId)
         .in("status", PENDING_VOUCHER_STATUSES as any);
 
-    if (activeTasks && activeTasks.length > 0) {
+    const { data: pendingHumanRectifications } = await (supabase.from("rectification_requests" as any) as any)
+        .select("id")
+        .eq("owner_id", user.id)
+        .eq("target_voucher_id", friendId)
+        .eq("target_type", "ORIGINAL_VOUCHER")
+        .in("state", ["PENDING_HUMAN", "PENDING_AI", "AWAITING_AI_APPEAL"]);
+
+    if ((activeTasks && activeTasks.length > 0) || (pendingHumanRectifications && pendingHumanRectifications.length > 0)) {
         return {
             error:
                 "Cannot remove friend who is an active voucher for pending tasks",

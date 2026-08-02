@@ -12,6 +12,7 @@ export type TaskStatus =
     | "AI_DENIED"
     | "AWAITING_USER"
     | "ESCALATED"
+    | "AWAITING_RECTIFICATION"
     | "ACCEPTED"
     | "AUTO_ACCEPTED"
     | "AI_ACCEPTED"
@@ -239,6 +240,7 @@ export const taskMachine = setup({
                 actions: ["setVoucherResponseDeadline"],
             },
         },
+        AWAITING_RECTIFICATION: {},
         ACCEPTED: {
             on: {
                 MONTH_CLOSE: {
@@ -327,6 +329,7 @@ export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
         AI_DENIED: [], // Auto-transitions to AWAITING_USER
         AWAITING_USER: ["APPEAL", "ESCALATE", "ACCEPT_DENIAL"],
         ESCALATED: [], // Auto-transitions to AWAITING_VOUCHER
+        AWAITING_RECTIFICATION: [],
         ACCEPTED: ["MONTH_CLOSE"],
         AUTO_ACCEPTED: ["MONTH_CLOSE"],
         AI_ACCEPTED: ["MONTH_CLOSE"],

@@ -21,6 +21,8 @@ export async function exportUserData(): Promise<{ data: Record<string, unknown> 
         pomoRes,
         commitmentsRes,
         friendshipsRes,
+        rectificationsRes,
+        aiRectificationUsageRes,
     ] = await Promise.all([
         (supabase.from("profiles" as any) as any)
             .select("id, email, username, currency, default_pomo_duration_minutes, default_event_duration_minutes, default_failure_cost_cents, strict_pomo_enabled, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, deadline_due_warning_enabled, voucher_can_view_active_tasks, web_notifications_enabled, ai_friend_opt_in, lifetime_xp, created_at")
@@ -71,6 +73,16 @@ export async function exportUserData(): Promise<{ data: Record<string, unknown> 
             .select("id, created_at, friend:profiles!friendships_friend_id_fkey(username, email)")
             .eq("user_id", uid)
             .order("created_at", { ascending: true }),
+
+        (supabase.from("rectification_requests" as any) as any)
+            .select("*")
+            .eq("owner_id", uid)
+            .order("created_at", { ascending: true }),
+
+        (supabase.from("ai_rectification_usage" as any) as any)
+            .select("*")
+            .eq("user_id", uid)
+            .order("created_at", { ascending: true }),
     ]);
 
     if (profileRes.error) return { error: "Failed to fetch profile data." };
@@ -93,6 +105,8 @@ export async function exportUserData(): Promise<{ data: Record<string, unknown> 
         recurrence_rules: recurrenceRulesRes.data ?? [],
         pomo_sessions: pomoRes.data ?? [],
         commitments: commitmentsRes.data ?? [],
+        rectification_requests: rectificationsRes.data ?? [],
+        ai_rectification_usage: aiRectificationUsageRes.data ?? [],
         friends: (friendshipsRes.data ?? []).map((f: any) => ({
             username: f.friend?.username ?? null,
             email: f.friend?.email ?? null,

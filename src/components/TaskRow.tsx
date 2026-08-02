@@ -36,7 +36,7 @@ interface TaskRowProps {
     layoutVariant?: "active" | "completed";
 }
 
-const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER"]);
+const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER", "AWAITING_RECTIFICATION"]);
 
 export function TaskRow({
     task,

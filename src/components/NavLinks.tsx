@@ -154,7 +154,7 @@ export function NavLinks({ userId, statsBadgeCount = 0 }: NavLinksProps) {
         let isActive = true;
 
         const refreshFriendsBadgeCount = async () => {
-            let query = supabase
+            let taskQuery = supabase
                 .from("tasks")
                 .select("id", { count: "exact", head: true })
                 .eq("voucher_id", userId)
@@ -162,12 +162,17 @@ export function NavLinks({ userId, statsBadgeCount = 0 }: NavLinksProps) {
                 .in("status", ["AWAITING_VOUCHER", "MARKED_COMPLETE"]);
 
             if (friendsBadgeSeenAt) {
-                query = query.gt("marked_completed_at", friendsBadgeSeenAt);
+                taskQuery = taskQuery.gt("marked_completed_at", friendsBadgeSeenAt);
             }
-
-            const { count, error } = await query;
-            if (!isActive || error) return;
-            setFriendsBadgeCount(count ?? 0);
+            let rectificationQuery = supabase.from("rectification_requests" as any)
+                .select("id", { count: "exact", head: true })
+                .eq("target_voucher_id", userId)
+                .eq("target_type", "ORIGINAL_VOUCHER")
+                .eq("state", "PENDING_HUMAN");
+            if (friendsBadgeSeenAt) rectificationQuery = rectificationQuery.gt("updated_at", friendsBadgeSeenAt);
+            const [taskResult, rectificationResult] = await Promise.all([taskQuery, rectificationQuery]);
+            if (!isActive || taskResult.error || rectificationResult.error) return;
+            setFriendsBadgeCount((taskResult.count ?? 0) + (rectificationResult.count ?? 0));
         };
 
         void refreshFriendsBadgeCount();
@@ -185,6 +190,11 @@ export function NavLinks({ userId, statsBadgeCount = 0 }: NavLinksProps) {
                 () => {
                     void refreshFriendsBadgeCount();
                 }
+            )
+            .on(
+                "postgres_changes",
+                { event: "*", schema: "public", table: "rectification_requests", filter: `target_voucher_id=eq.${userId}` },
+                () => { void refreshFriendsBadgeCount(); }
             )
             .subscribe();
 

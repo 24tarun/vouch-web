@@ -87,6 +87,41 @@ export interface Task {
     ai_vouch_calls_count?: number;
     ai_vouches?: AiVouch[];
     recurrence_rule?: RecurrenceRule | null;
+    rectification_request?: RectificationRequest | null;
+}
+
+export type RectificationRequestState =
+    | "PENDING_HUMAN"
+    | "PENDING_AI"
+    | "AWAITING_AI_APPEAL"
+    | "APPROVED"
+    | "AUTO_APPROVED"
+    | "DECLINED"
+    | "CANCELLED";
+
+export interface RectificationRequest {
+    id: string;
+    task_id: string;
+    owner_id: string;
+    original_voucher_id: string;
+    target_voucher_id: string;
+    target_type: "ORIGINAL_VOUCHER" | "AI";
+    original_status: "DENIED" | "MISSED" | "SURRENDERED";
+    failure_period: string;
+    request_period: string;
+    owner_timezone: string;
+    reason: string | null;
+    state: RectificationRequestState;
+    auto_rectify_at: string;
+    ai_appeal_count: number;
+    ai_attempt_count: number;
+    proof_requested_at: string | null;
+    proof_requested_by: string | null;
+    decision_reason: string | null;
+    requested_at: string;
+    resolved_at: string | null;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface TaskSubtask {
@@ -444,6 +479,11 @@ export interface Database {
                 Row: RectifyPass
                 Insert: Omit<RectifyPass, "id" | "created_at">
                 Update: Partial<RectifyPass>
+            }
+            rectification_requests: {
+                Row: RectificationRequest
+                Insert: Omit<RectificationRequest, "id" | "created_at" | "updated_at" | "requested_at">
+                Update: Partial<RectificationRequest>
             }
             overrides: {
                 Row: Override

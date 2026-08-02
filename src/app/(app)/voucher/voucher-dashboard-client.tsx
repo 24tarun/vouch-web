@@ -6,7 +6,7 @@ import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny, vouc
 import { sortPendingTasks } from "@/lib/voucher-pending-sort";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import type { FriendPomoActivity, TaskWithRelations, VoucherPendingTask } from "@/lib/types";
+import type { FriendPomoActivity, RectificationRequest, TaskWithRelations, VoucherPendingTask } from "@/lib/types";
 import { Check, ChevronDown, ChevronRight, Loader2, Timer, X } from "lucide-react";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
 import { toast } from "sonner";
@@ -33,16 +33,30 @@ import {
     VoucherPomoAccumulatedBadge,
     VoucherProofRequestBadge,
 } from "@/design-system/badges";
+import { askForRectificationProof, decideTaskRectification } from "@/actions/rectification";
+import { createClient } from "@/lib/supabase/client";
 
 interface VoucherDashboardClientProps {
     pendingTasks: VoucherPendingTask[];
     workingFriends?: FriendPomoActivity[];
+    pendingRectifications?: PendingRectification[];
 }
 
-type HistoryTask = TaskWithRelations & { rectify_passes_used?: number };
+type PendingRectification = RectificationRequest & {
+    task: {
+        id: string;
+        title: string;
+        description: string | null;
+        failure_cost_cents: number;
+        has_proof: boolean;
+        user: { id: string; username: string | null; currency: string } | null;
+        task_completion_proofs: Array<{ updated_at: string; media_kind: "image" | "video"; overlay_timestamp_text: string | null }>;
+    } | null;
+};
+
+type HistoryTask = TaskWithRelations & { rectify_passes_used?: number; rectification_eligible?: boolean };
 
 const HISTORY_PAGE_SIZE = 10;
-const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const VOUCH_HISTORY_OPEN_SESSION_KEY = "voucher.history.open";
 const PENDING_FALLBACK_POLL_MS = 60000;
 const ACCEPTED_STATUS_ERROR = "Cannot accept task in ACCEPTED status";
@@ -62,13 +76,6 @@ function mergeTasksById(
         seen.add(task.id);
         return true;
     });
-}
-
-function isWithinRectifyWindow(updatedAt: string, referenceTimestamp: number): boolean {
-    const failedAtTs = new Date(updatedAt).getTime();
-    if (Number.isNaN(failedAtTs)) return false;
-
-    return referenceTimestamp <= failedAtTs + RECTIFY_WINDOW_MS;
 }
 
 function toPendingTask(task: VoucherPendingTask, incoming: RealtimeTaskRow): VoucherPendingTask {
@@ -117,6 +124,7 @@ export function getVoucherActionablePendingTasks(tasks: VoucherPendingTask[]): V
 export default function VoucherDashboardClient({
     pendingTasks,
     workingFriends = [],
+    pendingRectifications = [],
 }: VoucherDashboardClientProps) {
     const router = useRouter();
     const [, startRefreshTransition] = useTransition();
@@ -125,6 +133,7 @@ export default function VoucherDashboardClient({
 
     const [pendingState, setPendingState] = useState<VoucherPendingTask[]>(pendingTasks);
     const [historyState, setHistoryState] = useState<HistoryTask[]>([]);
+    const [rectificationState, setRectificationState] = useState<PendingRectification[]>(pendingRectifications);
     const [inFlightIds, setInFlightIds] = useState<Set<string>>(new Set());
     const pendingStateRef = useRef<VoucherPendingTask[]>(pendingTasks);
     const historyStateRef = useRef<HistoryTask[]>([]);
@@ -214,6 +223,34 @@ export default function VoucherDashboardClient({
     useEffect(() => {
         pendingStateRef.current = pendingState;
     }, [pendingState]);
+
+    useEffect(() => {
+        setRectificationState(pendingRectifications);
+    }, [pendingRectifications]);
+
+    useEffect(() => {
+        const supabase = createClient();
+        let active = true;
+        let channel: ReturnType<typeof supabase.channel> | null = null;
+        void supabase.auth.getUser().then(({ data }) => {
+            if (!active || !data.user) return;
+            channel = supabase
+                .channel(`voucher-rectifications:${data.user.id}`)
+                .on("postgres_changes", {
+                    event: "*",
+                    schema: "public",
+                    table: "rectification_requests",
+                    filter: `target_voucher_id=eq.${data.user.id}`,
+                }, () => {
+                    startRefreshTransition(() => router.refresh());
+                })
+                .subscribe();
+        });
+        return () => {
+            active = false;
+            if (channel) void supabase.removeChannel(channel);
+        };
+    }, [router, startRefreshTransition]);
 
     useEffect(() => {
         historyStateRef.current = historyState;
@@ -403,8 +440,8 @@ export default function VoucherDashboardClient({
         const currentTask = historyState.find((task) => task.id === taskId);
         if (!currentTask) return;
 
-        if (!isWithinRectifyWindow(currentTask.updated_at, Date.now())) {
-            toast.error("Rectify window expired (7 days).");
+        if (currentTask.rectification_eligible === false) {
+            toast.error("Rectification is only available during the task owner's failure month.");
             return;
         }
 
@@ -456,6 +493,41 @@ export default function VoucherDashboardClient({
         }
 
         setTaskInFlight(taskId, false);
+    }
+
+    async function handleRectificationDecision(request: PendingRectification, decision: "APPROVE" | "DECLINE") {
+        if (inFlightIds.has(request.id)) return;
+        if (decision === "DECLINE" && !window.confirm("Decline this rectification request? This is final for the task.")) return;
+        setInFlightIds((previous) => new Set(previous).add(request.id));
+        const result = await decideTaskRectification(request.id, decision);
+        if ("error" in result) {
+            toast.error(result.error);
+        } else {
+            setRectificationState((previous) => previous.filter((entry) => entry.id !== request.id));
+            toast.success(decision === "APPROVE" ? "Task rectified" : "Rectification declined");
+            startRefreshTransition(() => router.refresh());
+        }
+        setInFlightIds((previous) => {
+            const next = new Set(previous);
+            next.delete(request.id);
+            return next;
+        });
+    }
+
+    async function handleRectificationProofRequest(request: PendingRectification) {
+        if (inFlightIds.has(request.id)) return;
+        setInFlightIds((previous) => new Set(previous).add(request.id));
+        const result = await askForRectificationProof(request.id);
+        if ("error" in result) toast.error(result.error);
+        else {
+            setRectificationState((previous) => previous.map((entry) => entry.id === request.id ? { ...entry, ...result.request, task: entry.task } : entry));
+            toast.success("Proof requested; deadline unchanged");
+        }
+        setInFlightIds((previous) => {
+            const next = new Set(previous);
+            next.delete(request.id);
+            return next;
+        });
     }
 
     const activeTasks = getVoucherActiveTasks(pendingState);
@@ -512,10 +584,20 @@ export default function VoucherDashboardClient({
                 <h2 className="text-xl font-semibold text-slate-500 border-b border-slate-900 pb-2">
                     Pending
                 </h2>
-                {actionablePendingTasks.length === 0 ? (
+                {actionablePendingTasks.length === 0 && rectificationState.length === 0 ? (
                     <p className="text-xl font-semibold text-slate-500">No pending requests</p>
                 ) : (
                     <div className="flex flex-col" ref={pendingListRef}>
+                        {rectificationState.map((request) => (
+                            <RectificationPendingItem
+                                key={request.id}
+                                request={request}
+                                isLoading={inFlightIds.has(request.id)}
+                                onDecline={() => void handleRectificationDecision(request, "DECLINE")}
+                                onRequestProof={() => void handleRectificationProofRequest(request)}
+                                onRectify={() => void handleRectificationDecision(request, "APPROVE")}
+                            />
+                        ))}
                         {actionablePendingTasks.map((task) => (
                             <CompactPendingItem
                                 key={task.id}
@@ -582,6 +664,56 @@ export default function VoucherDashboardClient({
                     </div>
                 )}
             </section>
+        </div>
+    );
+}
+
+function RectificationPendingItem({
+    request,
+    isLoading,
+    onDecline,
+    onRequestProof,
+    onRectify,
+}: {
+    request: PendingRectification;
+    isLoading: boolean;
+    onDecline: () => void;
+    onRequestProof: () => void;
+    onRectify: () => void;
+}) {
+    const task = request.task;
+    const proof = task?.task_completion_proofs?.[0] ?? null;
+    const proofSrc = proof ? `/api/task-proofs/${request.task_id}?v=${encodeURIComponent(proof.updated_at)}` : null;
+    return (
+        <div className="rounded-xl border border-violet-500/30 bg-violet-950/10 p-4 my-2 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-violet-400">Rectification request</p>
+                    <a href={`/tasks/${request.task_id}`} className="mt-1 block text-lg font-semibold text-slate-100 hover:text-violet-200">
+                        {task?.title || "Task"}
+                    </a>
+                    <p className="mt-1 text-xs font-mono text-slate-500">
+                        {task?.user?.username || "Friend"} · original {request.original_status.toLowerCase()} · {((task?.failure_cost_cents || 0) / 100).toFixed(2)} {task?.user?.currency || "EUR"}
+                    </p>
+                </div>
+                <span className="shrink-0 rounded-full border border-violet-500/30 px-2 py-1 text-[10px] font-mono text-violet-300">1 pass reserved</span>
+            </div>
+            {request.reason && <p className="text-sm leading-relaxed text-slate-300">“{request.reason}”</p>}
+            <p className="text-xs font-mono text-violet-300/70">Auto-rectifies {new Date(request.auto_rectify_at).toLocaleString("en-GB")}</p>
+            {request.proof_requested_at && <p className="text-xs text-pink-300">Proof requested — timer unchanged</p>}
+            {proof && proofSrc && (
+                <div className="max-w-sm rounded-lg border border-slate-800 bg-slate-950/60 p-2">
+                    <ProofMedia mediaKind={proof.media_kind} src={proofSrc} alt="Rectification proof"
+                        overlayTimestampText={proof.overlay_timestamp_text || ""}
+                        imageClassName="max-h-64 w-full rounded-md object-cover"
+                        videoClassName="max-h-64 w-full rounded-md" videoProps={{ controls: true, preload: "metadata" }} />
+                </div>
+            )}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <Button variant="destructive" onClick={onDecline} disabled={isLoading}>Decline</Button>
+                <Button variant="outline" onClick={onRequestProof} disabled={isLoading}>Ask for proof</Button>
+                <Button onClick={onRectify} disabled={isLoading}>Rectify</Button>
+            </div>
         </div>
     );
 }
@@ -820,10 +952,7 @@ export function CompactHistoryItem({
     onRectify: () => void;
     isLoading: boolean;
 }) {
-    const [renderNow] = useState(() => Date.now());
-
     const isRectifiable = task.status === "DENIED" || task.status === "MISSED" || task.status === "SURRENDERED";
-    const withinRectifyWindow = isWithinRectifyWindow(task.updated_at, renderNow);
     const passLimitReached = (task.rectify_passes_used ?? 0) >= 5;
     const updatedAt = new Date(task.updated_at);
     const updatedAtLabel = Number.isNaN(updatedAt.getTime())
@@ -848,7 +977,7 @@ export function CompactHistoryItem({
             </div>
 
             <div className="shrink-0 self-center flex items-center gap-3">
-                {isRectifiable && withinRectifyWindow && (
+                {isRectifiable && task.rectification_eligible !== false && (
                     <div className="flex flex-col items-end">
                         <Button
                             size="sm"

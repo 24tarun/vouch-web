@@ -28,8 +28,9 @@ const PREFETCH_STATUSES = new Set<TaskStatus>([
     "AWAITING_VOUCHER",
     "AWAITING_AI",
     "AWAITING_USER",
+    "AWAITING_RECTIFICATION",
 ]);
-const MEDIA_PREFETCH_STATUSES = new Set<TaskStatus>(["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"]);
+const MEDIA_PREFETCH_STATUSES = new Set<TaskStatus>(["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"]);
 
 const prefetchedDetailTaskIds = new Set<string>();
 

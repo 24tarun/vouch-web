@@ -42,7 +42,6 @@ const PENDING_VOUCH_REQUEST_STATUSES: TaskStatus[] = [
     ...ACTIVE_PENDING_STATUSES,
     ...AWAITING_PENDING_STATUSES,
 ];
-const RECTIFY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type VoucherDecisionTask = {
     id: string;
@@ -54,6 +53,17 @@ type VoucherDecisionTask = {
     status: TaskStatus;
     user?: { id?: string; email?: string | null; username?: string | null } | null;
 };
+
+function periodInTimezone(timezone: string | null | undefined, at = new Date()): string {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone || "UTC",
+        year: "numeric",
+        month: "2-digit",
+    }).formatToParts(at);
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    return year && month ? `${year}-${month}` : at.toISOString().slice(0, 7);
+}
 
 
 async function applyVoucherDecisionUpdate(
@@ -337,9 +347,8 @@ export async function authorizeRectify(taskId: string) {
         return { error: "Not authenticated" };
     }
 
-    // @ts-ignore
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("*")
+        .select("id, user_id, voucher_id, title, recurrence_rule_id")
         .eq("id", (taskId as any))
         .eq("voucher_id", (user as any).id)
         .single();
@@ -348,79 +357,23 @@ export async function authorizeRectify(taskId: string) {
         return { error: "Task not found or you are not the voucher" };
     }
 
-    if (!canTransition((task as any).status as TaskStatus, "RECTIFY")) {
-        return { error: `Cannot rectify task in ${(task as any).status} status` };
-    }
-
-    // Check rectify window: task must have failed within the last 7 days.
-    const currentPeriod = new Date().toISOString().slice(0, 7);
-    const failedAtMs = new Date((task as any).updated_at).getTime();
-    if (!Number.isFinite(failedAtMs)) {
-        return { error: "Task failure timestamp is invalid." };
-    }
-    if ((Date.now() - failedAtMs) > RECTIFY_WINDOW_MS) {
-        return { error: "Rectify window expired (more than 7 days since failure)." };
-    }
-    const { count } = await supabase
-        .from("rectify_passes" as any)
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", (task as any).user_id)
-        .eq("period", currentPeriod);
-
-    if ((count || 0) >= 5) {
-        return { error: "User has already used all 5 rectify passes this month" };
-    }
-
-    // Update task
-    const priorStatus = (task as any).status as TaskStatus;
-    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
-        .update({ status: "RECTIFIED" } as any)
-        .eq("id", (taskId as any))
-        .eq("voucher_id", user.id)
-        .eq("status", priorStatus as any)
-        .select("id");
-
-    if (error) {
-        return { error: error.message };
-    }
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task is no longer eligible for rectify." };
-    }
-
-    // Create rectify pass record
-    await (supabase.from("rectify_passes" as any) as any).insert({
-        user_id: (task as any).user_id,
-        task_id: (taskId as any),
-        authorized_by: (user as any).id,
-        period: currentPeriod,
-    });
-
-    // Create negative ledger entry to cancel out the failure
-    // Use admin client to bypass RLS — voucher's auth.uid() ≠ task owner
-    const adminForLedgerRectify = createAdminClient();
-    const { error: rectifyLedgerError } = await (adminForLedgerRectify.from("ledger_entries" as any) as any).insert({
-        user_id: (task as any).user_id,
-        task_id: (taskId as any),
-        period: currentPeriod,
-        amount_cents: -(task as any).failure_cost_cents,
-        entry_type: "rectified",
-    });
-    if (rectifyLedgerError) {
-        console.error(`[authorizeRectify] Failed to insert ledger entry for task ${taskId}:`, rectifyLedgerError);
-    }
-
-    // @ts-ignore
-    await (supabase.from("task_events") as any).insert({
-        task_id: (taskId as any),
-        event_type: "RECTIFY",
-        actor_id: (user as any).id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: priorStatus,
-        to_status: "RECTIFIED",
-    });
+    const { error } = await (supabase.rpc("authorize_task_rectification" as any, {
+        p_task_id: taskId,
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+    } as any) as any);
+    if (error) return { error: error.message };
 
     await enqueueGoogleCalendarUpsert((task as any).user_id, taskId);
     await notifyCommitmentRevivedIfNeeded(taskId, (task as any).recurrence_rule_id ?? null);
+    await sendNotification({
+        userId: (task as any).user_id,
+        title: "Task rectified",
+        text: `Your voucher rectified “${(task as any).title}”.`,
+        url: `/tasks/${taskId}`,
+        tag: `rectification-direct-${taskId}`,
+        data: { kind: "RECTIFICATION_APPROVED", taskId },
+        email: false,
+    });
 
     revalidatePath("/friends");
     revalidatePath("/commit");
@@ -581,23 +534,48 @@ export async function getVouchHistoryPage(offsetInput: number, limitInput: numbe
         return { tasks: [], hasMore: false, nextOffset: offset };
     }
 
-    const currentPeriod = new Date().toISOString().slice(0, 7);
     const ownerIds = [...new Set(visibleRows.map((task) => task.user_id as string).filter(Boolean))];
-
-    const ownerCountEntries = await Promise.all(ownerIds.map(async (ownerId) => {
-        const { count } = await supabase
-            .from("rectify_passes" as any)
-            .select("*", { count: "exact", head: true })
-            .eq("user_id", ownerId as any)
-            .eq("period", currentPeriod);
-
-        return [ownerId, count || 0] as const;
-    }));
-
-    const countsByOwner = new Map<string, number>(ownerCountEntries);
+    const taskIds = visibleRows.map((task) => task.id as string);
+    const admin = createAdminClient();
+    const [{ data: passes }, { data: reservations }, { data: failureEntries }] = await Promise.all([
+        (admin.from("rectify_passes" as any) as any)
+            .select("user_id, period")
+            .in("user_id", ownerIds),
+        (admin.from("rectification_requests" as any) as any)
+            .select("owner_id, request_period, state")
+            .in("owner_id", ownerIds)
+            .in("state", ["PENDING_HUMAN", "PENDING_AI", "AWAITING_AI_APPEAL"]),
+        (admin.from("ledger_entries" as any) as any)
+            .select("task_id, created_at")
+            .in("task_id", taskIds)
+            .eq("entry_type", "failure")
+            .order("created_at", { ascending: false }),
+    ]);
+    const currentPeriodByOwner = new Map(visibleRows.map((task) => [
+        task.user_id as string,
+        periodInTimezone(task.user?.timezone),
+    ]));
+    const countsByOwner = new Map<string, number>();
+    for (const ownerId of ownerIds) {
+        const period = currentPeriodByOwner.get(ownerId);
+        const used = ((passes as Array<{ user_id: string; period: string }> | null) || [])
+            .filter((row) => row.user_id === ownerId && row.period === period).length;
+        const reserved = ((reservations as Array<{ owner_id: string; request_period: string }> | null) || [])
+            .filter((row) => row.owner_id === ownerId && row.request_period === period).length;
+        countsByOwner.set(ownerId, used + reserved);
+    }
+    const failureAtByTask = new Map<string, string>();
+    for (const entry of ((failureEntries as Array<{ task_id: string; created_at: string }> | null) || [])) {
+        if (!failureAtByTask.has(entry.task_id)) failureAtByTask.set(entry.task_id, entry.created_at);
+    }
     const tasks = visibleRows.map((task) => ({
         ...task,
         rectify_passes_used: countsByOwner.get(task.user_id) || 0,
+        rectification_eligible: (() => {
+            const failureAt = failureAtByTask.get(task.id);
+            return Boolean(failureAt) && periodInTimezone(task.user?.timezone, new Date(failureAt!))
+                === currentPeriodByOwner.get(task.user_id);
+        })(),
     }));
 
     return {

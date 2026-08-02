@@ -35,7 +35,7 @@ export async function deleteAccountByUserId(
     ];
 
     // Block deletion if this user is still voucher for other users' open/in-flight work.
-    const [blockingTaskCountResult, blockingRuleCountResult] = await Promise.all([
+    const [blockingTaskCountResult, blockingRuleCountResult, blockingRectificationCountResult] = await Promise.all([
         (supabaseAdmin.from("tasks") as any)
             .select("id", { count: "exact", head: true })
             .eq("voucher_id", userId as any)
@@ -45,6 +45,12 @@ export async function deleteAccountByUserId(
             .select("id", { count: "exact", head: true })
             .eq("voucher_id", userId as any)
             .neq("user_id", userId as any),
+        (supabaseAdmin.from("rectification_requests") as any)
+            .select("id", { count: "exact", head: true })
+            .eq("target_voucher_id", userId as any)
+            .neq("owner_id", userId as any)
+            .eq("target_type", "ORIGINAL_VOUCHER")
+            .eq("state", "PENDING_HUMAN"),
     ]);
 
     if (blockingTaskCountResult.error) {
@@ -53,15 +59,20 @@ export async function deleteAccountByUserId(
     if (blockingRuleCountResult.error) {
         return { error: blockingRuleCountResult.error.message };
     }
+    if (blockingRectificationCountResult.error) {
+        return { error: blockingRectificationCountResult.error.message };
+    }
 
     const blockingTaskCount = blockingTaskCountResult.count || 0;
     const blockingRuleCount = blockingRuleCountResult.count || 0;
-    if (blockingTaskCount > 0 || blockingRuleCount > 0) {
+    const blockingRectificationCount = blockingRectificationCountResult.count || 0;
+    if (blockingTaskCount > 0 || blockingRuleCount > 0 || blockingRectificationCount > 0) {
         return {
             error:
                 `Account deletion is blocked because you're still assigned as voucher for ` +
                 `${blockingTaskCount} open task${blockingTaskCount === 1 ? "" : "s"} and ` +
-                `${blockingRuleCount} recurring rule${blockingRuleCount === 1 ? "" : "s"} owned by other users. ` +
+                `${blockingRuleCount} recurring rule${blockingRuleCount === 1 ? "" : "s"}, and ` +
+                `${blockingRectificationCount} rectification request${blockingRectificationCount === 1 ? "" : "s"} owned by other users. ` +
                 `Please ask them to change voucher first.`,
         };
     }
@@ -127,6 +138,23 @@ export async function deleteAccountByUserId(
 
     if (rectifyPassesUpdateError) {
         return { error: rectifyPassesUpdateError.message };
+    }
+
+    const { data: historicalRectifications, error: historicalRectificationsError } = await (supabaseAdmin.from("rectification_requests") as any)
+        .select("id, owner_id, original_voucher_id, target_voucher_id")
+        .neq("owner_id", userId as any)
+        .or(`original_voucher_id.eq.${userId},target_voucher_id.eq.${userId}`);
+    if (historicalRectificationsError) return { error: historicalRectificationsError.message };
+    for (const request of ((historicalRectifications as Array<{
+        id: string; owner_id: string; original_voucher_id: string; target_voucher_id: string;
+    }> | null) || [])) {
+        const { error: reassignRequestError } = await (supabaseAdmin.from("rectification_requests") as any)
+            .update({
+                original_voucher_id: request.original_voucher_id === userId ? request.owner_id : request.original_voucher_id,
+                target_voucher_id: request.target_voucher_id === userId ? request.owner_id : request.target_voucher_id,
+            } as any)
+            .eq("id", request.id as any);
+        if (reassignRequestError) return { error: reassignRequestError.message };
     }
 
     const proofRows = [

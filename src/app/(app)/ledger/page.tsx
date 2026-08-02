@@ -67,6 +67,20 @@ export default async function LedgerPage() {
 
     const failedCount =
         entries?.filter((e: LedgerEntry) => e.entry_type === "failure").length || 0;
+    const awaitingTaskIds = ((entries as any[]) || [])
+        .filter((entry) => entry.task?.status === "AWAITING_RECTIFICATION")
+        .map((entry) => entry.task.id as string);
+    const rectificationStatusByTaskId = new Map<string, string>();
+    if (awaitingTaskIds.length > 0) {
+        const { data: requestRows } = await (supabase.from("rectification_requests") as any)
+            .select("task_id, original_status, created_at")
+            .in("task_id", awaitingTaskIds)
+            .in("state", ["PENDING_HUMAN", "PENDING_AI", "AWAITING_AI_APPEAL"])
+            .order("created_at", { ascending: false });
+        for (const row of ((requestRows as Array<{ task_id: string; original_status: string }> | null) || [])) {
+            if (!rectificationStatusByTaskId.has(row.task_id)) rectificationStatusByTaskId.set(row.task_id, row.original_status);
+        }
+    }
 
     const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const settleDateStr = `${nextMonthDate.getDate().toString().padStart(2, '0')}/${(nextMonthDate.getMonth() + 1).toString().padStart(2, '0')}/${nextMonthDate.getFullYear().toString().slice(-2)}`;
@@ -124,7 +138,7 @@ export default async function LedgerPage() {
                                     id={entry.id}
                                     title={entry.task?.title || "Accountability Adjustment"}
                                     entryType={entry.entry_type}
-                                    taskStatus={entry.task?.status}
+                                    taskStatus={rectificationStatusByTaskId.get(taskId) || entry.task?.status}
                                     createdAt={entry.created_at}
                                     amountCents={entry.amount_cents}
                                     currency={currency}

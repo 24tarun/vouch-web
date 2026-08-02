@@ -89,12 +89,12 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
     }
 
     const status = task.status;
-    if (status !== "AWAITING_VOUCHER" && status !== "AWAITING_AI" && status !== "MARKED_COMPLETE") {
+    if (status !== "AWAITING_VOUCHER" && status !== "AWAITING_AI" && status !== "MARKED_COMPLETE" && status !== "AWAITING_RECTIFICATION") {
         return jsonNoStore({ error: "Proof is no longer available" }, 410);
     }
 
     const responseDeadline = task.voucher_response_deadline;
-    if (responseDeadline && Date.now() > new Date(responseDeadline).getTime()) {
+    if (status !== "AWAITING_RECTIFICATION" && responseDeadline && Date.now() > new Date(responseDeadline).getTime()) {
         return jsonNoStore({ error: "Proof window has expired" }, 410);
     }
 

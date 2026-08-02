@@ -90,7 +90,7 @@ export async function initAwaitingVoucherProofUpload(
         return { error: "Task is no longer awaiting voucher response." };
     }
 
-    if (isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
+    if ((task as any).status !== "AWAITING_RECTIFICATION" && isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
         return { error: COMPLETION_EDIT_LOCKED_ERROR };
     }
 
@@ -182,11 +182,11 @@ export async function removeTaskProofAttachment(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if (!["ACTIVE", "POSTPONED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"].includes((task as any).status)) {
+    if (!["ACTIVE", "POSTPONED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"].includes((task as any).status)) {
         return { error: `Proof cannot be removed in ${(task as any).status} status.` };
     }
 
-    if (isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
+    if ((task as any).status !== "AWAITING_RECTIFICATION" && isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
         return { error: COMPLETION_EDIT_LOCKED_ERROR };
     }
 
@@ -265,6 +265,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     }
 
     if (
+        (task as any).status !== "AWAITING_RECTIFICATION" &&
         isTaskCompletionLocked((task as any).status, (task as any).deadline) &&
         !wasProofStagedBeforeCompletionLock(
             (task as any).deadline,
@@ -305,7 +306,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         } as any)
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
-        .in("status", ["AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER", "MARKED_COMPLETE"] as any);
+        .in("status", ["AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"] as any);
 
     if (clearProofRequestError) {
         return { error: clearProofRequestError.message };
@@ -313,7 +314,9 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
 
     const { error: proofUploadedEventError } = await (supabase.from("task_events") as any).insert({
         task_id: taskId as any,
-        event_type: "PROOF_UPLOADED",
+        event_type: (task as any).status === "AWAITING_RECTIFICATION"
+            ? "RECTIFICATION_PROOF_UPLOADED"
+            : "PROOF_UPLOADED",
         actor_id: user.id as any,
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
@@ -333,6 +336,19 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         const aiResult = await triggerAiEvaluationForProof(taskId, proofMeta.mediaKind, user.id);
         if (aiResult.error) {
             return aiResult;
+        }
+    } else if ((task as any).status === "AWAITING_RECTIFICATION") {
+        const { data: request } = await (supabase.from("rectification_requests") as any)
+            .select("id")
+            .eq("task_id", taskId as any)
+            .in("state", ["PENDING_HUMAN", "PENDING_AI", "AWAITING_AI_APPEAL"] as any)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (request?.id) {
+            const { notifyRectificationProofUploaded } = await import("@/actions/rectification");
+            const notificationResult = await notifyRectificationProofUploaded(request.id as string);
+            if ("error" in notificationResult) return notificationResult;
         }
     }
 
@@ -450,7 +466,7 @@ export async function removeAwaitingVoucherProof(taskId: string) {
         return { error: "Proof can only be removed while awaiting voucher response." };
     }
 
-    if (isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
+    if ((task as any).status !== "AWAITING_RECTIFICATION" && isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
         return { error: COMPLETION_EDIT_LOCKED_ERROR };
     }
 
