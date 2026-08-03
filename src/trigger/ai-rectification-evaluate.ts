@@ -4,6 +4,7 @@ import {
     processAiRectificationDecision,
 } from "@/lib/ai-voucher/rectification";
 import { setTriggerWait } from "@/lib/ai-voucher/gemini";
+import { describeAiEvaluationError } from "@/lib/ai-voucher/errors";
 
 setTriggerWait((options) => wait.for(options));
 
@@ -20,6 +21,10 @@ export const aiRectificationEvaluate = task({
                 return { success: true, requestId: payload.requestId, result };
             } catch (error) {
                 lastError = error;
+                console.error(
+                    `AI rectification attempt ${attempt} failed for ${payload.requestId}:`,
+                    describeAiEvaluationError(error),
+                );
                 if (attempt < 3) await wait.for({ seconds: 2 ** (attempt - 1) });
             }
         }
@@ -27,7 +32,7 @@ export const aiRectificationEvaluate = task({
         return {
             success: false,
             requestId: payload.requestId,
-            error: lastError instanceof Error ? lastError.message : String(lastError),
+            error: describeAiEvaluationError(lastError),
         };
     },
 });

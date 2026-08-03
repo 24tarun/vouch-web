@@ -146,7 +146,10 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
         from_status: (task as any).status,
         to_status: "POSTPONED",
-        metadata: { new_deadline: newDeadlineDate.toISOString() },
+        metadata: {
+            previous_deadline: currentDeadline.toISOString(),
+            new_deadline: newDeadlineDate.toISOString(),
+        },
     });
 
     await enqueueGoogleCalendarUpsert(user.id, taskId);

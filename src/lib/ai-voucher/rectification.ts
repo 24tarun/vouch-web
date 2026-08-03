@@ -20,8 +20,11 @@ export async function processAiRectificationDecision(
         .select(`
             *,
             task:tasks!rectification_requests_task_id_fkey(
-                id, user_id, title, description, deadline, status, recurrence_rule_id,
-                task_completion_proofs(id, bucket, object_path, media_kind, mime_type, upload_state)
+                id, user_id, title, description, deadline, original_deadline, postponed_at, status, recurrence_rule_id,
+                task_completion_proofs(
+                    id, bucket, object_path, media_kind, mime_type, upload_state,
+                    proof_timestamp_at, proof_timestamp_source, proof_timezone
+                )
             )
         `)
         .eq("id", requestId)
@@ -54,14 +57,22 @@ export async function processAiRectificationDecision(
             taskDescription: [task.description, `Original outcome: ${request.original_status}.`, supplemental]
                 .filter(Boolean)
                 .join("\n\n"),
-            taskDeadline: task.deadline,
+            timing: {
+                mode: "rectification",
+                originalDeadline: task.original_deadline,
+                effectiveDeadline: task.deadline,
+                postponedAt: task.postponed_at,
+                proofTimestampAt: proof.proof_timestamp_at,
+                proofTimestampSource: proof.proof_timestamp_source,
+                proofTimezone: proof.proof_timezone,
+            },
             proofBuffer: Buffer.from(await blob.arrayBuffer()),
             mimeType: proof.mime_type,
             mediaKind: proof.media_kind,
         });
     } catch (error) {
-        if (options?.throwOnEvaluationError) throw error;
         console.error(`AI rectification evaluation failed for ${requestId}:`, error);
+        if (options?.throwOnEvaluationError) throw error;
         return { technicalFailure: true };
     }
 
@@ -113,7 +124,7 @@ export async function notifyAiRectificationTechnicalFailure(requestId: string) {
     await sendNotification({
         userId: row.owner_id,
         title: "AI review delayed",
-        text: `AI could not review “${task?.title || "your task"}” yet. It will retry, and the existing rectification deadline remains in place.`,
+        text: `AI could not review “${task?.title || "your task"}” after several attempts. The request remains pending, and the existing rectification deadline remains in place.`,
         url: `/tasks/${row.task_id}`,
         tag: `rectification-${requestId}-ai-technical-failure`,
         data: { kind: "RECTIFICATION_AI_TECHNICAL_FAILURE", taskId: row.task_id, requestId },

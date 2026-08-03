@@ -36,7 +36,10 @@ export async function processAiVoucherDecision(
         `
         *,
         user:profiles!tasks_user_id_fkey(id, email, username),
-        task_completion_proofs(id, object_path, media_kind, mime_type, size_bytes)
+        task_completion_proofs(
+          id, object_path, media_kind, mime_type, size_bytes,
+          proof_timestamp_at, proof_timestamp_source, proof_timezone
+        )
       `
       )
       .eq("id", taskId)
@@ -112,7 +115,15 @@ export async function processAiVoucherDecision(
       decision = await evaluateProofWithGemini({
         taskTitle: task.title,
         taskDescription: task.description,
-        taskDeadline: task.deadline,
+        timing: {
+          mode: "completion",
+          originalDeadline: task.original_deadline,
+          effectiveDeadline: task.deadline,
+          postponedAt: task.postponed_at,
+          proofTimestampAt: proof.proof_timestamp_at,
+          proofTimestampSource: proof.proof_timestamp_source,
+          proofTimezone: proof.proof_timezone,
+        },
         proofBuffer: proofBytes,
         mimeType: proof.mime_type,
         mediaKind: proof.media_kind,

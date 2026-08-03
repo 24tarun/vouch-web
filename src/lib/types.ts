@@ -60,6 +60,7 @@ export interface Task {
     requires_proof?: boolean;
     commitment_proof_required?: boolean;
     deadline: string;
+    original_deadline?: string | null;
     status: TaskStatus;
     postponed_at: string | null;
     marked_completed_at: string | null;
@@ -158,6 +159,10 @@ export interface TaskCompletionProof {
     size_bytes: number;
     duration_ms: number | null;
     overlay_timestamp_text: string;
+    proof_origin?: "CAMERA" | "LIBRARY" | "UNKNOWN";
+    proof_timestamp_at?: string | null;
+    proof_timestamp_source?: "CAMERA_CAPTURE" | "EXIF" | "EMBEDDED_METADATA" | "FILE_CREATION" | "FILE_MODIFICATION" | "ATTACHED" | "UNKNOWN";
+    proof_timezone?: string | null;
     upload_state: "PENDING" | "UPLOADED" | "FAILED";
     created_at: string;
     updated_at: string;

@@ -9,6 +9,11 @@ import {
 const TASK_PROOFS_BUCKET = 'task-proofs';
 const PROOF_TIMESTAMP_PLACEHOLDER = '??:?? ??/??/??';
 const MAX_TASK_PROOF_VIDEO_DURATION_MS = 15_000;
+const MAX_TASK_PROOF_IMAGE_BYTES = 4 * 1024 * 1024;
+const MAX_TASK_PROOF_VIDEO_BYTES = 30 * 1024 * 1024;
+const CAPTURE_ATTESTATION_TRANSPORT_GRACE_MS = 10_000;
+const CAPTURE_ATTESTATION_MAX_CLOCK_SKEW_MS = 30_000;
+const CAPTURE_ATTESTATION_TTL_MS = 10 * 60 * 1000;
 
 const ALLOWED_PROOF_MIME_TYPES = new Set([
   'image/jpeg',
@@ -30,6 +35,13 @@ const ATTACHABLE_PROOF_STATUSES = new Set([
   'AWAITING_USER',
   'ESCALATED',
   'AWAITING_RECTIFICATION',
+]);
+const CAPTURE_DEADLINE_STATUSES = new Set([
+  'ACTIVE',
+  'POSTPONED',
+  'MARKED_COMPLETE',
+  'AWAITING_VOUCHER',
+  'AWAITING_AI',
 ]);
 
 const FINAL_TASK_STATUSES = new Set([
@@ -53,12 +65,32 @@ const corsHeaders: Record<string, string> = {
 
 type MediaKind = 'image' | 'video';
 
+function maxProofBytes(mediaKind: MediaKind): number {
+  return mediaKind === 'video' ? MAX_TASK_PROOF_VIDEO_BYTES : MAX_TASK_PROOF_IMAGE_BYTES;
+}
+
+function proofSizeLabel(mediaKind: MediaKind): string {
+  return mediaKind === 'video' ? '30 MB' : '4 MB';
+}
+
 interface ProofIntent {
   mediaKind: MediaKind;
   mimeType: string;
   sizeBytes: number;
   durationMs?: number | null;
   overlayTimestampText?: string | null;
+  proofOrigin?: 'CAMERA' | 'LIBRARY' | 'UNKNOWN';
+  proofTimestampAt?: string | null;
+  proofTimestampSource?:
+    | 'CAMERA_CAPTURE'
+    | 'EXIF'
+    | 'EMBEDDED_METADATA'
+    | 'FILE_CREATION'
+    | 'FILE_MODIFICATION'
+    | 'ATTACHED'
+    | 'UNKNOWN';
+  proofTimezone?: string | null;
+  captureAttestation?: string | null;
 }
 
 interface ProofMeta extends ProofIntent {
@@ -87,6 +119,13 @@ interface InitRequestBody {
   action: 'init';
   taskId: string;
   proofIntent: ProofIntent;
+}
+
+interface BeginCaptureRequestBody {
+  action: 'begin-capture';
+  taskId: string;
+  mediaKind: MediaKind;
+  startedAt: string;
 }
 
 interface FinalizeRequestBody {
@@ -119,13 +158,29 @@ interface QueueAiEvalRequestBody {
   taskId: string;
 }
 
+interface QueueAiRectificationEvalRequestBody {
+  action: 'queue-rectification-ai-eval';
+  taskId: string;
+  requestId: string;
+}
+
+interface QueueRectificationNotificationRequestBody {
+  action: 'queue-rectification-notification';
+  taskId: string;
+  requestId?: string;
+  kind: 'REQUESTED' | 'UPDATED' | 'CANCELLED' | 'PROOF_REQUESTED' | 'PROOF_UPLOADED' | 'ESCALATED' | 'APPROVED' | 'DECLINED' | 'DIRECT_APPROVED';
+}
+
 type RequestBody =
+  | BeginCaptureRequestBody
   | InitRequestBody
   | FinalizeRequestBody
   | FailRequestBody
   | PurgeFinalRequestBody
   | RemoveCurrentRequestBody
-  | QueueAiEvalRequestBody;
+  | QueueAiEvalRequestBody
+  | QueueAiRectificationEvalRequestBody
+  | QueueRectificationNotificationRequestBody;
 
 function json(status: number, payload: Record<string, unknown>) {
   return new Response(JSON.stringify(payload), {
@@ -137,10 +192,163 @@ function json(status: number, payload: Record<string, unknown>) {
   });
 }
 
+interface CaptureAttestationPayload {
+  version: 1;
+  taskId: string;
+  ownerId: string;
+  mediaKind: MediaKind;
+  startedAt: string;
+  expiresAt: string;
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecode(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function hmacSha256(value: string, secret: string): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value)));
+}
+
+async function signCaptureAttestation(payload: CaptureAttestationPayload, secret: string): Promise<string> {
+  const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const signature = base64UrlEncode(await hmacSha256(encodedPayload, secret));
+  return `${encodedPayload}.${signature}`;
+}
+
+async function verifyCaptureAttestation(
+  token: string,
+  secret: string,
+): Promise<CaptureAttestationPayload | null> {
+  try {
+    const [encodedPayload, suppliedSignature, extra] = token.split('.');
+    if (!encodedPayload || !suppliedSignature || extra) return null;
+    const expectedSignature = await hmacSha256(encodedPayload, secret);
+    const suppliedBytes = base64UrlDecode(suppliedSignature);
+    if (expectedSignature.length !== suppliedBytes.length) return null;
+    let mismatch = 0;
+    for (let index = 0; index < expectedSignature.length; index += 1) {
+      mismatch |= expectedSignature[index] ^ suppliedBytes[index];
+    }
+    if (mismatch !== 0) return null;
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload))) as CaptureAttestationPayload;
+    if (payload.version !== 1 || new Date(payload.expiresAt).getTime() <= Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeProofTimestampText(value: unknown): string {
   if (typeof value !== 'string') return PROOF_TIMESTAMP_PLACEHOLDER;
   const trimmed = value.trim();
   return PROOF_TIMESTAMP_REGEX.test(trimmed) ? trimmed : PROOF_TIMESTAMP_PLACEHOLDER;
+}
+
+const PROOF_ORIGINS = new Set(['CAMERA', 'LIBRARY', 'UNKNOWN']);
+const PROOF_TIMESTAMP_SOURCES = new Set([
+  'CAMERA_CAPTURE',
+  'EXIF',
+  'EMBEDDED_METADATA',
+  'FILE_CREATION',
+  'FILE_MODIFICATION',
+  'ATTACHED',
+  'UNKNOWN',
+]);
+
+function isValidTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formatProofTimestamp(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== 'literal') map[part.type] = part.value;
+  }
+  return `${map.hour}:${map.minute} ${map.day}/${map.month}/${map.year}`;
+}
+
+function normalizeProofTimestampMetadata(candidate: Record<string, unknown>, overlayTimestampText: string): {
+  value?: {
+    proofOrigin: 'CAMERA' | 'LIBRARY' | 'UNKNOWN';
+    proofTimestampAt: string | null;
+    proofTimestampSource: ProofIntent['proofTimestampSource'];
+    proofTimezone: string | null;
+  };
+  error?: string;
+} {
+  const rawOrigin = typeof candidate.proofOrigin === 'string' ? candidate.proofOrigin.trim().toUpperCase() : 'UNKNOWN';
+  const rawSource = typeof candidate.proofTimestampSource === 'string'
+    ? candidate.proofTimestampSource.trim().toUpperCase()
+    : 'UNKNOWN';
+  const rawTimestamp = typeof candidate.proofTimestampAt === 'string' ? candidate.proofTimestampAt.trim() : '';
+  const rawTimezone = typeof candidate.proofTimezone === 'string' ? candidate.proofTimezone.trim() : '';
+
+  if (!PROOF_ORIGINS.has(rawOrigin) || !PROOF_TIMESTAMP_SOURCES.has(rawSource)) {
+    return { error: 'Invalid proof timestamp metadata.' };
+  }
+
+  if (rawSource === 'UNKNOWN') {
+    if (rawTimestamp || rawTimezone) return { error: 'Incomplete proof timestamp metadata.' };
+    return {
+      value: {
+        proofOrigin: 'UNKNOWN',
+        proofTimestampAt: null,
+        proofTimestampSource: 'UNKNOWN',
+        proofTimezone: null,
+      },
+    };
+  }
+
+  const timestampDate = new Date(rawTimestamp);
+  if (!rawTimestamp || Number.isNaN(timestampDate.getTime()) || !rawTimezone || !isValidTimeZone(rawTimezone)) {
+    return { error: 'Invalid proof timestamp metadata.' };
+  }
+  if (rawSource === 'CAMERA_CAPTURE' && rawOrigin !== 'CAMERA') {
+    return { error: 'Camera proof timestamp metadata is inconsistent.' };
+  }
+  if (overlayTimestampText !== formatProofTimestamp(timestampDate, rawTimezone)) {
+    return { error: 'Proof timestamp does not match its visible overlay.' };
+  }
+
+  return {
+    value: {
+      proofOrigin: rawOrigin as 'CAMERA' | 'LIBRARY' | 'UNKNOWN',
+      proofTimestampAt: timestampDate.toISOString(),
+      proofTimestampSource: rawSource as ProofIntent['proofTimestampSource'],
+      proofTimezone: rawTimezone,
+    },
+  };
 }
 
 function inferExtensionFromMime(mimeType: string): string {
@@ -175,6 +383,14 @@ function normalizeProofIntent(raw: unknown): { value?: ProofIntent; error?: stri
   const sizeBytes = Number(candidate.sizeBytes);
   const durationMsRaw = candidate.durationMs == null ? null : Number(candidate.durationMs);
   const overlayTimestampText = normalizeProofTimestampText(candidate.overlayTimestampText);
+  const captureAttestation = typeof candidate.captureAttestation === 'string'
+    ? candidate.captureAttestation.trim()
+    : null;
+  const timestampMetadata = normalizeProofTimestampMetadata(candidate, overlayTimestampText);
+
+  if (timestampMetadata.error || !timestampMetadata.value) {
+    return { error: timestampMetadata.error || 'Invalid proof timestamp metadata.' };
+  }
 
   if (!mediaKind || !mimeType || !ALLOWED_PROOF_MIME_TYPES.has(mimeType)) {
     return { error: 'Please use JPG, PNG, WEBP, HEIC, MP4, MOV, or WEBM.' };
@@ -182,6 +398,10 @@ function normalizeProofIntent(raw: unknown): { value?: ProofIntent; error?: stri
 
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     return { error: 'Selected media size is invalid.' };
+  }
+
+  if (sizeBytes > maxProofBytes(mediaKind)) {
+    return { error: `${mediaKind === 'video' ? 'Video' : 'Image'} proof must be under ${proofSizeLabel(mediaKind)}.` };
   }
 
   if (mediaKind === 'video') {
@@ -201,6 +421,8 @@ function normalizeProofIntent(raw: unknown): { value?: ProofIntent; error?: stri
       sizeBytes: Math.round(sizeBytes),
       durationMs: mediaKind === 'video' ? Math.round(Number(durationMsRaw)) : null,
       overlayTimestampText,
+      captureAttestation: captureAttestation || null,
+      ...timestampMetadata.value,
     },
   };
 }
@@ -320,13 +542,13 @@ Deno.serve(async (request) => {
 
   if ((task as { user_id: string }).user_id !== user.id) {
     const isVoucher = (task as { voucher_id: string }).voucher_id === user.id;
-    if (!(action === 'purge-final' && isVoucher)) {
+    if (!(action === 'purge-final' && isVoucher) && action !== 'queue-rectification-notification') {
       return json(403, { success: false, error: 'You can only upload proof for your own tasks.' });
     }
   }
 
   if (
-    (action === 'init' || action === 'finalize')
+    (action === 'begin-capture' || action === 'init' || action === 'finalize')
     && !ATTACHABLE_PROOF_STATUSES.has((task as { status: string }).status)
   ) {
     return json(400, { success: false, error: 'Proof can only be attached to active or awaiting tasks.' });
@@ -335,11 +557,52 @@ Deno.serve(async (request) => {
   const taskStatus = (task as { status: string }).status;
   const taskDeadline = (task as { deadline?: string | null }).deadline;
   if (
-    (action === 'init' || action === 'remove-current')
+    action === 'remove-current'
     && taskStatus !== 'AWAITING_RECTIFICATION'
     && isCompletionEditingLocked(taskStatus, taskDeadline)
   ) {
     return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+  }
+
+  if (action === 'begin-capture') {
+    const candidate = body as BeginCaptureRequestBody;
+    const mediaKind = candidate.mediaKind === 'image' || candidate.mediaKind === 'video'
+      ? candidate.mediaKind
+      : null;
+    const startedAt = new Date(candidate.startedAt);
+    const startedAtMs = startedAt.getTime();
+    const receivedAtMs = Date.now();
+    if (!mediaKind || !Number.isFinite(startedAtMs)) {
+      return json(400, { success: false, error: 'Could not verify when proof capture started.' });
+    }
+    if (Math.abs(receivedAtMs - startedAtMs) > CAPTURE_ATTESTATION_MAX_CLOCK_SKEW_MS) {
+      return json(400, { success: false, error: 'Your device clock could not be verified. Check Date & Time settings and retry.' });
+    }
+
+    if (CAPTURE_DEADLINE_STATUSES.has(taskStatus)) {
+      const deadlineMs = taskDeadline ? new Date(taskDeadline).getTime() : NaN;
+      const cutoffMs = deadlineMs + 60_000;
+      if (
+        !Number.isFinite(deadlineMs)
+        || startedAtMs >= cutoffMs
+        || receivedAtMs >= cutoffMs + CAPTURE_ATTESTATION_TRANSPORT_GRACE_MS
+      ) {
+        return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+      }
+    }
+
+    const payload: CaptureAttestationPayload = {
+      version: 1,
+      taskId,
+      ownerId: user.id,
+      mediaKind,
+      startedAt: startedAt.toISOString(),
+      expiresAt: new Date(receivedAtMs + CAPTURE_ATTESTATION_TTL_MS).toISOString(),
+    };
+    return json(200, {
+      success: true,
+      captureAttestation: await signCaptureAttestation(payload, env.serviceRoleKey),
+    });
   }
 
   if (action === 'init') {
@@ -349,6 +612,35 @@ Deno.serve(async (request) => {
     }
 
     const proofIntent = parsed.value;
+    let deadlineAttestedAt: string | null = null;
+    if (proofIntent.captureAttestation) {
+      const attestation = await verifyCaptureAttestation(proofIntent.captureAttestation, env.serviceRoleKey);
+      const proofTimestampMs = proofIntent.proofTimestampAt
+        ? new Date(proofIntent.proofTimestampAt).getTime()
+        : NaN;
+      const attestedTimestampMs = attestation ? new Date(attestation.startedAt).getTime() : NaN;
+      if (
+        !attestation
+        || attestation.taskId !== taskId
+        || attestation.ownerId !== user.id
+        || attestation.mediaKind !== proofIntent.mediaKind
+        || proofIntent.proofOrigin !== 'CAMERA'
+        || proofIntent.proofTimestampSource !== 'CAMERA_CAPTURE'
+        || !Number.isFinite(proofTimestampMs)
+        || Math.abs(proofTimestampMs - attestedTimestampMs) > 1_000
+      ) {
+        return json(400, { success: false, error: 'Proof capture timing could not be verified.' });
+      }
+      deadlineAttestedAt = attestation.startedAt;
+    }
+
+    if (
+      CAPTURE_DEADLINE_STATUSES.has(taskStatus)
+      && isCompletionEditingLocked(taskStatus, taskDeadline)
+      && !deadlineAttestedAt
+    ) {
+      return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+    }
 
     const { data: existingProof, error: existingProofError } = await adminClient
       .from('task_completion_proofs')
@@ -385,7 +677,12 @@ Deno.serve(async (request) => {
         size_bytes: proofIntent.sizeBytes,
         duration_ms: proofIntent.durationMs ?? null,
         overlay_timestamp_text: proofIntent.overlayTimestampText,
+        proof_origin: proofIntent.proofOrigin,
+        proof_timestamp_at: proofIntent.proofTimestampAt,
+        proof_timestamp_source: proofIntent.proofTimestampSource,
+        proof_timezone: proofIntent.proofTimezone,
         upload_state: 'PENDING',
+        updated_at: deadlineAttestedAt || new Date().toISOString(),
       }, { onConflict: 'task_id' });
 
     if (upsertError) {
@@ -430,7 +727,7 @@ Deno.serve(async (request) => {
 
     const { data: proofRow, error: proofFetchError } = await adminClient
       .from('task_completion_proofs')
-      .select('id, bucket, object_path, owner_id, created_at, updated_at')
+      .select('id, bucket, object_path, owner_id, proof_origin, proof_timestamp_at, proof_timestamp_source, proof_timezone, created_at, updated_at')
       .eq('task_id', taskId)
       .eq('owner_id', user.id)
       .maybeSingle();
@@ -443,15 +740,57 @@ Deno.serve(async (request) => {
       return json(400, { success: false, error: 'Proof record not found.' });
     }
 
+    const storedProofBucket = String((proofRow as { bucket?: string }).bucket || TASK_PROOFS_BUCKET);
+    const storedProofObjectPath = String((proofRow as { object_path?: string }).object_path || '');
     const proofStagedAt = String(
       (proofRow as { updated_at?: string | null }).updated_at
       || (proofRow as { created_at?: string | null }).created_at
       || '',
     );
+    const discardPendingProof = async () => {
+      let failQuery = adminClient
+        .from('task_completion_proofs')
+        .update({ upload_state: 'FAILED', updated_at: new Date().toISOString() })
+        .eq('id', String((proofRow as { id: string }).id))
+        .eq('owner_id', user.id)
+        .eq('upload_state', 'PENDING');
+      if (proofStagedAt) failQuery = failQuery.eq('updated_at', proofStagedAt);
+
+      const { data: failedProof, error: failError } = await failQuery
+        .select('id')
+        .maybeSingle();
+      if (failError) {
+        console.error(`Could not mark rejected proof failed for task ${taskId}:`, failError);
+        return;
+      }
+      // If finalization committed or another upload replaced this one, do not
+      // remove the shared immutable object path.
+      if (!failedProof) return;
+
+      if (storedProofObjectPath) {
+        const { error: removeError } = await adminClient.storage
+          .from(storedProofBucket)
+          .remove([storedProofObjectPath]);
+        if (removeError) {
+          console.error(`Could not remove rejected proof object for task ${taskId}:`, removeError);
+        }
+      }
+
+      const { error: taskProofError } = await adminClient
+        .from('tasks')
+        .update({ has_proof: false, updated_at: new Date().toISOString() })
+        .eq('id', taskId)
+        .eq('user_id', user.id);
+      if (taskProofError) {
+        console.error(`Could not clear rejected proof state for task ${taskId}:`, taskProofError);
+      }
+    };
+
     if (
       isCompletionEditingLocked(taskStatus, taskDeadline)
       && !wasProofStagedBeforeCompletionLock(taskDeadline, proofStagedAt)
     ) {
+      await discardPendingProof();
       return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
     }
 
@@ -462,6 +801,42 @@ Deno.serve(async (request) => {
       return json(400, { success: false, error: 'Proof upload target mismatch.' });
     }
 
+    const storedTimestampAt = (proofRow as { proof_timestamp_at?: string | null }).proof_timestamp_at;
+    if (
+      (proofRow as { proof_origin?: string | null }).proof_origin !== proofMeta.proofOrigin
+      || (storedTimestampAt ? new Date(storedTimestampAt).toISOString() : null) !== proofMeta.proofTimestampAt
+      || (proofRow as { proof_timestamp_source?: string | null }).proof_timestamp_source !== proofMeta.proofTimestampSource
+      || (proofRow as { proof_timezone?: string | null }).proof_timezone !== proofMeta.proofTimezone
+    ) {
+      return json(400, { success: false, error: 'Proof timestamp metadata changed during upload.' });
+    }
+
+    const pathParts = proofMeta.objectPath.split('/');
+    const uploadedFileName = pathParts.pop() || '';
+    const uploadedFolder = pathParts.join('/');
+    const { data: uploadedFiles, error: uploadedFileError } = await adminClient.storage
+      .from(proofMeta.bucket)
+      .list(uploadedFolder, { search: uploadedFileName, limit: 10 });
+    const uploadedFile = (uploadedFiles ?? []).find((file) => file.name === uploadedFileName);
+    const actualSizeBytes = Number(uploadedFile?.metadata?.size);
+
+    if (uploadedFileError || !uploadedFile || !Number.isFinite(actualSizeBytes) || actualSizeBytes <= 0) {
+      return json(400, { success: false, error: 'Could not verify the uploaded proof.' });
+    }
+
+    if (actualSizeBytes > maxProofBytes(proofMeta.mediaKind)) {
+      await adminClient.storage.from(proofMeta.bucket).remove([proofMeta.objectPath]);
+      await adminClient
+        .from('task_completion_proofs')
+        .update({ upload_state: 'FAILED', updated_at: new Date().toISOString() })
+        .eq('task_id', taskId)
+        .eq('owner_id', user.id);
+      return json(400, {
+        success: false,
+        error: `${proofMeta.mediaKind === 'video' ? 'Video' : 'Image'} proof must be under ${proofSizeLabel(proofMeta.mediaKind)}.`,
+      });
+    }
+
     const { data: finalizeData, error: finalizeError } = await adminClient
       .rpc('finalize_task_proof_atomic', {
         p_task_id: taskId,
@@ -470,13 +845,14 @@ Deno.serve(async (request) => {
         p_object_path: proofMeta.objectPath,
         p_media_kind: proofMeta.mediaKind,
         p_mime_type: proofMeta.mimeType,
-        p_size_bytes: proofMeta.sizeBytes,
+        p_size_bytes: Math.round(actualSizeBytes),
         p_duration_ms: proofMeta.durationMs ?? null,
         p_overlay_timestamp_text: proofMeta.overlayTimestampText,
         p_task_status: (task as { status: string }).status,
       });
 
     if (finalizeError) {
+      await discardPendingProof();
       return json(400, { success: false, error: finalizeError.message });
     }
 
@@ -485,7 +861,9 @@ Deno.serve(async (request) => {
       : (finalizeData as FinalizeProofAtomicResult | null);
 
     if (!finalizeRow?.success) {
-      return json(400, { success: false, error: finalizeRow?.error || 'Could not finalize proof upload.' });
+      await discardPendingProof();
+      const error = finalizeRow?.error || 'Could not finalize proof upload.';
+      return json(error === COMPLETION_EDIT_LOCKED_ERROR ? 409 : 400, { success: false, error });
     }
 
     return json(200, { success: true });
@@ -730,6 +1108,102 @@ Deno.serve(async (request) => {
     }
 
     console.log('AI voucher evaluation queued for task', taskId);
+    return json(200, { success: true });
+  }
+
+  if (action === 'queue-rectification-ai-eval') {
+    const requestId = typeof (body as QueueAiRectificationEvalRequestBody).requestId === 'string'
+      ? (body as QueueAiRectificationEvalRequestBody).requestId.trim()
+      : '';
+    if (!requestId || taskStatus !== 'AWAITING_RECTIFICATION') {
+      return json(400, { success: false, error: 'Rectification request is not ready for AI review.' });
+    }
+    const { data: rectification } = await adminClient
+      .from('rectification_requests')
+      .select('id, owner_id, task_id, target_type, state')
+      .eq('id', requestId)
+      .eq('task_id', taskId)
+      .eq('owner_id', user.id)
+      .maybeSingle();
+    if (!rectification || rectification.target_type !== 'AI' || rectification.state !== 'PENDING_AI') {
+      return json(400, { success: false, error: 'AI rectification request is no longer pending.' });
+    }
+    const { data: uploadedProof } = await adminClient
+      .from('task_completion_proofs')
+      .select('id')
+      .eq('task_id', taskId)
+      .eq('owner_id', user.id)
+      .eq('upload_state', 'UPLOADED')
+      .maybeSingle();
+    if (!uploadedProof) {
+      return json(400, { success: false, error: 'Proof is required for AI rectification.' });
+    }
+    const triggerSecretKey = Deno.env.get('TRIGGER_SECRET_KEY');
+    if (!triggerSecretKey) return json(500, { success: false, error: 'AI evaluation service not configured.' });
+    const triggerRes = await fetch('https://api.trigger.dev/api/v1/tasks/ai-rectification-evaluate/trigger', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${triggerSecretKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: { requestId } }),
+    }).catch(() => null);
+    if (!triggerRes?.ok) {
+      return json(500, { success: false, error: 'AI rectification evaluation could not be queued.' });
+    }
+    return json(200, { success: true });
+  }
+
+  if (action === 'queue-rectification-notification') {
+    const notificationBody = body as QueueRectificationNotificationRequestBody;
+    const requestId = typeof notificationBody.requestId === 'string' ? notificationBody.requestId.trim() : '';
+    const kind = notificationBody.kind;
+    const eventTypeByKind: Record<QueueRectificationNotificationRequestBody['kind'], string> = {
+      REQUESTED: 'RECTIFICATION_REQUESTED',
+      UPDATED: 'RECTIFICATION_UPDATED',
+      CANCELLED: 'RECTIFICATION_CANCELLED',
+      PROOF_REQUESTED: 'RECTIFICATION_PROOF_REQUESTED',
+      PROOF_UPLOADED: 'RECTIFICATION_PROOF_UPLOADED',
+      ESCALATED: 'RECTIFICATION_ESCALATED',
+      APPROVED: 'RECTIFICATION_APPROVED',
+      DECLINED: 'RECTIFICATION_DECLINED',
+      DIRECT_APPROVED: 'RECTIFICATION_APPROVED',
+    };
+    if (!kind || !eventTypeByKind[kind] || (kind !== 'DIRECT_APPROVED' && !requestId)) {
+      return json(400, { success: false, error: 'Invalid rectification notification.' });
+    }
+
+    if (requestId) {
+      const { data: rectification } = await adminClient.from('rectification_requests').select('*')
+        .eq('id', requestId).eq('task_id', taskId).maybeSingle();
+      if (!rectification) return json(404, { success: false, error: 'Rectification request not found.' });
+      const ownerKinds = new Set(['REQUESTED', 'UPDATED', 'CANCELLED', 'PROOF_UPLOADED', 'ESCALATED']);
+      const voucherKinds = new Set(['PROOF_REQUESTED', 'APPROVED', 'DECLINED']);
+      const allowed = (ownerKinds.has(kind) && rectification.owner_id === user.id)
+        || (voucherKinds.has(kind) && rectification.target_voucher_id === user.id && rectification.target_type === 'ORIGINAL_VOUCHER');
+      if (!allowed) return json(403, { success: false, error: 'Not authorized for this rectification notification.' });
+    } else if (kind !== 'DIRECT_APPROVED' || (task as { voucher_id: string }).voucher_id !== user.id) {
+      return json(403, { success: false, error: 'Not authorized for this rectification notification.' });
+    }
+
+    const { data: recentEvents } = await adminClient.from('task_events')
+      .select('metadata').eq('task_id', taskId).eq('event_type', eventTypeByKind[kind])
+      .eq('actor_id', user.id).order('created_at', { ascending: false }).limit(10);
+    const matchingEvent = (recentEvents || []).some((event: { metadata?: Record<string, unknown> | null }) => (
+      kind === 'DIRECT_APPROVED'
+        ? event.metadata?.direct === true
+        : event.metadata?.request_id === requestId
+    ));
+    if (!matchingEvent) return json(409, { success: false, error: 'Rectification event is not committed yet.' });
+
+    const triggerSecretKey = Deno.env.get('TRIGGER_SECRET_KEY');
+    if (!triggerSecretKey) return json(500, { success: false, error: 'Notification service not configured.' });
+    const triggerRes = await fetch('https://api.trigger.dev/api/v1/tasks/rectification-notification/trigger', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${triggerSecretKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payload: { taskId, requestId: requestId || undefined, kind },
+        options: { idempotencyKey: `rectification-${requestId || taskId}-${kind}` },
+      }),
+    }).catch(() => null);
+    if (!triggerRes?.ok) return json(500, { success: false, error: 'Rectification notification could not be queued.' });
     return json(200, { success: true });
   }
 

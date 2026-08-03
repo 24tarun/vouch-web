@@ -2,6 +2,8 @@ export const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
 export const COMPLETION_EDIT_LOCKED_ERROR = 'The task deadline has passed. Proof and completion can no longer be changed.';
 
 const COMPLETION_EDITABLE_STATUSES = new Set([
+  'ACTIVE',
+  'POSTPONED',
   'AWAITING_VOUCHER',
   'AWAITING_AI',
   'MARKED_COMPLETE',
