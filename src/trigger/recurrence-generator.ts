@@ -25,6 +25,11 @@ function toDateStr(parts: DateParts): string {
     return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
+function addLocalDays(parts: DateParts, days: number): DateParts {
+    const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 12, 0, 0));
+    return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
+}
+
 function ymdToUtcMidnightMs(ymd: string): number {
     const [y, m, d] = ymd.split("-").map(Number);
     return Date.UTC(y, m - 1, d, 0, 0, 0, 0);
@@ -424,7 +429,14 @@ async function processRule(
         const reminderOffsetsMs = await getReminderOffsetsForRule(rule, supabase);
 
         const [hours, minutes] = time_of_day.split(":").map(Number);
-        const deadlineIso = resolveUtcForLocalDateTime(currentLocalParts, hours, minutes);
+        // Midnight is the boundary between two daily instances. A task born at
+        // 00:00 must be due at the following midnight, not immediately when it
+        // is created. This lets the previous and next instances coexist only at
+        // the handoff, as separate tasks with separate iteration numbers.
+        const deadlineDateParts = hours === 0 && minutes === 0
+            ? addLocalDays(currentLocalParts, 1)
+            : currentLocalParts;
+        const deadlineIso = resolveUtcForLocalDateTime(deadlineDateParts, hours, minutes);
         const windowStartOffsetMinutes = Number(
             (rule as any).window_start_offset_minutes ?? (rule as any).google_event_duration_minutes
         );

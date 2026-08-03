@@ -451,6 +451,7 @@ export async function updateUserDefaults(formData: FormData) {
 
     const defaultPomoDurationRaw = formData.get("defaultPomoDurationMinutes") as string;
     const defaultEventDurationRaw = formData.get("defaultEventDurationMinutes");
+    const defaultTaskDeadlineTimeRaw = formData.get("defaultTaskDeadlineTime");
     const defaultFailureCostRaw = formData.get("defaultFailureCost") as string;
     const defaultVoucherIdRaw = formData.get("defaultVoucherId") as string;
     const deadlineOneHourWarningEnabledRaw = formData.get("deadlineOneHourWarningEnabled");
@@ -481,7 +482,7 @@ export async function updateUserDefaults(formData: FormData) {
 
     const { data: currentProfile, error: currentProfileError } = await supabase
         .from("profiles")
-        .select("currency, default_event_duration_minutes, charity_enabled, selected_charity_id, timezone, timezone_user_set, default_requires_proof_for_all_tasks, auto_submit_after_proof_upload")
+        .select("currency, default_event_duration_minutes, default_task_deadline_time, charity_enabled, selected_charity_id, timezone, timezone_user_set, default_requires_proof_for_all_tasks, auto_submit_after_proof_upload")
         .eq("id", user.id)
         .maybeSingle();
 
@@ -517,6 +518,14 @@ export async function updateUserDefaults(formData: FormData) {
         defaultEventDurationMinutes > 720
     ) {
         return { error: "Default event duration must be an integer between 1 and 720 minutes." };
+    }
+
+    const defaultTaskDeadlineTime =
+        typeof defaultTaskDeadlineTimeRaw === "string" && defaultTaskDeadlineTimeRaw.trim() !== ""
+            ? defaultTaskDeadlineTimeRaw.trim()
+            : String((currentProfile as { default_task_deadline_time?: unknown } | null)?.default_task_deadline_time ?? "23:00");
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(defaultTaskDeadlineTime)) {
+        return { error: "Default task deadline must be a valid time." };
     }
 
     const nextCurrency = currency ?? normalizeCurrency((currentProfile as { currency?: unknown } | null)?.currency);
@@ -722,6 +731,7 @@ export async function updateUserDefaults(formData: FormData) {
     const profileUpdate: Record<string, unknown> = {
         default_pomo_duration_minutes: defaultPomoDurationMinutes ?? DEFAULT_POMO_DURATION_MINUTES,
         default_event_duration_minutes: defaultEventDurationMinutes ?? DEFAULT_EVENT_DURATION_MINUTES,
+        default_task_deadline_time: defaultTaskDeadlineTime,
         default_failure_cost_cents: defaultFailureCostCents ?? DEFAULT_FAILURE_COST_CENTS,
         default_voucher_id: defaultVoucherId,
     };

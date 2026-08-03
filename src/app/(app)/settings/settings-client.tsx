@@ -128,6 +128,9 @@ export default function SettingsClient({
     const [defaultEventDurationMinutes, setDefaultEventDurationMinutes] = useState(
         String(profile.default_event_duration_minutes ?? DEFAULT_EVENT_DURATION_MINUTES)
     );
+    const [defaultTaskDeadlineTime, setDefaultTaskDeadlineTime] = useState(
+        profile.default_task_deadline_time ?? "23:00"
+    );
     const [defaultFailureCostEuros, setDefaultFailureCostEuros] = useState(
         initialFailureCostBounds.step < 1
             ? initialFailureCostMajorClamped.toFixed(2)
@@ -242,6 +245,7 @@ export default function SettingsClient({
             JSON.stringify({
                 defaultPomoDurationMinutes,
                 defaultEventDurationMinutes,
+                defaultTaskDeadlineTime,
                 defaultFailureCostEuros,
                 effectiveDefaultVoucherId,
                 deadlineOneHourWarningEnabled,
@@ -261,6 +265,7 @@ export default function SettingsClient({
         [
             defaultPomoDurationMinutes,
             defaultEventDurationMinutes,
+            defaultTaskDeadlineTime,
             defaultFailureCostEuros,
             effectiveDefaultVoucherId,
             deadlineOneHourWarningEnabled,
@@ -567,6 +572,7 @@ export default function SettingsClient({
         const validationError = validateDefaultsState({
             defaultPomoDurationMinutes,
             defaultEventDurationMinutes,
+            defaultTaskDeadlineTime,
             defaultFailureCostEuros,
             currency,
             currencySymbol,
@@ -592,6 +598,7 @@ export default function SettingsClient({
                 buildDefaultsFormData({
                     defaultPomoDurationMinutes,
                     defaultEventDurationMinutes,
+                    defaultTaskDeadlineTime,
                     defaultFailureCostEuros,
                     effectiveDefaultVoucherId,
                     deadlineOneHourWarningEnabled,
@@ -1145,6 +1152,20 @@ export default function SettingsClient({
                             onChange={(e) => setDefaultPomoDurationMinutes(e.target.value)}
                             className="bg-slate-800/40 border-slate-700 text-white"
                         />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="defaultTaskDeadlineTime" className="text-slate-200">
+                            Default Task Deadline
+                        </Label>
+                        <Input
+                            id="defaultTaskDeadlineTime"
+                            type="time"
+                            value={defaultTaskDeadlineTime}
+                            onChange={(e) => setDefaultTaskDeadlineTime(e.target.value)}
+                            className="bg-slate-800/40 border-slate-700 text-white"
+                        />
+                        <p className="text-xs text-slate-400">Used when creating a task without an explicit time.</p>
                     </div>
 
                     <div className="space-y-2">

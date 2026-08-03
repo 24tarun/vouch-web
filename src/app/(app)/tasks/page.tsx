@@ -43,7 +43,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, username, hide_tips, always_show_active_tasks, auto_submit_after_proof_upload")
+            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, default_task_deadline_time, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, username, hide_tips, always_show_active_tasks, auto_submit_after_proof_upload")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => { console.log("[tasks/page] profileDefaults result:", JSON.stringify(result)); return result.data; }),
@@ -65,6 +65,7 @@ export default async function DashboardPage() {
         default_requires_proof_for_all_tasks: boolean | null;
         default_pomo_duration_minutes: number | null;
         default_event_duration_minutes: number | null;
+        default_task_deadline_time: string | null;
         deadline_one_hour_warning_enabled: boolean | null;
         deadline_final_warning_enabled: boolean | null;
         username: string | null;
@@ -85,6 +86,7 @@ export default async function DashboardPage() {
             (profileDefaults?.default_event_duration_minutes ?? 0) > 0
             ? (profileDefaults?.default_event_duration_minutes as number)
             : DEFAULT_EVENT_DURATION_MINUTES;
+    const defaultTaskDeadlineTime = profileDefaults?.default_task_deadline_time ?? "23:00";
     const defaultVoucherId = profileDefaults?.default_voucher_id ?? userId ?? null;
     const currency = normalizeCurrency(profileDefaults?.currency);
     const defaultRequiresProofForAllTasks = profileDefaults?.default_requires_proof_for_all_tasks ?? false;
@@ -165,6 +167,7 @@ export default async function DashboardPage() {
             defaultVoucherId={defaultVoucherId}
             defaultPomoDurationMinutes={defaultPomoDurationMinutes}
             defaultEventDurationMinutes={defaultEventDurationMinutes}
+            defaultTaskDeadlineTime={defaultTaskDeadlineTime}
             defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
             deadlineOneHourWarningEnabled={deadlineOneHourWarningEnabled}
             deadlineFinalWarningEnabled={deadlineFinalWarningEnabled}

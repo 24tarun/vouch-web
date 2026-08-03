@@ -71,6 +71,7 @@ interface DashboardClientProps {
     defaultVoucherId: string | null;
     defaultPomoDurationMinutes: number;
     defaultEventDurationMinutes: number;
+    defaultTaskDeadlineTime: string;
     defaultRequiresProofForAllTasks: boolean;
     deadlineOneHourWarningEnabled: boolean;
     deadlineFinalWarningEnabled: boolean;
@@ -184,6 +185,7 @@ export default function DashboardClient({
     defaultVoucherId,
     defaultPomoDurationMinutes,
     defaultEventDurationMinutes,
+    defaultTaskDeadlineTime,
     defaultRequiresProofForAllTasks,
     deadlineOneHourWarningEnabled,
     deadlineFinalWarningEnabled,
@@ -1168,6 +1170,7 @@ export default function DashboardClient({
                 defaultCurrency={currency}
                 defaultVoucherId={defaultVoucherId}
                 defaultEventDurationMinutes={defaultEventDurationMinutes}
+                defaultTaskDeadlineTime={defaultTaskDeadlineTime}
                 defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
                 deadlineOneHourWarningEnabled={deadlineOneHourWarningEnabled}
                 deadlineFinalWarningEnabled={deadlineFinalWarningEnabled}

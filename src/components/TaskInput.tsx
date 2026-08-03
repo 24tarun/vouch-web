@@ -97,6 +97,7 @@ interface TaskInputProps {
     defaultCurrency: SupportedCurrency;
     defaultVoucherId: string | null;
     defaultEventDurationMinutes: number;
+    defaultTaskDeadlineTime: string;
     defaultRequiresProofForAllTasks: boolean;
     deadlineOneHourWarningEnabled?: boolean;
     deadlineFinalWarningEnabled?: boolean;
@@ -135,6 +136,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     defaultCurrency,
     defaultVoucherId,
     defaultEventDurationMinutes,
+    defaultTaskDeadlineTime,
     defaultRequiresProofForAllTasks,
     deadlineOneHourWarningEnabled = true,
     deadlineFinalWarningEnabled = true,
@@ -471,11 +473,11 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     }, [selectedVoucherId]);
 
     useEffect(() => {
-        const defaultDeadline = getDefaultDeadline();
+        const defaultDeadline = getDefaultDeadline(new Date(), defaultTaskDeadlineTime);
         setSelectedDate(defaultDeadline);
         setDeadlineDraftValue(toDateTimeLocalValue(defaultDeadline));
         setHasMounted(true);
-    }, []);
+    }, [defaultTaskDeadlineTime]);
 
     useEffect(() => {
         if (selectedVoucherId === selfUserId) return;

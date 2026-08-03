@@ -599,9 +599,11 @@ export function isValidCalendarDate(year: number, month: number, day: number): b
     );
 }
 
-export function getDefaultDeadline(now: Date = new Date()): Date {
+export function getDefaultDeadline(now: Date = new Date(), defaultTime = "23:00"): Date {
     const deadline = new Date(now);
-    deadline.setHours(23, 0, 0, 0);
+    const match = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(defaultTime);
+    const [hours, minutes] = match ? defaultTime.split(":").map(Number) : [23, 0];
+    deadline.setHours(hours, minutes, 0, 0);
     if (deadline.getTime() <= now.getTime()) {
         deadline.setDate(deadline.getDate() + 1);
     }

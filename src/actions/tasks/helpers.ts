@@ -200,10 +200,12 @@ export function parseAndValidateFutureDeadline(rawDeadline: string): { deadline?
     return { deadline: parsedDeadline };
 }
 
-export function getDefaultTaskDeadline(): Date {
+export function getDefaultTaskDeadline(defaultTime = "23:00"): Date {
     const now = new Date();
     const defaultDeadline = new Date(now);
-    defaultDeadline.setHours(23, 59, 0, 0);
+    const match = /^(?:[01]\d|2[0-3]):[0-5]\d$/.exec(defaultTime);
+    const [hours, minutes] = match ? defaultTime.split(":").map(Number) : [23, 0];
+    defaultDeadline.setHours(hours, minutes, 0, 0);
 
     if (defaultDeadline.getTime() <= now.getTime()) {
         defaultDeadline.setDate(defaultDeadline.getDate() + 1);

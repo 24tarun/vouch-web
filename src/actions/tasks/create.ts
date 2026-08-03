@@ -107,7 +107,8 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
             : DEFAULT_EVENT_DURATION_MINUTES;
     const { AI_PROFILE_ID: AI_ID_SIMPLE } = await import("@/lib/ai-voucher/constants");
 
-    let deadline = getDefaultTaskDeadline();
+    const defaultTaskDeadlineTime = (profileDefaults as any)?.default_task_deadline_time as string | undefined;
+    let deadline = getDefaultTaskDeadline(defaultTaskDeadlineTime);
     let eventStartAtIso: string | null = null;
     let eventEndAtIso: string | null = null;
     let shouldAutoCompletePastEvent = false;
@@ -399,6 +400,7 @@ export async function createTask(formData: FormData) {
             hour: '2-digit',
             minute: '2-digit',
             hour12: false,
+            hourCycle: 'h23',
             timeZone: userTimezone
         });
         const timeOfDay = timeFormatter.format(initialDeadlineDate);
@@ -409,6 +411,20 @@ export async function createTask(formData: FormData) {
             days_of_week: recurrenceDays,
             time_of_day: timeOfDay
         };
+
+        const initialDeadlineLocalDate = new Intl.DateTimeFormat("en-CA", {
+            timeZone: userTimezone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(initialDeadlineDate);
+        const initialOccurrenceDate = timeOfDay === "00:00"
+            ? (() => {
+                const date = new Date(`${initialDeadlineLocalDate}T12:00:00.000Z`);
+                date.setUTCDate(date.getUTCDate() - 1);
+                return date.toISOString().slice(0, 10);
+            })()
+            : initialDeadlineLocalDate;
 
         // @ts-ignore
         const { data: rule, error: ruleError } = await (supabase.from(RecurrenceRuleTable) as any)
@@ -426,12 +442,7 @@ export async function createTask(formData: FormData) {
                 google_event_duration_minutes: eventDurationMinutes,
                 google_event_color_id: googleEventColorId,
                 manual_reminder_offsets_ms: manualReminderOffsetsMs,
-                last_generated_date: new Intl.DateTimeFormat("en-CA", {
-                    timeZone: userTimezone,
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit'
-                }).format(initialDeadlineDate)
+                last_generated_date: initialOccurrenceDate
             })
             .select()
             .single();

@@ -16,6 +16,7 @@ export function clampFailureCostToCurrencyBounds(rawValue: string, targetCurrenc
 export interface BuildDefaultsFormDataInput {
     defaultPomoDurationMinutes: string;
     defaultEventDurationMinutes: string;
+    defaultTaskDeadlineTime: string;
     defaultFailureCostEuros: string;
     effectiveDefaultVoucherId: string;
     deadlineOneHourWarningEnabled: boolean;
@@ -37,6 +38,7 @@ export function buildDefaultsFormData(input: BuildDefaultsFormDataInput): FormDa
     const formData = new FormData();
     formData.append("defaultPomoDurationMinutes", input.defaultPomoDurationMinutes);
     formData.append("defaultEventDurationMinutes", input.defaultEventDurationMinutes);
+    formData.append("defaultTaskDeadlineTime", input.defaultTaskDeadlineTime);
     formData.append("defaultFailureCost", input.defaultFailureCostEuros);
     formData.append("defaultVoucherId", input.effectiveDefaultVoucherId ?? "");
     formData.append("deadlineOneHourWarningEnabled", String(input.deadlineOneHourWarningEnabled));
@@ -58,6 +60,7 @@ export function buildDefaultsFormData(input: BuildDefaultsFormDataInput): FormDa
 export interface ValidateDefaultsInput {
     defaultPomoDurationMinutes: string;
     defaultEventDurationMinutes: string;
+    defaultTaskDeadlineTime: string;
     defaultFailureCostEuros: string;
     currency: SupportedCurrency;
     currencySymbol: string;
@@ -77,6 +80,10 @@ export function validateDefaultsState(input: ValidateDefaultsInput): string | nu
     const parsedEventDuration = Number(input.defaultEventDurationMinutes);
     if (!Number.isFinite(parsedEventDuration) || !Number.isInteger(parsedEventDuration) || parsedEventDuration < 1 || parsedEventDuration > 720) {
         return "Default event duration must be an integer between 1 and 720.";
+    }
+
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(input.defaultTaskDeadlineTime)) {
+        return "Default task deadline must be a valid time.";
     }
 
     const parsedFailureMajor = Number(input.defaultFailureCostEuros);
