@@ -196,7 +196,7 @@ export interface LedgerEntry {
     task_id: string;
     period: string; // YYYY-MM
     amount_cents: number;
-    entry_type: "failure" | "rectified" | "override" | "voucher_timeout_penalty";
+    entry_type: "denied" | "missed" | "surrendered" | "rectified" | "override" | "voucher_timeout_penalty";
     created_at: string;
 }
 

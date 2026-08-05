@@ -171,13 +171,17 @@ export async function ownerTempDeleteTask(taskId: string) {
     }
 
     const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, voucher_id, status, created_at")
+        .select("id, user_id, voucher_id, status, created_at, recurrence_rule_id")
         .eq("id", taskId as any)
         .eq("user_id", user.id as any)
         .single();
 
     if (!task) {
         return { error: "Task not found" };
+    }
+
+    if ((task as any).recurrence_rule_id) {
+        return { error: "Recurring task instances cannot be deleted. Pause or stop the repetition instead." };
     }
 
     const { data: linkedLinks } = await (supabase.from("commitment_task_links") as any)

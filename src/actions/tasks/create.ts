@@ -14,7 +14,7 @@ import {
 import { resolveEventSchedule } from "@/lib/task-title-event-time";
 import { DEFAULT_FAILURE_COST_CENTS, DEFAULT_EVENT_DURATION_MINUTES } from "@/lib/constants";
 import { buildDefaultDeadlineReminderRows } from "@/lib/task-reminder-defaults";
-import { getCurrencySymbol, getFailureCostBounds, normalizeCurrency } from "@/lib/currency";
+import { getCurrencySymbol, getFailureCostBounds, isValidFailureCostCents, normalizeCurrency } from "@/lib/currency";
 import {
     createTaskSchema,
     normalizeTaskTitleAndSyncKind,
@@ -360,10 +360,10 @@ export async function createTask(formData: FormData) {
         ? Math.max(1, Math.round((validatedDeadline.getTime() - new Date(eventStartAtIso).getTime()) / (1000 * 60)))
         : null;
 
-    if (failureCostCents < failureCostBounds.minCents || failureCostCents > failureCostBounds.maxCents) {
+    if (!isValidFailureCostCents(failureCostCents, failureCostBounds)) {
         const currencySymbol = getCurrencySymbol(ownerCurrency);
         return {
-            error: `Failure cost must be between ${currencySymbol}${failureCostBounds.minMajor} and ${currencySymbol}${failureCostBounds.maxMajor}.`,
+            error: `Failure cost must be between ${currencySymbol}${failureCostBounds.minMajor} and ${currencySymbol}${failureCostBounds.maxMajor}, in ${currencySymbol}${failureCostBounds.step} increments.`,
         };
     }
 

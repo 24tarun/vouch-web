@@ -212,7 +212,7 @@ export async function voucherDeny(taskId: string) {
         task_id: taskId as any,
         period: currentPeriod,
         amount_cents: (task as any).failure_cost_cents,
-        entry_type: "failure",
+        entry_type: "denied",
     });
     if (ledgerError) {
         console.error(`[voucherDeny] Failed to insert ledger entry for task ${taskId}:`, ledgerError);
@@ -548,7 +548,7 @@ export async function getVouchHistoryPage(offsetInput: number, limitInput: numbe
         (admin.from("ledger_entries" as any) as any)
             .select("task_id, created_at")
             .in("task_id", taskIds)
-            .eq("entry_type", "failure")
+            .in("entry_type", ["denied", "missed", "surrendered"])
             .order("created_at", { ascending: false }),
     ]);
     const currentPeriodByOwner = new Map(visibleRows.map((task) => [

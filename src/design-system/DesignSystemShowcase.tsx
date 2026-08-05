@@ -121,8 +121,8 @@ const LEDGER_TYPES: {
     amountCents: number;
     description: string;
 }[] = [
-    { id: "denied", entryType: "failure", taskStatus: "DENIED", amountCents: 500, description: "Charged when a voucher denies the task" },
-    { id: "missed", entryType: "failure", taskStatus: "MISSED", amountCents: 500, description: "Charged when a task misses its deadline" },
+    { id: "denied", entryType: "denied", taskStatus: "DENIED", amountCents: 500, description: "Charged when a voucher denies the task" },
+    { id: "missed", entryType: "missed", taskStatus: "MISSED", amountCents: 500, description: "Charged when a task misses its deadline" },
     { id: "rectified", entryType: "rectified", amountCents: -500, description: "Reversal when voucher authorises a rectification" },
     { id: "timeout", entryType: "voucher_timeout_penalty", amountCents: 30, description: "Charged to voucher for not responding in time" },
     { id: "override", entryType: "override", amountCents: -500, description: "Owner override that cancels a failure charge" },

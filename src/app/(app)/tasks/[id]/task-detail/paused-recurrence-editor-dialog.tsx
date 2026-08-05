@@ -26,6 +26,7 @@ import {
 import {
     getCurrencySymbol,
     getFailureCostBounds,
+    isValidFailureCostCents,
     type SupportedCurrency,
 } from "@/lib/currency";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
@@ -109,9 +110,9 @@ export function PausedRecurrenceEditorDialog({
             const major = Number(failureCost.trim());
             const cents = Math.round(major * 100);
             const bounds = getFailureCostBounds(currency);
-            if (!Number.isFinite(major) || cents < bounds.minCents || cents > bounds.maxCents) {
+            if (!Number.isFinite(major) || !isValidFailureCostCents(cents, bounds)) {
                 toast.error(
-                    `Failure cost must be between ${currencySymbol}${bounds.minMajor} and ${currencySymbol}${bounds.maxMajor}.`
+                    `Failure cost must be between ${currencySymbol}${bounds.minMajor} and ${currencySymbol}${bounds.maxMajor}, in ${currencySymbol}${bounds.step} increments.`
                 );
                 return;
             }

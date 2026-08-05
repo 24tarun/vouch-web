@@ -5,6 +5,7 @@ export const OWNER_TEMP_DELETE_WINDOW_MS = 60 * 60 * 1000;
 type TaskDeleteCandidate = {
     status: TaskStatus;
     created_at: string;
+    recurrence_rule_id?: string | null;
 };
 
 export function isOwnerTempDeletableStatus(status: TaskStatus): boolean {
@@ -23,6 +24,14 @@ export function getOwnerDeleteRemainingMs(createdAtIso: string, nowMs: number = 
 
 export function canOwnerTemporarilyDelete(task: TaskDeleteCandidate, nowMs: number = Date.now()): boolean {
     if (!isOwnerTempDeletableStatus(task.status)) {
+        return false;
+    }
+
+    // A recurring occurrence is governed by its recurrence rule. Allowing the
+    // one-hour creation grace period here would let an owner erase a freshly
+    // generated instance (most visibly at midnight) without stopping or
+    // pausing the series.
+    if (task.recurrence_rule_id) {
         return false;
     }
 

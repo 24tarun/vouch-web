@@ -66,7 +66,7 @@ export default async function LedgerPage() {
     const totalAmountLabel = formatCurrencyFromCents(totalAmount, currency);
 
     const failedCount =
-        entries?.filter((e: LedgerEntry) => e.entry_type === "failure").length || 0;
+        entries?.filter((e: LedgerEntry) => ["denied", "missed", "surrendered"].includes(e.entry_type)).length || 0;
     const awaitingTaskIds = ((entries as any[]) || [])
         .filter((entry) => entry.task?.status === "AWAITING_RECTIFICATION")
         .map((entry) => entry.task.id as string);

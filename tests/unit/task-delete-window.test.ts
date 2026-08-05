@@ -25,6 +25,16 @@ test("owner can still delete active task just before one hour expires", () => {
     );
 });
 
+test("owner cannot delete a recurring occurrence during the creation grace period", () => {
+    assert.equal(
+        canOwnerTemporarilyDelete(
+            { status: "ACTIVE", created_at: createdAtIso, recurrence_rule_id: "rule-123" },
+            createdAtMs + (5 * 60 * 1000)
+        ),
+        false
+    );
+});
+
 test("owner can no longer delete task once one hour has elapsed", () => {
     assert.equal(
         canOwnerTemporarilyDelete(

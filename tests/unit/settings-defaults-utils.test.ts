@@ -6,13 +6,39 @@ import {
     clampFailureCostToCurrencyBounds,
     validateDefaultsState,
 } from "../../src/app/(app)/settings/settings/utils/defaults";
+import { getFailureCostBounds, isValidFailureCostCents } from "../../src/lib/currency";
+
+test("failure-cost bounds use the requested currency-specific minimums and increments", () => {
+    const eur = getFailureCostBounds("EUR");
+    const usd = getFailureCostBounds("USD");
+    const inr = getFailureCostBounds("INR");
+
+    assert.deepEqual(
+        { minMajor: eur.minMajor, step: eur.step, minCents: eur.minCents },
+        { minMajor: 0.25, step: 0.25, minCents: 25 }
+    );
+    assert.deepEqual(
+        { minMajor: usd.minMajor, step: usd.step, minCents: usd.minCents },
+        { minMajor: 0.25, step: 0.25, minCents: 25 }
+    );
+    assert.deepEqual(
+        { minMajor: inr.minMajor, step: inr.step, minCents: inr.minCents },
+        { minMajor: 10, step: 10, minCents: 1000 }
+    );
+    assert.equal(isValidFailureCostCents(25, eur), true);
+    assert.equal(isValidFailureCostCents(30, eur), false);
+    assert.equal(isValidFailureCostCents(1000, inr), true);
+    assert.equal(isValidFailureCostCents(1500, inr), false);
+});
 
 test("clampFailureCostToCurrencyBounds clamps out-of-range values", () => {
     // What/why: keeps client-side defaults clamped to server-aligned currency bounds.
     // Passing scenario: value above USD max is clamped to max.
     assert.equal(clampFailureCostToCurrencyBounds("999999", "USD"), "100.00");
     // Failing scenario: non-numeric values are coerced safely, not propagated as invalid strings.
-    assert.equal(clampFailureCostToCurrencyBounds("abc", "USD"), "1.00");
+    assert.equal(clampFailureCostToCurrencyBounds("abc", "USD"), "0.25");
+    assert.equal(clampFailureCostToCurrencyBounds("0.30", "EUR"), "0.25");
+    assert.equal(clampFailureCostToCurrencyBounds("15", "INR"), "20");
 });
 
 test("buildDefaultsFormData writes expected server keys", () => {

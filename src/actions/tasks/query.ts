@@ -66,7 +66,7 @@ export async function getTask(taskId: string) {
                         task_id: (task as any).id,
                         period: currentPeriod,
                         amount_cents: (task as any).failure_cost_cents,
-                        entry_type: "failure",
+                        entry_type: "missed",
                     });
                     if (ledgerInsertError) {
                         console.error("Failed to insert MISSED ledger entry in getTask:", ledgerInsertError);

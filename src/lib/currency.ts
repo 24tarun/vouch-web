@@ -12,6 +12,7 @@ export interface FailureCostBounds {
     minCents: number;
     maxCents: number;
     step: number;
+    stepCents: number;
 }
 
 interface FormatCurrencyFromCentsOptions {
@@ -34,23 +35,31 @@ export function getFailureCostBounds(currency: SupportedCurrency): FailureCostBo
     switch (currency) {
         case "INR":
             return {
-                minMajor: 50,
+                minMajor: 10,
                 maxMajor: 1000,
-                minCents: 5000,
+                minCents: 1000,
                 maxCents: 100000,
-                step: 1,
+                step: 10,
+                stepCents: 1000,
             };
         case "USD":
         case "EUR":
         default:
             return {
-                minMajor: 1,
+                minMajor: 0.25,
                 maxMajor: 100,
-                minCents: 100,
+                minCents: 25,
                 maxCents: 10000,
-                step: 0.01,
+                step: 0.25,
+                stepCents: 25,
             };
     }
+}
+
+export function isValidFailureCostCents(amountCents: number, bounds: FailureCostBounds): boolean {
+    return amountCents >= bounds.minCents
+        && amountCents <= bounds.maxCents
+        && amountCents % bounds.stepCents === 0;
 }
 
 export function getCurrencyFormatter(

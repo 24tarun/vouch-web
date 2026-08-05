@@ -41,11 +41,9 @@ const TASK_STATUS_VALUE_SET = new Set<TaskStatus>([
 ]);
 
 function resolveLedgerBadgeStatus(entryType: string, taskStatus?: string | null): TaskStatus {
-    if (entryType === "failure") {
-        if (taskStatus === "DENIED") return "DENIED";
-        if (taskStatus === "SURRENDERED") return "SURRENDERED";
-        return "MISSED";
-    }
+    if (entryType === "denied") return "DENIED";
+    if (entryType === "missed") return "MISSED";
+    if (entryType === "surrendered") return "SURRENDERED";
     if (entryType === "rectified") return "RECTIFIED";
     if (entryType === "override" || entryType === "force_majeure") return "SETTLED";
     if (entryType === "voucher_timeout_penalty") return "AWAITING_VOUCHER";

@@ -1,4 +1,4 @@
-import { getFailureCostBounds, type SupportedCurrency } from "@/lib/currency";
+import { getFailureCostBounds, isValidFailureCostCents, type SupportedCurrency } from "@/lib/currency";
 import { MAX_POMO_DURATION_MINUTES } from "@/lib/constants";
 import type { Charity } from "@/lib/types";
 
@@ -7,10 +7,11 @@ export function clampFailureCostToCurrencyBounds(rawValue: string, targetCurrenc
     const parsed = Number(rawValue);
     const normalized = Number.isFinite(parsed) ? parsed : targetBounds.minMajor;
     const clamped = Math.min(targetBounds.maxMajor, Math.max(targetBounds.minMajor, normalized));
+    const roundedToStep = Math.round((clamped * 100) / targetBounds.stepCents) * targetBounds.stepCents / 100;
 
     return targetBounds.step < 1
-        ? clamped.toFixed(2)
-        : Math.round(clamped).toString();
+        ? roundedToStep.toFixed(2)
+        : Math.round(roundedToStep).toString();
 }
 
 export interface BuildDefaultsFormDataInput {
@@ -93,8 +94,8 @@ export function validateDefaultsState(input: ValidateDefaultsInput): string | nu
 
     const bounds = getFailureCostBounds(input.currency);
     const parsedFailureCents = Math.round(parsedFailureMajor * 100);
-    if (parsedFailureCents < bounds.minCents || parsedFailureCents > bounds.maxCents) {
-        return `Default failure cost must be between ${input.currencySymbol}${bounds.minMajor} and ${input.currencySymbol}${bounds.maxMajor}.`;
+    if (!isValidFailureCostCents(parsedFailureCents, bounds)) {
+        return `Default failure cost must be between ${input.currencySymbol}${bounds.minMajor} and ${input.currencySymbol}${bounds.maxMajor}, in ${input.currencySymbol}${bounds.step} increments.`;
     }
 
     if (!input.timeZone || !input.timeZoneOptions.includes(input.timeZone)) {

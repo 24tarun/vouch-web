@@ -102,7 +102,9 @@ export function shouldCompileNow(date: Date, timeZone: string): boolean {
 function formatLedgerEntryType(entryType: string): string {
     if (entryType === "voucher_timeout_penalty") return "Voucher Timeout Penalty";
     if (entryType === "override") return "Override";
-    if (entryType === "failure") return "Failure";
+    if (entryType === "denied") return "Denied";
+    if (entryType === "missed") return "Missed";
+    if (entryType === "surrendered") return "Surrendered";
     if (entryType === "rectified") return "Rectified";
     return entryType;
 }

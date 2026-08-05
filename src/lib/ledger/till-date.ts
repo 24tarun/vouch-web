@@ -91,11 +91,9 @@ async function resolveProfileContext(
 function formatLedgerEntryType(entryType: string, taskStatus?: string | null): string {
     if (entryType === "voucher_timeout_penalty") return "Voucher Timeout Penalty";
     if (entryType === "override") return "Override";
-    if (entryType === "failure") {
-        if (taskStatus === "DENIED") return "Denied";
-        if (taskStatus === "SURRENDERED") return "Surrendered";
-        return "Missed";
-    }
+    if (entryType === "denied") return "Denied";
+    if (entryType === "missed") return "Missed";
+    if (entryType === "surrendered") return "Surrendered";
     if (entryType === "rectified") return "Rectified";
     return entryType || "Entry";
 }

@@ -12,6 +12,7 @@ import { deleteAccountByUserId } from "@/lib/account/delete-account";
 import {
     getCurrencySymbol,
     getFailureCostBounds,
+    isValidFailureCostCents,
     isSupportedCurrency,
     normalizeCurrency,
     type SupportedCurrency,
@@ -536,15 +537,15 @@ export async function updateUserDefaults(formData: FormData) {
     ) {
         const currencySymbol = getCurrencySymbol(nextCurrency);
         return {
-            error: `Default failure cost must be between ${currencySymbol}${failureCostBounds.minMajor} and ${currencySymbol}${failureCostBounds.maxMajor}.`,
+            error: `Default failure cost must be between ${currencySymbol}${failureCostBounds.minMajor} and ${currencySymbol}${failureCostBounds.maxMajor}, in ${currencySymbol}${failureCostBounds.step} increments.`,
         };
     }
 
     const defaultFailureCostCents = Math.round(defaultFailureCostMajor * 100);
-    if (defaultFailureCostCents < failureCostBounds.minCents || defaultFailureCostCents > failureCostBounds.maxCents) {
+    if (!isValidFailureCostCents(defaultFailureCostCents, failureCostBounds)) {
         const currencySymbol = getCurrencySymbol(nextCurrency);
         return {
-            error: `Default failure cost must be between ${currencySymbol}${failureCostBounds.minMajor} and ${currencySymbol}${failureCostBounds.maxMajor}.`,
+            error: `Default failure cost must be between ${currencySymbol}${failureCostBounds.minMajor} and ${currencySymbol}${failureCostBounds.maxMajor}, in ${currencySymbol}${failureCostBounds.step} increments.`,
         };
     }
 

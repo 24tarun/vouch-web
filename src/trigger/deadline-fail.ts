@@ -99,7 +99,7 @@ export const deadlineFail = schedules.task({
             task_id: task.id,
             period: currentPeriod,
             amount_cents: task.failure_cost_cents,
-            entry_type: "failure",
+            entry_type: "missed",
         }));
         const eventRows = claimedTasks.map((task) => ({
             task_id: task.id,
