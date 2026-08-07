@@ -48,7 +48,7 @@ export async function updateSession(request: NextRequest) {
     } = await supabase.auth.getUser();
 
     // Protect authenticated routes
-    const PROTECTED_PREFIXES = ["/tasks", "/stats", "/friends", "/commit", "/ledger", "/settings", "/voucher"];
+    const PROTECTED_PREFIXES = ["/tasks", "/friends", "/commit", "/ledger", "/settings", "/voucher"];
     const isProtected = PROTECTED_PREFIXES.some((p) => request.nextUrl.pathname.startsWith(p));
     if (!user && isProtected) {
         const url = request.nextUrl.clone();

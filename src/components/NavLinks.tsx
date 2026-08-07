@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Settings, Users } from "lucide-react";
+import { Users } from "lucide-react";
 
 import { haptics } from "@/lib/haptics";
 import { createClient } from "@/lib/supabase/client";
@@ -14,7 +14,8 @@ import {
 
 interface NavLinksProps {
     userId?: string;
-    statsBadgeCount?: number;
+    username?: string;
+    avatarUrl?: string | null;
 }
 
 interface NetworkInformationLike {
@@ -27,7 +28,7 @@ type IdleWindow = Window & {
     cancelIdleCallback?: (id: number) => void;
 };
 
-export function NavLinks({ userId, statsBadgeCount = 0 }: NavLinksProps) {
+export function NavLinks({ userId, username = "User", avatarUrl = null }: NavLinksProps) {
     const pathname = usePathname();
     const router = useRouter();
     const prefetchedHrefsRef = useRef<Set<string>>(new Set());
@@ -207,13 +208,12 @@ export function NavLinks({ userId, statsBadgeCount = 0 }: NavLinksProps) {
     const links = useMemo(
         () => [
             { href: "/tasks", label: "Tasks" },
-            { href: "/stats", label: "Stats", badge: statsBadgeCount > 0 ? statsBadgeCount : undefined },
             { href: "/friends", label: "Friends", badge: friendsBadgeCount > 0 ? friendsBadgeCount : undefined },
             { href: "/commit", label: "Commit" },
             { href: "/ledger", label: "Ledger" },
             { href: "/settings", label: "Settings", badge: settingsBadgeCount > 0 ? settingsBadgeCount : undefined },
         ],
-        [friendsBadgeCount, settingsBadgeCount, statsBadgeCount]
+        [friendsBadgeCount, settingsBadgeCount]
     );
 
     const prefetchLink = useCallback(
@@ -266,14 +266,12 @@ export function NavLinks({ userId, statsBadgeCount = 0 }: NavLinksProps) {
 
     return (
         <div className="w-full overflow-hidden">
-            <div className="grid w-full grid-cols-6 items-center justify-items-center px-1">
+            <div className="grid w-full grid-cols-5 items-center justify-items-center px-1">
                 {links.map((link) => {
                     const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
                     const ariaLabel =
                         link.badge !== undefined
-                            ? link.href === "/stats"
-                                ? `${link.label}, ${link.badge} proof request${link.badge === 1 ? "" : "s"}`
-                                : link.href === "/settings"
+                            ? link.href === "/settings"
                                     ? `${link.label}, ${link.badge} friend request${link.badge === 1 ? "" : "s"}`
                                 : `${link.label}, ${link.badge} vouch request${link.badge === 1 ? "" : "s"}`
                             : link.label;
@@ -337,17 +335,21 @@ export function NavLinks({ userId, statsBadgeCount = 0 }: NavLinksProps) {
                                     <span className="sr-only">Settings</span>
                                     <span
                                         aria-hidden
-                                        className="inline-flex items-center text-amber-300 transition-all"
-                                        style={{
-                                            textShadow: isActive
-                                                ? "0 0 10px rgba(252, 211, 77, 1), 0 0 22px rgba(245, 158, 11, 0.95), 0 0 34px rgba(217, 119, 6, 0.8)"
-                                                : "none",
-                                            filter: isActive
-                                                ? "drop-shadow(0 0 8px rgba(252, 211, 77, 0.95)) drop-shadow(0 0 16px rgba(245, 158, 11, 0.85))"
-                                                : "none",
-                                        }}
+                                        className={`inline-flex rounded-full border p-0.5 transition-colors ${isActive ? "border-white" : "border-sky-300"}`}
                                     >
-                                        <Settings className="h-5 w-5" />
+                                        <span
+                                            className="block overflow-hidden rounded-full bg-sky-900 text-center text-[8px] font-semibold leading-5 text-sky-100"
+                                            style={{ width: 20, height: 20 }}
+                                        >
+                                            {avatarUrl ? (
+                                                <img
+                                                    src={avatarUrl}
+                                                    alt=""
+                                                    className="block object-cover"
+                                                    style={{ width: "100%", height: "100%" }}
+                                                />
+                                            ) : username.slice(0, 2).toUpperCase()}
+                                        </span>
                                     </span>
                                 </>
                             ) : (

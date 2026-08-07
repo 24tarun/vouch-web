@@ -148,6 +148,31 @@ export interface TaskReminder {
     updated_at: string;
 }
 
+/**
+ * A device's record that it has armed a reminder on its own OS scheduler.
+ * The reminder cron skips pushing to any device holding a live claim, which is
+ * what keeps punctual local delivery from double-notifying. `armed_until` is a
+ * lease: a device that stops syncing lets its claims expire and is pushed to
+ * again.
+ */
+export interface ReminderDeviceClaim {
+    reminder_id: string;
+    user_id: string;
+    user_client_instance_id: string;
+    armed_until: string;
+    created_at: string;
+    updated_at: string;
+}
+
+/** Outbox row telling a device its armed reminders are stale and must re-sync. */
+export interface ReminderInvalidation {
+    id: number;
+    user_id: string;
+    user_client_instance_id: string;
+    created_at: string;
+    dispatched_at: string | null;
+}
+
 export interface TaskCompletionProof {
     id: string;
     task_id: string;
@@ -465,6 +490,16 @@ export interface Database {
                 Row: TaskReminder
                 Insert: Omit<TaskReminder, "id" | "created_at" | "updated_at" | "source"> & Partial<Pick<TaskReminder, "created_at" | "updated_at" | "source">>
                 Update: Partial<TaskReminder>
+            }
+            reminder_device_claims: {
+                Row: ReminderDeviceClaim
+                Insert: Omit<ReminderDeviceClaim, "created_at" | "updated_at"> & Partial<Pick<ReminderDeviceClaim, "created_at" | "updated_at">>
+                Update: Partial<ReminderDeviceClaim>
+            }
+            reminder_invalidations: {
+                Row: ReminderInvalidation
+                Insert: Omit<ReminderInvalidation, "id" | "created_at" | "dispatched_at"> & Partial<Pick<ReminderInvalidation, "created_at" | "dispatched_at">>
+                Update: Partial<ReminderInvalidation>
             }
             task_completion_proofs: {
                 Row: TaskCompletionProof

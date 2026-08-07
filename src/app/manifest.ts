@@ -42,13 +42,6 @@ export default function manifest(): MetadataRoute.Manifest {
                 icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
             },
             {
-                name: 'Stats',
-                short_name: 'Stats',
-                description: 'Open your performance stats',
-                url: '/stats',
-                icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }],
-            },
-            {
                 name: 'Friends',
                 short_name: 'Friends',
                 description: 'Review pending vouch requests',

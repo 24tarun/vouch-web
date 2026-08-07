@@ -129,6 +129,70 @@ export function buildReminderRemoteDeliveryMarkerData(group: ReminderNotificatio
     };
 }
 
+/**
+ * Devices that already armed this group's reminders on their own OS scheduler.
+ *
+ * Local scheduling is the punctual channel — this cron can only *see* an
+ * 18:00:00 reminder on its 18:00 tick, and still has row claiming, task
+ * re-reads, Expo and APNs ahead of it. Devices that armed the reminder ahead of
+ * time therefore fire it themselves, and pushing to them again would double up.
+ * A device that stops syncing lets its claim lease expire and is pushed to
+ * again, so a silent local-scheduling failure degrades to a late notification
+ * rather than to none.
+ */
+export async function loadClaimedClientInstanceIds(
+    supabase: ReturnType<typeof createAdminClient>,
+    reminderIds: string[]
+): Promise<Map<string, string[]>> {
+    const claimsByReminderId = new Map<string, string[]>();
+    if (reminderIds.length === 0) return claimsByReminderId;
+
+    const { data, error } = await supabase
+        .from("reminder_device_claims")
+        .select("reminder_id, user_client_instance_id")
+        .in("reminder_id", reminderIds)
+        .gt("armed_until", new Date().toISOString());
+
+    if (error) {
+        // Failing open means a possible duplicate; failing closed would mean a
+        // missed final call. Duplicates are the cheaper mistake.
+        console.error("Failed to load reminder device claims:", error);
+        return claimsByReminderId;
+    }
+
+    for (const row of ((data as Array<{ reminder_id: string; user_client_instance_id: string }> | null) || [])) {
+        const existing = claimsByReminderId.get(row.reminder_id);
+        if (existing) {
+            existing.push(row.user_client_instance_id);
+            continue;
+        }
+        claimsByReminderId.set(row.reminder_id, [row.user_client_instance_id]);
+    }
+
+    return claimsByReminderId;
+}
+
+/**
+ * A device may skip the push only if it claimed *every* reminder in the group,
+ * since one push covers the whole aggregated group.
+ */
+export function getExcludedClientInstanceIds(
+    group: ReminderNotificationGroup,
+    claimsByReminderId: Map<string, string[]>
+): string[] {
+    const [firstEntry, ...restEntries] = group.entries;
+    if (!firstEntry) return [];
+
+    let covering = new Set(claimsByReminderId.get(firstEntry.reminder.id) ?? []);
+    for (const entry of restEntries) {
+        const claimants = new Set(claimsByReminderId.get(entry.reminder.id) ?? []);
+        covering = new Set([...covering].filter((instanceId) => claimants.has(instanceId)));
+        if (covering.size === 0) break;
+    }
+
+    return Array.from(covering);
+}
+
 export function buildReminderNotificationParams(
     group: ReminderNotificationGroup
 ): Parameters<typeof sendNotification>[0] {
@@ -227,11 +291,18 @@ export function buildReminderNotificationParams(
     };
 }
 
-async function sendRemoteDeliveryMarker(group: ReminderNotificationGroup) {
+async function sendRemoteDeliveryMarker(
+    group: ReminderNotificationGroup,
+    excludeClientInstanceIds: string[]
+) {
     try {
         const result = await sendExpoDataPushToUser(group.userId, {
             data: buildReminderRemoteDeliveryMarkerData(group),
             ttlSeconds: 60,
+            // A device that armed this reminder itself was never pushed to, so
+            // it must not be told the remote copy was delivered — that marker
+            // would cancel the local schedule it is relying on.
+            excludeClientInstanceIds,
         });
 
         if (result.success === false) {
@@ -451,6 +522,11 @@ async function processDueTaskReminders(
         }
     }
 
+    const claimsByReminderId = await loadClaimedClientInstanceIds(
+        supabase,
+        notificationEntries.map((entry) => entry.reminder.id)
+    );
+
     for (const group of groupReminderNotificationEntries(notificationEntries)) {
         try {
             // Completion can race the earlier bulk task lookup. Re-read the
@@ -459,13 +535,17 @@ async function processDueTaskReminders(
             const liveEntries = await refreshActiveEntriesBeforeDelivery(supabase, group.entries);
             if (liveEntries.length === 0) continue;
             const liveGroup: ReminderNotificationGroup = { ...group, entries: liveEntries };
-            const sendResult = await sendWithWebRetry(buildReminderNotificationParams(liveGroup));
+            const excludeClientInstanceIds = getExcludedClientInstanceIds(liveGroup, claimsByReminderId);
+            const sendResult = await sendWithWebRetry({
+                ...buildReminderNotificationParams(liveGroup),
+                excludeClientInstanceIds,
+            });
 
             if (webNeedsRetry(sendResult.push.web)) {
                 liveGroup.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
             }
 
-            await sendRemoteDeliveryMarker(liveGroup);
+            await sendRemoteDeliveryMarker(liveGroup, excludeClientInstanceIds);
 
             for (const entry of liveGroup.entries) {
                 if (entry.reminder.source !== MANUAL_REMINDER_SOURCE && entry.eventType) {

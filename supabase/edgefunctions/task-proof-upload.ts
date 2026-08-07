@@ -1,7 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import {
+  CAPTURE_UPLOAD_WINDOW_MS,
   COMPLETION_EDIT_LOCKED_ERROR,
   canMarkProofUploadFailed,
+  isCaptureStartWithinLicense,
   isCompletionEditingLocked,
   wasProofStagedBeforeCompletionLock,
 } from './task-proof-deadline.ts';
@@ -11,9 +13,18 @@ const PROOF_TIMESTAMP_PLACEHOLDER = '??:?? ??/??/??';
 const MAX_TASK_PROOF_VIDEO_DURATION_MS = 15_000;
 const MAX_TASK_PROOF_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_TASK_PROOF_VIDEO_BYTES = 30 * 1024 * 1024;
-const CAPTURE_ATTESTATION_TRANSPORT_GRACE_MS = 10_000;
+// Ordinary mobile latency should never cost a user a task they finished on
+// time, so the online begin-capture call is forgiven a wide transport window.
+const CAPTURE_ATTESTATION_TRANSPORT_GRACE_MS = 60_000;
 const CAPTURE_ATTESTATION_MAX_CLOCK_SKEW_MS = 30_000;
 const CAPTURE_ATTESTATION_TTL_MS = 10 * 60 * 1000;
+
+// A capture license is fetched while the device still has connectivity and lets
+// it start a qualifying capture later with no network at all. The license
+// carries server-signed bounds; the exact instant inside them is the device's
+// claim. Its expiry is additionally clamped to the task's own deadline, so a
+// license can never authorize a capture the deadline would have refused.
+const CAPTURE_LICENSE_TTL_MS = 2 * 60 * 60 * 1000;
 
 const ALLOWED_PROOF_MIME_TYPES = new Set([
   'image/jpeg',
@@ -91,6 +102,7 @@ interface ProofIntent {
     | 'UNKNOWN';
   proofTimezone?: string | null;
   captureAttestation?: string | null;
+  captureLicense?: string | null;
 }
 
 interface ProofMeta extends ProofIntent {
@@ -126,6 +138,11 @@ interface BeginCaptureRequestBody {
   taskId: string;
   mediaKind: MediaKind;
   startedAt: string;
+}
+
+interface IssueCaptureLicenseRequestBody {
+  action: 'issue-capture-license';
+  taskId: string;
 }
 
 interface FinalizeRequestBody {
@@ -173,6 +190,7 @@ interface QueueRectificationNotificationRequestBody {
 
 type RequestBody =
   | BeginCaptureRequestBody
+  | IssueCaptureLicenseRequestBody
   | InitRequestBody
   | FinalizeRequestBody
   | FailRequestBody
@@ -201,6 +219,25 @@ interface CaptureAttestationPayload {
   expiresAt: string;
 }
 
+/**
+ * Server-signed permission to start a capture offline.
+ *
+ * Issued while the device is online, then presented at upload time alongside
+ * the capture start the device recorded locally. The signature makes the
+ * *window* trustworthy — a capture cannot be claimed before the license was
+ * issued or after it expired — while the precise instant within that window is
+ * the device's word. `notAfter` is clamped to the task deadline at issue time,
+ * so a valid license can never smuggle a capture past the deadline.
+ */
+interface CaptureLicensePayload {
+  version: 1;
+  kind: 'capture-license';
+  taskId: string;
+  ownerId: string;
+  notBefore: string;
+  notAfter: string;
+}
+
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -226,16 +263,13 @@ async function hmacSha256(value: string, secret: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(value)));
 }
 
-async function signCaptureAttestation(payload: CaptureAttestationPayload, secret: string): Promise<string> {
+async function signToken(payload: unknown, secret: string): Promise<string> {
   const encodedPayload = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
   const signature = base64UrlEncode(await hmacSha256(encodedPayload, secret));
   return `${encodedPayload}.${signature}`;
 }
 
-async function verifyCaptureAttestation(
-  token: string,
-  secret: string,
-): Promise<CaptureAttestationPayload | null> {
+async function verifyToken<T>(token: string, secret: string): Promise<T | null> {
   try {
     const [encodedPayload, suppliedSignature, extra] = token.split('.');
     if (!encodedPayload || !suppliedSignature || extra) return null;
@@ -247,12 +281,56 @@ async function verifyCaptureAttestation(
       mismatch |= expectedSignature[index] ^ suppliedBytes[index];
     }
     if (mismatch !== 0) return null;
-    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload))) as CaptureAttestationPayload;
+    return JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload))) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function signCaptureAttestation(payload: CaptureAttestationPayload, secret: string): Promise<string> {
+  return signToken(payload, secret);
+}
+
+async function signCaptureLicense(payload: CaptureLicensePayload, secret: string): Promise<string> {
+  return signToken(payload, secret);
+}
+
+async function verifyCaptureAttestation(
+  token: string,
+  secret: string,
+): Promise<CaptureAttestationPayload | null> {
+  try {
+    const payload = await verifyToken<CaptureAttestationPayload>(token, secret);
+    if (!payload) return null;
     if (payload.version !== 1 || new Date(payload.expiresAt).getTime() <= Date.now()) return null;
     return payload;
   } catch {
     return null;
   }
+}
+
+/**
+ * Validates an offline capture claim against its license.
+ *
+ * Returns the accepted capture instant, or null when the license is forged,
+ * for another task or user, or the claimed capture falls outside the window
+ * the license authorized.
+ */
+async function verifyLicensedCaptureStart(input: {
+  token: string;
+  secret: string;
+  taskId: string;
+  ownerId: string;
+  claimedStartedAtMs: number;
+}): Promise<string | null> {
+  const payload = await verifyToken<CaptureLicensePayload>(input.token, input.secret);
+  if (!payload) return null;
+  if (payload.version !== 1 || payload.kind !== 'capture-license') return null;
+  if (payload.taskId !== input.taskId || payload.ownerId !== input.ownerId) return null;
+
+  if (!isCaptureStartWithinLicense(payload, input.claimedStartedAtMs)) return null;
+
+  return new Date(input.claimedStartedAtMs).toISOString();
 }
 
 function normalizeProofTimestampText(value: unknown): string {
@@ -383,6 +461,9 @@ function normalizeProofIntent(raw: unknown): { value?: ProofIntent; error?: stri
   const sizeBytes = Number(candidate.sizeBytes);
   const durationMsRaw = candidate.durationMs == null ? null : Number(candidate.durationMs);
   const overlayTimestampText = normalizeProofTimestampText(candidate.overlayTimestampText);
+  const captureLicense = typeof candidate.captureLicense === 'string'
+    ? candidate.captureLicense.trim()
+    : '';
   const captureAttestation = typeof candidate.captureAttestation === 'string'
     ? candidate.captureAttestation.trim()
     : null;
@@ -422,6 +503,7 @@ function normalizeProofIntent(raw: unknown): { value?: ProofIntent; error?: stri
       durationMs: mediaKind === 'video' ? Math.round(Number(durationMsRaw)) : null,
       overlayTimestampText,
       captureAttestation: captureAttestation || null,
+      captureLicense: captureLicense || null,
       ...timestampMetadata.value,
     },
   };
@@ -548,7 +630,7 @@ Deno.serve(async (request) => {
   }
 
   if (
-    (action === 'begin-capture' || action === 'init' || action === 'finalize')
+    (action === 'begin-capture' || action === 'issue-capture-license' || action === 'init' || action === 'finalize')
     && !ATTACHABLE_PROOF_STATUSES.has((task as { status: string }).status)
   ) {
     return json(400, { success: false, error: 'Proof can only be attached to active or awaiting tasks.' });
@@ -562,6 +644,38 @@ Deno.serve(async (request) => {
     && isCompletionEditingLocked(taskStatus, taskDeadline)
   ) {
     return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+  }
+
+  // Fetched while the device still has connectivity so a capture can be started
+  // later with no network at all. Cheap and idempotent — the client refreshes it
+  // opportunistically for tasks whose deadline is approaching.
+  if (action === 'issue-capture-license') {
+    const issuedAtMs = Date.now();
+    let notAfterMs = issuedAtMs + CAPTURE_LICENSE_TTL_MS;
+
+    if (CAPTURE_DEADLINE_STATUSES.has(taskStatus)) {
+      const deadlineMs = taskDeadline ? new Date(taskDeadline).getTime() : NaN;
+      const cutoffMs = deadlineMs + 60_000;
+      if (!Number.isFinite(deadlineMs) || issuedAtMs >= cutoffMs) {
+        return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+      }
+      // Clamp to the deadline so a valid license can never authorize a capture
+      // the deadline itself would have refused.
+      notAfterMs = Math.min(notAfterMs, cutoffMs - 1);
+    }
+
+    return json(200, {
+      success: true,
+      captureLicense: await signCaptureLicense({
+        version: 1,
+        kind: 'capture-license',
+        taskId,
+        ownerId: user.id,
+        notBefore: new Date(issuedAtMs).toISOString(),
+        notAfter: new Date(notAfterMs).toISOString(),
+      }, env.serviceRoleKey),
+      expiresAt: new Date(notAfterMs).toISOString(),
+    });
   }
 
   if (action === 'begin-capture') {
@@ -632,6 +746,31 @@ Deno.serve(async (request) => {
         return json(400, { success: false, error: 'Proof capture timing could not be verified.' });
       }
       deadlineAttestedAt = attestation.startedAt;
+    } else if (proofIntent.captureLicense) {
+      // Offline path: the device had no connectivity to obtain a server
+      // attestation at capture time, so it presents the license it fetched
+      // earlier plus the start time it recorded locally.
+      if (
+        proofIntent.proofOrigin !== 'CAMERA'
+        || proofIntent.proofTimestampSource !== 'CAMERA_CAPTURE'
+      ) {
+        return json(400, { success: false, error: 'Proof capture timing could not be verified.' });
+      }
+
+      const licensedStartedAt = await verifyLicensedCaptureStart({
+        token: proofIntent.captureLicense,
+        secret: env.serviceRoleKey,
+        taskId,
+        ownerId: user.id,
+        claimedStartedAtMs: proofIntent.proofTimestampAt
+          ? new Date(proofIntent.proofTimestampAt).getTime()
+          : NaN,
+      });
+
+      if (!licensedStartedAt) {
+        return json(400, { success: false, error: 'Proof capture timing could not be verified.' });
+      }
+      deadlineAttestedAt = licensedStartedAt;
     }
 
     if (
@@ -792,6 +931,18 @@ Deno.serve(async (request) => {
     ) {
       await discardPendingProof();
       return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+    }
+
+    // A capture attested as on-time carries the upload past the deadline, but
+    // not indefinitely — otherwise a staged proof could be redeemed hours later.
+    // The window is wide enough for a large video on a poor connection or an
+    // upload resumed after the app was killed.
+    if (isCompletionEditingLocked(taskStatus, taskDeadline)) {
+      const stagedAtMs = proofStagedAt ? new Date(proofStagedAt).getTime() : NaN;
+      if (!Number.isFinite(stagedAtMs) || Date.now() - stagedAtMs > CAPTURE_UPLOAD_WINDOW_MS) {
+        await discardPendingProof();
+        return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+      }
     }
 
     if (

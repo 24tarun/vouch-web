@@ -69,6 +69,16 @@ interface SettingsClientProps {
     friends: FriendProfile[];
     googleCalendarIntegration: GoogleCalendarIntegrationState;
     charities: Charity[];
+    stats: {
+        activeTasks: number;
+        focusedHours: number;
+        focusedMinutes: number;
+        pendingVouches: number;
+        accepted: number;
+        missed: number;
+        surrendered: number;
+        denied: number;
+    };
 }
 
 type VoucherConflictTask = {
@@ -82,6 +92,7 @@ export default function SettingsClient({
     friends: initialFriends,
     googleCalendarIntegration,
     charities,
+    stats,
 }: SettingsClientProps) {
     const initialCurrency = normalizeCurrency(profile.currency);
     const initialFailureCostBounds = getFailureCostBounds(initialCurrency);
@@ -812,6 +823,39 @@ export default function SettingsClient({
                     <SignOutMenuForm variant="nav" />
                 </div>
             </div>
+            <section className="space-y-4 border-b border-slate-900 pb-8">
+                <h2 className="text-xl font-semibold text-white">Stats</h2>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-4">
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Active</p>
+                        <p className="text-2xl font-light text-blue-400">{stats.activeTasks}</p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Time Focused</p>
+                        <p className="text-2xl font-light text-cyan-400">{stats.focusedHours}<span className="ml-1 text-base text-slate-500">h</span> {stats.focusedMinutes}<span className="ml-1 text-base text-slate-500">m</span></p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pending Vouches</p>
+                        <p className="text-2xl font-light text-purple-400">{stats.pendingVouches}</p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Accepted</p>
+                        <p className="text-2xl font-light text-lime-300">{stats.accepted}</p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Missed</p>
+                        <p className="text-2xl font-light text-red-500">{stats.missed}</p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Surrendered</p>
+                        <p className="text-2xl font-light text-red-500">{stats.surrendered}</p>
+                    </div>
+                    <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Denied</p>
+                        <p className="text-2xl font-light text-red-500">{stats.denied}</p>
+                    </div>
+                </div>
+            </section>
             <section className="space-y-6 border-b border-slate-900 pb-8">
                 <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-white">Friends</h2>

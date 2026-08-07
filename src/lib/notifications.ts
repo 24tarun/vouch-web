@@ -30,6 +30,13 @@ export interface NotificationParams {
     pushChannels?: PushChannel[];
     ttlSeconds?: number;
     pushPayload?: PushPayload;
+    /**
+     * Expo-only. Devices that already have this notification armed on their own
+     * OS scheduler, and so must not also be pushed to. Web push is unaffected:
+     * browsers have no usable local scheduling API, so a web subscriber always
+     * receives.
+     */
+    excludeClientInstanceIds?: string[];
 }
 
 const DEFAULT_NOTIFICATION_TTL_SECONDS = 30 * 60;
@@ -122,6 +129,7 @@ export async function sendNotification(params: NotificationParams) {
                         body: pushPayload.body ?? "",
                         data: pushPayload.data,
                         ttlSeconds,
+                        excludeClientInstanceIds: params.excludeClientInstanceIds,
                     })
                     : Promise.resolve({
                         success: true,

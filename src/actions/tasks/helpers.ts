@@ -525,7 +525,7 @@ export async function insertTaskReminderRows(
 export function revalidateTaskSurfaces(taskId: string, userId: string) {
     invalidateActiveTasksCache(userId);
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath(`/tasks/${taskId}`);
 }
 
@@ -535,7 +535,7 @@ export function revalidateTaskAndSocialSurfaces(taskId: string, ownerUserId: str
         invalidatePendingVoucherRequestsCache(voucherUserId);
     }
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
 }

@@ -35,14 +35,19 @@ export default async function DashboardLayout({
         } catch {}
     }
 
-    const { count: statsBadgeCountRaw } = await supabase
-        .from("tasks")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .eq("proof_request_open", true)
-        .in("status", ["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE"]);
-    const statsBadgeCount = statsBadgeCountRaw || 0;
-    const clientInstanceStatus = await resolveWebUserClientInstanceStatus(user.id);
+    const [clientInstanceStatus, profileResult] = await Promise.all([
+        resolveWebUserClientInstanceStatus(user.id),
+        supabase
+            .from("profiles")
+            .select("username, avatar_path")
+            .eq("id", user.id)
+            .maybeSingle(),
+    ]);
+    const profile = profileResult.data as { username?: string | null; avatar_path?: string | null } | null;
+    const avatarPath = profile?.avatar_path?.trim();
+    const avatarUrl = avatarPath
+        ? supabase.storage.from("avatars").getPublicUrl(avatarPath).data.publicUrl
+        : null;
 
     return (
         <PomodoroProvider>
@@ -54,7 +59,11 @@ export default async function DashboardLayout({
                     <div className="max-w-4xl mx-auto px-4 md:px-0">
                         <div className="h-14 flex items-center">
                             <div className="w-full">
-                                <NavLinks userId={user.id} statsBadgeCount={statsBadgeCount} />
+                                <NavLinks
+                                    userId={user.id}
+                                    username={profile?.username ?? user.email?.split("@")[0] ?? "User"}
+                                    avatarUrl={avatarUrl}
+                                />
                             </div>
                         </div>
                     </div>

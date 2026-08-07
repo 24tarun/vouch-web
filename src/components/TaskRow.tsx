@@ -582,8 +582,8 @@ export function TaskRow({
             {layoutVariant === "completed" ? (
                 <div
                     className={cn(
-                        "group flex items-center gap-3 py-2 md:py-3 rounded-md hover:bg-slate-900/20 -mx-4 px-4 transition-colors",
-                        isActuallyCompleted && "opacity-80"
+                        "group flex items-center gap-3 py-2 md:py-3 rounded-md hover:bg-slate-900/20 -mx-4 px-4 transition-[background-color,opacity]",
+                        isActuallyCompleted && "opacity-20 hover:opacity-100"
                     )}
                     onMouseEnter={prefetchTaskDetails}
                     onFocus={prefetchTaskDetails}

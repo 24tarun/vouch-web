@@ -248,7 +248,7 @@ export async function setRecurrencePaused(taskId: string, paused: boolean) {
 
     const result = Array.isArray(data) ? data[0] : data;
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath(`/tasks/${taskId}`);
 
     return {

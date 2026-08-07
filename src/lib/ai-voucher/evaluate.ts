@@ -251,7 +251,7 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
   // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");
   revalidatePath("/tasks");
-  revalidatePath("/stats");
+  revalidatePath("/settings");
   revalidatePath(`/tasks/${taskId}`);
 }
 
@@ -334,7 +334,7 @@ async function denyTask(
   // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");
   revalidatePath("/tasks");
-  revalidatePath("/stats");
+  revalidatePath("/settings");
   revalidatePath(`/tasks/${taskId}`);
 }
 
@@ -403,7 +403,7 @@ async function failTask(
   // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");
   revalidatePath("/tasks");
-  revalidatePath("/stats");
+  revalidatePath("/settings");
   revalidatePath(`/tasks/${taskId}`);
 }
 

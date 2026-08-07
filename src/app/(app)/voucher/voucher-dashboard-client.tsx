@@ -193,12 +193,6 @@ export default function VoucherDashboardClient({
     };
 
     useEffect(() => {
-        if (isHistoryOpen && !historyLoaded && !historyLoading) {
-            void loadHistoryPage(0, true);
-        }
-    }, [historyLoaded, historyLoading, isHistoryOpen]);
-
-    useEffect(() => {
         const reconciled = reconcilePendingTasksFromServer(
             pendingTasks,
             suppressedPendingTaskIdsRef.current
@@ -612,58 +606,6 @@ export default function VoucherDashboardClient({
                 )}
             </section>
 
-            <section className="space-y-4">
-                <Button
-                    variant="ghost"
-                    onClick={handleHistoryToggle}
-                    className="group flex items-center gap-2 text-slate-400 hover:text-white px-0 hover:bg-transparent"
-                >
-                    {isHistoryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    <span className="font-medium text-sm">Vouched</span>
-                </Button>
-
-                {isHistoryOpen && (
-                    <div className="flex flex-col border-t border-slate-900/50">
-                        {historyLoading && !historyLoaded ? (
-                            <div className="py-8 text-center text-slate-500 text-sm">Loading history...</div>
-                        ) : historyState.length === 0 ? (
-                            <p className="py-4 text-xl font-semibold text-slate-500">No History yet</p>
-                        ) : (
-                            <>
-                                {historyState.map((task) => (
-                                    <CompactHistoryItem
-                                        key={task.id}
-                                        task={task}
-                                        onRectify={() => handleRectify(task.id)}
-                                        isLoading={inFlightIds.has(task.id)}
-                                    />
-                                ))}
-
-                                {historyHasMore && (
-                                    <div className="pt-4 flex justify-center">
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={handleLoadMore}
-                                            disabled={historyLoading}
-                                            className="border-slate-800 bg-slate-900/50 text-slate-300 hover:text-white"
-                                        >
-                                            {historyLoading ? (
-                                                <>
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    Loading...
-                                                </>
-                                            ) : (
-                                                "Load more"
-                                            )}
-                                        </Button>
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                )}
-            </section>
         </div>
     );
 }

@@ -209,7 +209,7 @@ export async function removeTaskProofAttachment(taskId: string) {
 
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
     return { success: true };
@@ -354,7 +354,7 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
 
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
     return { success: true };
@@ -435,7 +435,7 @@ export async function submitAwaitingUserProofToAi(taskId: string) {
 
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
 
@@ -486,7 +486,7 @@ export async function removeAwaitingVoucherProof(taskId: string) {
 
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
     return { success: true };
@@ -567,7 +567,7 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
     invalidateActiveTasksCache(user.id);
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/tasks");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
 

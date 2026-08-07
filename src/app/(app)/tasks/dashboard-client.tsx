@@ -20,7 +20,6 @@ import { DashboardHeaderActions, type DashboardSortMode } from "@/components/Das
 import { TaskInput, type TaskInputCreatePayload } from "@/components/TaskInput";
 import { PostponeDeadlineDialog } from "@/components/PostponeDeadlineDialog";
 import { TaskRow } from "@/components/TaskRow";
-import { CollapsibleCompletedList } from "@/components/CollapsibleCompletedList";
 import { CollapsibleFutureList } from "@/components/CollapsibleFutureList";
 import { TaskDetailPrefetcher } from "@/components/TaskDetailPrefetcher";
 import { runOptimisticMutation } from "@/lib/ui/runOptimisticMutation";
@@ -1227,24 +1226,29 @@ export default function DashboardClient({
             ) : (
                 <>
                     <div className="flex flex-col">
-                        {visibleActiveTasks.length === 0 ? (
-                            <div className="text-center py-12">
-                                <p className="text-slate-500 text-base">no tasks for today or tmrw, maybe check future?</p>
-                            </div>
-                        ) : (
-                            visibleActiveTasks.map((task) => renderActiveTaskRow(task))
-                        )}
-                    </div>
+                        <div className="flex flex-col">
+                            {visibleActiveTasks.length === 0 ? (
+                                <div className="text-center py-12">
+                                    <p className="text-slate-500 text-base">no tasks for today or tmrw, maybe check future?</p>
+                                </div>
+                            ) : (
+                                visibleActiveTasks.map((task) => renderActiveTaskRow(task))
+                            )}
+                        </div>
 
-                    {!alwaysShowActiveTasks && (
-                        <CollapsibleFutureList
-                            tasks={futureTasks}
-                            renderTask={renderActiveTaskRow}
-                        />
-                    )}
-                    {completedTasks.length > 0 && (
-                        <CollapsibleCompletedList tasks={completedTasks} />
-                    )}
+                        {!alwaysShowActiveTasks && (
+                            <CollapsibleFutureList
+                                tasks={futureTasks}
+                                renderTask={renderActiveTaskRow}
+                            />
+                        )}
+
+                        <div className="flex flex-col">
+                            {completedTasks.map((task) => (
+                                <TaskRow key={task.id} task={task} layoutVariant="completed" />
+                            ))}
+                        </div>
+                    </div>
                 </>
             )}
 

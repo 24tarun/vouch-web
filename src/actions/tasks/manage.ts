@@ -258,7 +258,7 @@ export async function ownerTempDeleteTask(taskId: string) {
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/tasks");
     revalidatePath("/friends");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath(`/tasks/${taskId}`);
     return { success: true };
 }
@@ -292,7 +292,7 @@ export async function surrenderTask(taskId: string) {
     invalidatePendingVoucherRequestsCache(data.voucher_id);
     revalidatePath("/tasks");
     revalidatePath("/friends");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/ledger");
     revalidatePath(`/tasks/${taskId}`);
 

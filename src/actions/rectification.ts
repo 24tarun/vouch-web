@@ -26,7 +26,7 @@ function refreshRectificationViews(taskId?: string) {
     revalidatePath("/tasks");
     revalidatePath("/friends");
     revalidatePath("/voucher");
-    revalidatePath("/stats");
+    revalidatePath("/settings");
     revalidatePath("/ledger");
     if (taskId) revalidatePath(`/tasks/${taskId}`);
 }

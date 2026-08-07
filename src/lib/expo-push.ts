@@ -36,6 +36,8 @@ export interface ExpoPushPayload {
   sound?: string | null;
   channelId?: string | null;
   ttlSeconds?: number;
+  /** Devices that already have this notification armed locally. */
+  excludeClientInstanceIds?: string[];
 }
 
 export interface ExpoPushSendResult {
@@ -95,7 +97,10 @@ async function getNotificationSoundKeyForUserAsync(
   return normalizeNotificationSoundKey((data as { notification_sound_key?: unknown } | null)?.notification_sound_key);
 }
 
-async function loadDeliveryTokenEntries(userId: string) {
+async function loadDeliveryTokenEntries(
+  userId: string,
+  excludeClientInstanceIds?: string[]
+) {
   const supabase = createAdminClient();
 
   const { data: tokenRows, error } = await supabase
@@ -105,7 +110,18 @@ async function loadDeliveryTokenEntries(userId: string) {
 
   const tokenEntries = ((tokenRows as Array<{ token: string; user_client_instance_id: string | null }> | null) ?? []);
   const scopedTokenEntries = tokenEntries.filter((row) => row.user_client_instance_id);
-  const deliveryTokenEntries = scopedTokenEntries.length > 0 ? scopedTokenEntries : tokenEntries;
+  const allTokenEntries = scopedTokenEntries.length > 0 ? scopedTokenEntries : tokenEntries;
+
+  // A device that already armed this reminder on its own OS scheduler must not
+  // also receive a push, or the user is alerted twice. Devices that did not
+  // claim it still get one, so local scheduling failing on a single device
+  // never costs the user the notification everywhere.
+  const excluded = new Set(excludeClientInstanceIds ?? []);
+  const deliveryTokenEntries = excluded.size === 0
+    ? allTokenEntries
+    : allTokenEntries.filter((row) => (
+      !row.user_client_instance_id || !excluded.has(row.user_client_instance_id)
+    ));
 
   if (error || deliveryTokenEntries.length === 0) {
     return {
@@ -215,7 +231,10 @@ export async function sendExpoPushToUser(
 ): Promise<ExpoPushSendResult> {
   const ttlSeconds = resolveTtlSeconds(payload.ttlSeconds);
 
-  const { supabase, deliveryTokenEntries, error } = await loadDeliveryTokenEntries(userId);
+  const { supabase, deliveryTokenEntries, error } = await loadDeliveryTokenEntries(
+    userId,
+    payload.excludeClientInstanceIds
+  );
 
   if (error || deliveryTokenEntries.length === 0) {
     return {
@@ -248,11 +267,28 @@ export async function sendExpoPushToUser(
 
 export async function sendExpoDataPushToUser(
   userId: string,
-  payload: { data: Record<string, unknown>; ttlSeconds?: number }
+  payload: {
+    data: Record<string, unknown>;
+    ttlSeconds?: number;
+    onlyClientInstanceIds?: string[];
+    excludeClientInstanceIds?: string[];
+  }
 ): Promise<ExpoPushSendResult> {
   const ttlSeconds = payload.ttlSeconds == null ? 60 : resolveTtlSeconds(payload.ttlSeconds);
 
-  const { supabase, deliveryTokenEntries, error } = await loadDeliveryTokenEntries(userId);
+  const { supabase, deliveryTokenEntries: allEntries, error } = await loadDeliveryTokenEntries(
+    userId,
+    payload.excludeClientInstanceIds
+  );
+
+  // Invalidation wake-ups target the specific devices holding a stale schedule
+  // rather than every device the user owns.
+  const onlyInstances = new Set(payload.onlyClientInstanceIds ?? []);
+  const deliveryTokenEntries = onlyInstances.size === 0
+    ? allEntries
+    : allEntries.filter((row) => (
+      row.user_client_instance_id && onlyInstances.has(row.user_client_instance_id)
+    ));
 
   if (error || deliveryTokenEntries.length === 0) {
     return {

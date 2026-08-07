@@ -4,6 +4,7 @@ import {
     buildReminderRemoteDeliveryMarkerData,
     buildReminderNotificationParams,
     getReminderLocalBackupKey,
+    getExcludedClientInstanceIds,
     groupReminderNotificationEntries,
     isReminderTaskActive,
     type ReminderNotificationEntry,
@@ -209,4 +210,51 @@ test("remote delivery marker uses stable single and aggregate backup keys", () =
         reminderAt: "2026-03-23T22:00:00.000Z",
         aggregate: true,
     });
+});
+
+test("excludes devices that already armed every reminder in the group", () => {
+    const groups = groupReminderNotificationEntries([
+        entry({ reminderId: "r1", taskId: "t1", title: "Pay rent", source: "DEFAULT_DEADLINE_DUE" }),
+        entry({ reminderId: "r2", taskId: "t2", title: "Call mum", source: "DEFAULT_DEADLINE_DUE" }),
+    ]);
+
+    const claims = new Map([
+        ["r1", ["iphone"]],
+        ["r2", ["iphone"]],
+    ]);
+
+    assert.deepEqual(getExcludedClientInstanceIds(groups[0], claims), ["iphone"]);
+});
+
+test("still pushes to a device that armed only part of an aggregated group", () => {
+    const groups = groupReminderNotificationEntries([
+        entry({ reminderId: "r1", taskId: "t1", title: "Pay rent", source: "DEFAULT_DEADLINE_DUE" }),
+        entry({ reminderId: "r2", taskId: "t2", title: "Call mum", source: "DEFAULT_DEADLINE_DUE" }),
+    ]);
+
+    // One push covers the whole group, so partial local coverage is not enough:
+    // suppressing here would silently drop the reminder for r2.
+    const claims = new Map([["r1", ["iphone"]]]);
+
+    assert.deepEqual(getExcludedClientInstanceIds(groups[0], claims), []);
+});
+
+test("pushes to every device when no device has claimed the reminder", () => {
+    const groups = groupReminderNotificationEntries([
+        entry({ reminderId: "r1", taskId: "t1", title: "Pay rent", source: "DEFAULT_DEADLINE_DUE" }),
+    ]);
+
+    assert.deepEqual(getExcludedClientInstanceIds(groups[0], new Map()), []);
+});
+
+test("excludes only the devices holding a claim, leaving other devices covered", () => {
+    const groups = groupReminderNotificationEntries([
+        entry({ reminderId: "r1", taskId: "t1", title: "Pay rent", source: "DEFAULT_DEADLINE_DUE" }),
+    ]);
+
+    const claims = new Map([["r1", ["iphone", "ipad"]]]);
+    const excluded = getExcludedClientInstanceIds(groups[0], claims).sort();
+
+    // The laptop browser never claims anything, so it keeps receiving push.
+    assert.deepEqual(excluded, ["ipad", "iphone"]);
 });
