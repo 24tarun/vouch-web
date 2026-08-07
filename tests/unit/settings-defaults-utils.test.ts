@@ -46,6 +46,7 @@ test("buildDefaultsFormData writes expected server keys", () => {
     const form = buildDefaultsFormData({
         defaultPomoDurationMinutes: "25",
         defaultEventDurationMinutes: "60",
+        defaultTaskDeadlineTime: "23:00",
         defaultFailureCostEuros: "1.00",
         effectiveDefaultVoucherId: "voucher-1",
         deadlineOneHourWarningEnabled: true,
@@ -64,6 +65,7 @@ test("buildDefaultsFormData writes expected server keys", () => {
     });
     // Passing scenario: required fields are present with expected values.
     assert.equal(form.get("defaultPomoDurationMinutes"), "25");
+    assert.equal(form.get("defaultTaskDeadlineTime"), "23:00");
     assert.equal(form.get("currency"), "EUR");
     assert.equal(form.get("autoSubmitAfterProofUpload"), "true");
     assert.equal(form.get("alwaysShowActiveTasks"), "true");
@@ -79,6 +81,7 @@ test("validateDefaultsState blocks invalid timezone and accepts valid payload", 
         validateDefaultsState({
             defaultPomoDurationMinutes: "25",
             defaultEventDurationMinutes: "60",
+            defaultTaskDeadlineTime: "23:00",
             defaultFailureCostEuros: "1.00",
             currency: "EUR",
             currencySymbol: "€",
@@ -95,6 +98,7 @@ test("validateDefaultsState blocks invalid timezone and accepts valid payload", 
         validateDefaultsState({
             defaultPomoDurationMinutes: "25",
             defaultEventDurationMinutes: "60",
+            defaultTaskDeadlineTime: "23:00",
             defaultFailureCostEuros: "1.00",
             currency: "EUR",
             currencySymbol: "€",

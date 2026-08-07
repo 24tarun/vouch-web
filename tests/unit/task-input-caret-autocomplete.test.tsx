@@ -76,6 +76,7 @@ function buildProfile(id: string, username: string, email: string): Profile {
         currency: "EUR",
         default_pomo_duration_minutes: 25,
         default_event_duration_minutes: 60,
+        default_task_deadline_time: "23:00",
         default_failure_cost_cents: 100,
         default_voucher_id: null,
         default_requires_proof_for_all_tasks: false,
@@ -106,6 +107,7 @@ test("typing partial keyword keeps caret at native input end while ghost suffix 
             defaultCurrency="EUR"
             defaultVoucherId={selfId}
             defaultEventDurationMinutes={60}
+            defaultTaskDeadlineTime="23:00"
             defaultRequiresProofForAllTasks={false}
             selfUserId={selfId}
         />
@@ -147,6 +149,7 @@ test("Tab accepts completion atomically and places caret at inserted token end",
             defaultCurrency="EUR"
             defaultVoucherId={selfId}
             defaultEventDurationMinutes={60}
+            defaultTaskDeadlineTime="23:00"
             defaultRequiresProofForAllTasks={false}
             selfUserId={selfId}
         />
@@ -189,6 +192,7 @@ test("tapping ghost suffix accepts completion and places caret at inserted token
             defaultCurrency="EUR"
             defaultVoucherId={selfId}
             defaultEventDurationMinutes={60}
+            defaultTaskDeadlineTime="23:00"
             defaultRequiresProofForAllTasks={false}
             selfUserId={selfId}
         />
@@ -233,6 +237,7 @@ test("tapping completion fragment does not auto-accept completion", async () => 
             defaultCurrency="EUR"
             defaultVoucherId={selfId}
             defaultEventDurationMinutes={60}
+            defaultTaskDeadlineTime="23:00"
             defaultRequiresProofForAllTasks={false}
             selfUserId={selfId}
         />
@@ -278,6 +283,7 @@ test("weekday completion suffix is contiguous with typed fragment in overlay str
             defaultCurrency="EUR"
             defaultVoucherId={selfId}
             defaultEventDurationMinutes={60}
+            defaultTaskDeadlineTime="23:00"
             defaultRequiresProofForAllTasks={false}
             selfUserId={selfId}
         />
@@ -318,6 +324,7 @@ test("Tab completion is ignored during composition and only applies after compos
             defaultCurrency="EUR"
             defaultVoucherId={selfId}
             defaultEventDurationMinutes={60}
+            defaultTaskDeadlineTime="23:00"
             defaultRequiresProofForAllTasks={false}
             selfUserId={selfId}
         />

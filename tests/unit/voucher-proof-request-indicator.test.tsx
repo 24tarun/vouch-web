@@ -77,6 +77,7 @@ function buildProfile(overrides: Partial<Profile> = {}): Profile {
         currency: "EUR",
         default_pomo_duration_minutes: 25,
         default_event_duration_minutes: 60,
+        default_task_deadline_time: "23:00",
         default_failure_cost_cents: 100,
         default_voucher_id: null,
         default_requires_proof_for_all_tasks: false,
