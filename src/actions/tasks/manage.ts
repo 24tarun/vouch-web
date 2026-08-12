@@ -2,26 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
+import { type TaskStatus } from "@/lib/xstate/task-machine";
 import { isOwnerTempDeletableStatus, getOwnerDeleteRemainingMs } from "@/lib/task-delete-window";
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
 import { notifyCommitmentFailureIfNeeded } from "@/actions/commitments";
-import {
-    canPostponeDailyRecurringTaskToDeadline,
-    shouldRestrictDailyPostponeToSameRuleDay,
-} from "@/lib/postpone-daily-recurrence";
-import { DEADLINE_INCLUSIVE_MINUTE_MS, isWithinInclusiveDeadlineMinute } from "@/lib/task-submission-window";
+import { runTaskCommand } from "./command";
 import {
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
-    enqueueGoogleCalendarUpsert,
-    enqueueGoogleCalendarDelete,
     revalidateTaskSurfaces,
-    realignTaskRemindersAfterPostpone,
     parseAndValidateFutureDeadline,
     INVALID_DEADLINE_ERROR,
-    DAILY_RECURRING_POSTPONE_SAME_DAY_ERROR,
 } from "./helpers";
 
 export async function postponeTask(taskId: string, newDeadlineIso: string) {
@@ -54,105 +45,12 @@ export async function postponeTask(taskId: string, newDeadlineIso: string) {
     }
     const newDeadlineDate = deadlineValidation.deadline;
 
-    const currentDeadline = new Date((task as any).deadline);
-    if (Number.isNaN(currentDeadline.getTime())) {
-        return { error: INVALID_DEADLINE_ERROR };
-    }
-
-    const now = new Date();
-    const activeDeadlineCutoffIso = new Date(now.getTime() - DEADLINE_INCLUSIVE_MINUTE_MS).toISOString();
-
-    if (!isWithinInclusiveDeadlineMinute(currentDeadline, now)) {
-        return { error: "Deadline has passed" };
-    }
-    if (!canTransition((task as any).status as TaskStatus, "POSTPONE")) {
-        return { error: `Cannot postpone task in ${(task as any).status} status` };
-    }
-    if ((task as any).postponed_at) {
-        return { error: "Task has already been postponed once" };
-    }
-
-    if ((task as any).recurrence_rule_id) {
-        const { data: recurrenceRule, error: recurrenceRuleError } = await (supabase.from("recurrence_rules") as any)
-            .select("rule_config, timezone")
-            .eq("id", (task as any).recurrence_rule_id)
-            .eq("user_id", user.id)
-            .maybeSingle();
-
-        if (recurrenceRuleError) {
-            return { error: recurrenceRuleError.message };
-        }
-
-        if (shouldRestrictDailyPostponeToSameRuleDay((recurrenceRule as any)?.rule_config)) {
-            const recurrenceTimeZone =
-                typeof (recurrenceRule as any)?.timezone === "string"
-                    ? ((recurrenceRule as any).timezone as string)
-                    : null;
-            const canPostponeWithinSameRuleDay = canPostponeDailyRecurringTaskToDeadline(
-                currentDeadline,
-                newDeadlineDate,
-                recurrenceTimeZone
-            );
-
-            if (!canPostponeWithinSameRuleDay) {
-                return { error: DAILY_RECURRING_POSTPONE_SAME_DAY_ERROR };
-            }
-        }
-    }
-
-    if (["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "DELETED"].includes((task as any).status)) {
-        return { error: `Cannot postpone task in ${(task as any).status} status` };
-    }
-
-    const expectedStatus = (task as any).status as TaskStatus;
-    const currentDeadlineIso = currentDeadline.toISOString();
-    // @ts-ignore
-    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
-        .update({
-            status: "POSTPONED",
-            deadline: newDeadlineDate.toISOString(),
-            postponed_at: now.toISOString(),
-        } as any)
-        .eq("id", (taskId as any))
-        .eq("user_id", user.id)
-        .eq("status", expectedStatus as any)
-        .eq("deadline", currentDeadlineIso as any)
-        .is("postponed_at", null)
-        .gt("deadline", activeDeadlineCutoffIso as any)
-        .select("id");
-
-    if (error) {
-        return { error: error.message };
-    }
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task can no longer be postponed. Please refresh." };
-    }
-
-    const reminderRealignment = await realignTaskRemindersAfterPostpone(
-        supabase,
-        taskId,
-        user.id,
-        currentDeadline,
-        newDeadlineDate
-    );
-    if (reminderRealignment.error) {
-        return { error: reminderRealignment.error };
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "POSTPONE",
-        actor_id: (user as any).id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: "POSTPONED",
-        metadata: {
-            previous_deadline: currentDeadline.toISOString(),
-            new_deadline: newDeadlineDate.toISOString(),
-        },
+    const command = await runTaskCommand(supabase as any, "postpone_task_v2", {
+        p_task_id: taskId,
+        p_new_deadline: newDeadlineDate.toISOString(),
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
     });
-
-    await enqueueGoogleCalendarUpsert(user.id, taskId);
+    if (!command.success) return { error: command.message };
 
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/friends");
@@ -216,43 +114,11 @@ export async function ownerTempDeleteTask(taskId: string) {
         return { error: "Delete window expired. Tasks can only be deleted within 1 hour." };
     }
 
-    const supabaseAdmin = createAdminClient();
-    let googleDeletePayload: {
-        google_event_id?: string;
-        calendar_id?: string;
-    } | undefined;
-
-    const { data: googleLink, error: googleLinkError } = await (supabaseAdmin.from("google_calendar_task_links") as any)
-        .select("google_event_id, calendar_id")
-        .eq("task_id", taskId as any)
-        .eq("user_id", user.id as any)
-        .maybeSingle();
-
-    if (googleLinkError) {
-        console.error("Failed to read Google Calendar link before ownerTempDeleteTask:", googleLinkError);
-    } else if ((googleLink as any)?.google_event_id || (googleLink as any)?.calendar_id) {
-        googleDeletePayload = {
-            google_event_id: (googleLink as any).google_event_id ?? undefined,
-            calendar_id: (googleLink as any).calendar_id ?? undefined,
-        };
-    }
-
-    const { data: deletedRows, error } = await (supabaseAdmin.from("tasks") as any)
-        .delete()
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any)
-        .in("status", ["ACTIVE", "POSTPONED"] as any)
-        .select("id");
-
-    if (error) {
-        return { error: error.message };
-    }
-
-    if (!deletedRows || deletedRows.length === 0) {
-        return { error: "Task can no longer be deleted. Please refresh." };
-    }
-
-    await enqueueGoogleCalendarDelete(user.id, taskId, googleDeletePayload);
+    const command = await runTaskCommand(supabase as any, "delete_task_v2", {
+        p_task_id: taskId,
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+    });
+    if (!command.success) return { error: command.message };
 
     invalidateActiveTasksCache(user.id);
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
@@ -274,19 +140,14 @@ export async function surrenderTask(taskId: string) {
     }
 
     const actorUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
-    const { data, error } = await (supabase.rpc("surrender_task_atomic" as any, {
+    const command = await runTaskCommand(supabase as any, "surrender_task_v2", {
         p_task_id: taskId,
         p_actor_user_client_instance_id: actorUserClientInstanceId,
-    } as any) as any).single();
+    });
+    if (!command.success || !command.task) return { error: command.success ? "Task could not be surrendered" : command.message };
+    const data = command.task as any;
 
-    if (error || !data) {
-        return { error: error?.message ?? "Task could not be surrendered" };
-    }
-
-    await Promise.allSettled([
-        enqueueGoogleCalendarUpsert(user.id, taskId),
-        notifyCommitmentFailureIfNeeded(taskId, data.recurrence_rule_id ?? null),
-    ]);
+    await notifyCommitmentFailureIfNeeded(taskId, data.recurrence_rule_id ?? null);
 
     invalidateActiveTasksCache(user.id);
     invalidatePendingVoucherRequestsCache(data.voucher_id);
@@ -299,7 +160,7 @@ export async function surrenderTask(taskId: string) {
     return {
         success: true,
         task: {
-            id: data.task_id as string,
+            id: data.id as string,
             status: "SURRENDERED" as const,
         },
     };

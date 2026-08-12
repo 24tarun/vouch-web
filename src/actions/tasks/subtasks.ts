@@ -1,7 +1,6 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { MANUAL_REMINDER_SOURCE } from "@/lib/task-reminder-defaults";
 import { MAX_SUBTASKS_PER_TASK } from "@/lib/constants";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 import {
@@ -124,7 +123,7 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
     }
 
     const { data: existingReminders, error: existingError } = await (supabase.from("task_reminders") as any)
-        .select("id, reminder_at, source, created_at")
+        .select("id, reminder_at")
         .eq("parent_task_id", taskId as any)
         .eq("user_id", user.id as any);
 
@@ -137,35 +136,29 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
         .filter((date) => date.getTime() > nowMs)
         .sort((a, b) => a.getTime() - b.getTime());
     const nextFutureIsoSet = new Set(nextFutureReminders.map((date) => date.toISOString()));
-    const existingSourceByReminderIso = new Map<string, string>();
-    const existingCreatedAtByReminderIso = new Map<string, string>();
-    for (const row of ((existingReminders as Array<{ reminder_at: string; source?: string | null; created_at: string }> | null) || [])) {
+    const existingFutureIsoSet = new Set<string>();
+    for (const row of ((existingReminders as Array<{ reminder_at: string }> | null) || [])) {
         const reminderDate = new Date(row.reminder_at);
-        if (Number.isNaN(reminderDate.getTime())) continue;
-        const reminderIso = reminderDate.toISOString();
-        existingSourceByReminderIso.set(reminderIso, row.source || MANUAL_REMINDER_SOURCE);
-        existingCreatedAtByReminderIso.set(reminderIso, row.created_at);
+        if (Number.isNaN(reminderDate.getTime()) || reminderDate.getTime() <= nowMs) continue;
+        existingFutureIsoSet.add(reminderDate.toISOString());
     }
 
-    if (nextFutureReminders.length > 0) {
-        const nowIso = new Date().toISOString();
-        const upsertRows = nextFutureReminders.map((reminderDate) => ({
-            reminder_at: reminderDate.toISOString(),
-            source: existingSourceByReminderIso.get(reminderDate.toISOString()) || MANUAL_REMINDER_SOURCE,
-            parent_task_id: taskId,
-            user_id: user.id,
-            notified_at: null,
-            created_at: existingCreatedAtByReminderIso.get(reminderDate.toISOString()) || nowIso,
-            updated_at: nowIso,
-        }));
+    type ReminderMutationResult = { error: { message: string } | null };
+    const callReminderMutation = supabase.rpc as unknown as (
+        functionName: string,
+        params: Record<string, unknown>
+    ) => Promise<ReminderMutationResult>;
 
-        const { error: upsertError } = await (supabase.from("task_reminders") as any).upsert(
-            upsertRows,
-            { onConflict: "parent_task_id,reminder_at" }
-        );
+    for (const reminderDate of nextFutureReminders) {
+        if (existingFutureIsoSet.has(reminderDate.toISOString())) continue;
 
-        if (upsertError) {
-            return { error: upsertError.message };
+        const { error: addError } = await callReminderMutation("add_task_reminder", {
+            p_task_id: taskId,
+            p_reminder_at: reminderDate.toISOString(),
+            p_alarm_enabled: false,
+        });
+        if (addError) {
+            return { error: addError.message };
         }
     }
 
@@ -179,13 +172,13 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
         .map((row) => row.id);
 
     if (toDeleteIds.length > 0) {
-        const { error: deleteError } = await (supabase.from("task_reminders") as any)
-            .delete()
-            .in("id", toDeleteIds as any)
-            .eq("user_id", user.id as any);
-
-        if (deleteError) {
-            return { error: deleteError.message };
+        for (const reminderId of toDeleteIds) {
+            const { error: deleteError } = await callReminderMutation("delete_task_reminder", {
+                p_reminder_id: reminderId,
+            });
+            if (deleteError) {
+                return { error: deleteError.message };
+            }
         }
     }
 

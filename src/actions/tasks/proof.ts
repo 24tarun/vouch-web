@@ -16,18 +16,17 @@ import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
 import { aiEvaluationLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { AI_PROFILE_ID } from "@/lib/ai-voucher/constants";
 import {
-    DEADLINE_INCLUSIVE_MINUTE_MS,
     isTaskCompletionLocked,
     wasProofStagedBeforeCompletionLock,
 } from "@/lib/task-submission-window";
 import {
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
-    enqueueGoogleCalendarUpsert,
     validateProofIntent,
     INVALID_TASK_PROOF_ERROR,
     type MarkTaskCompleteWithProofResult,
 } from "./helpers";
+import { runOrchestratedTaskCommand, runTaskCommand } from "./command";
 
 const COMPLETION_EDIT_LOCKED_ERROR = "The task deadline has passed. Proof and completion can no longer be changed.";
 
@@ -296,6 +295,20 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         return { error: updateError.message };
     }
 
+    let effectiveStatus = (task as any).status as string;
+    let aiQueuedByCommand = false;
+    if (["ACTIVE", "POSTPONED"].includes(effectiveStatus)) {
+        const command = await runOrchestratedTaskCommand(supabase as any, {
+            action: "complete-task-command",
+            taskId,
+            clientActionAt: (proofRow as any).created_at ?? new Date().toISOString(),
+            actorUserClientInstanceId: await resolveWebUserClientInstanceId(user.id),
+        });
+        if (!command.success) return { error: command.message };
+        effectiveStatus = command.toStatus ?? effectiveStatus;
+        aiQueuedByCommand = effectiveStatus === "AWAITING_AI";
+    }
+
     const nowIso = new Date().toISOString();
     const { error: clearProofRequestError } = await (supabase.from("tasks") as any)
         .update({
@@ -314,13 +327,13 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
 
     const { error: proofUploadedEventError } = await (supabase.from("task_events") as any).insert({
         task_id: taskId as any,
-        event_type: (task as any).status === "AWAITING_RECTIFICATION"
+        event_type: effectiveStatus === "AWAITING_RECTIFICATION"
             ? "RECTIFICATION_PROOF_UPLOADED"
             : "PROOF_UPLOADED",
         actor_id: user.id as any,
         actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: (task as any).status,
+        from_status: effectiveStatus,
+        to_status: effectiveStatus,
         metadata: {
             media_kind: proofMeta.mediaKind,
             mime_type: proofMeta.mimeType,
@@ -332,12 +345,12 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
         console.error("Failed to log PROOF_UPLOADED event:", proofUploadedEventError);
     }
 
-    if ((task as any).voucher_id === AI_PROFILE_ID && (task as any).status === "AWAITING_AI") {
+    if ((task as any).voucher_id === AI_PROFILE_ID && effectiveStatus === "AWAITING_AI" && !aiQueuedByCommand) {
         const aiResult = await triggerAiEvaluationForProof(taskId, proofMeta.mediaKind, user.id);
         if (aiResult.error) {
             return aiResult;
         }
-    } else if ((task as any).status === "AWAITING_RECTIFICATION") {
+    } else if (effectiveStatus === "AWAITING_RECTIFICATION") {
         const { data: request } = await (supabase.from("rectification_requests") as any)
             .select("id")
             .eq("task_id", taskId as any)
@@ -360,7 +373,9 @@ export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskPro
     return { success: true };
 }
 
-export async function submitAwaitingUserProofToAi(taskId: string) {
+export async function submitAwaitingUserProofToAi(
+    taskId: string
+): Promise<{ success?: true; error?: string }> {
     const supabase = await createClient();
     const {
         data: { user },
@@ -398,40 +413,12 @@ export async function submitAwaitingUserProofToAi(taskId: string) {
         return { error: "Upload proof first before resubmitting to AI." };
     }
 
-    const nowIso = new Date().toISOString();
-    const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
-        .update({
-            status: "AWAITING_AI",
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: nowIso,
-        } as any)
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any)
-        .eq("status", "AWAITING_USER" as any)
-        .select("id");
-
-    if (updateError) {
-        return { error: updateError.message };
-    }
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task changed while resubmitting. Please refresh and retry." };
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "RESUBMIT_TO_AI",
-        actor_id: user.id as any,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: "AWAITING_USER",
-        to_status: "AWAITING_AI",
+    const command = await runOrchestratedTaskCommand(supabase as any, {
+        action: "submit-ai-appeal-command",
+        taskId,
+        actorUserClientInstanceId: await resolveWebUserClientInstanceId(user.id),
     });
-
-    const aiResult = await triggerAiEvaluationForProof(taskId, proofRow.media_kind, user.id);
-    if (aiResult.error) {
-        return aiResult;
-    }
+    if (!command.success) return { error: command.message };
 
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);
     revalidatePath("/tasks");
@@ -512,57 +499,23 @@ export async function revertTaskCompletionAfterProofFailure(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if (!canFinalizeOrRevertProof((task as any).status)) {
-        return { error: `Cannot revert completion from ${(task as any).status} status` };
+    let restoredStatus = (task as any).status as "ACTIVE" | "POSTPONED";
+    if (!["ACTIVE", "POSTPONED"].includes((task as any).status)) {
+        if (!canFinalizeOrRevertProof((task as any).status)) {
+            return { error: `Cannot revert completion from ${(task as any).status} status` };
+        }
+        const command = await runTaskCommand(supabase as any, "undo_task_completion_v2", {
+            p_task_id: taskId,
+            p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+        });
+        if (!command.success) return { error: command.message };
+        restoredStatus = command.toStatus as "ACTIVE" | "POSTPONED";
     }
 
     const cleanup = await deleteTaskProof(taskId, "proof_upload_failure_revert");
     if (!cleanup.success) {
-        return { error: cleanup.error || "Could not remove proof media." };
+        console.error(`Post-command proof cleanup failed for task ${taskId}:`, cleanup.error);
     }
-
-    const nowIso = new Date().toISOString();
-    const completionDeadlineCutoffIso = new Date(Date.now() - DEADLINE_INCLUSIVE_MINUTE_MS).toISOString();
-    if (new Date(completionDeadlineCutoffIso) >= new Date((task as any).deadline)) {
-        return { error: "Deadline has passed" };
-    }
-
-    const restoredStatus: "ACTIVE" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "ACTIVE";
-
-    const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
-        .update({
-            status: restoredStatus,
-            marked_completed_at: null,
-            voucher_response_deadline: null,
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: nowIso,
-        } as any)
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any)
-        .eq("status", (task as any).status as any)
-        .gt("deadline", completionDeadlineCutoffIso)
-        .select("id");
-
-    if (updateError) {
-        return { error: updateError.message };
-    }
-
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task can no longer be reverted. Please refresh." };
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "PROOF_UPLOAD_FAILED_REVERT",
-        actor_id: user.id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: restoredStatus,
-    });
-
-    await enqueueGoogleCalendarUpsert(user.id, taskId);
 
     invalidateActiveTasksCache(user.id);
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);

@@ -180,7 +180,7 @@ export const recurrenceGenerator = schedules.task({
         const { data: rules, error } = await supabase
             .from("recurrence_rules")
             .select(
-                "id, user_id, voucher_id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, last_generated_date, paused_at, created_at, manual_reminder_offsets_ms, google_sync_for_rule, time_bound_for_rule, window_start_offset_minutes, google_event_duration_minutes, google_event_color_id"
+                "id, user_id, voucher_id, title, description, failure_cost_cents, required_pomo_minutes, requires_proof, rule_config, timezone, last_generated_date, paused_at, created_at, manual_reminder_offsets_ms, alarm_reminder_offsets_ms, google_sync_for_rule, time_bound_for_rule, window_start_offset_minutes, google_event_duration_minutes, google_event_color_id"
             )
             .is("paused_at", null) as { data: RecurrenceRule[] | null, error: any };
 
@@ -274,6 +274,10 @@ function sanitizeManualReminderOffsets(rawOffsets: unknown): number[] {
     return Array.from(offsets.values()).sort((a, b) => a - b);
 }
 
+function sanitizeAlarmReminderOffsets(rawOffsets: unknown): number[] {
+    return sanitizeManualReminderOffsets(rawOffsets);
+}
+
 async function getReminderOffsetsForRule(
     rule: RecurrenceRule,
     supabase: any
@@ -290,7 +294,8 @@ async function insertGeneratedReminders(
     taskId: string,
     userId: string,
     deadlineIso: string,
-    reminderOffsetsMs: number[]
+    reminderOffsetsMs: number[],
+    alarmOffsetsMs: Set<number>
 ) {
     if (reminderOffsetsMs.length === 0) return;
 
@@ -319,6 +324,7 @@ async function insertGeneratedReminders(
             user_id: userId,
             reminder_at: reminderIso,
             source: MANUAL_REMINDER_SOURCE,
+            alarm_enabled: alarmOffsetsMs.has(new Date(reminderIso).getTime() - deadlineMs),
             notified_at: null,
             created_at: nowIso,
             updated_at: nowIso,
@@ -360,7 +366,8 @@ async function insertDefaultDeadlineRemindersForGeneratedTask(
     taskId: string,
     userId: string,
     deadlineIso: string,
-    reminderDefaultsByUser: Map<string, { deadlineOneHourWarningEnabled: boolean; deadlineFinalWarningEnabled: boolean; deadlineDueWarningEnabled: boolean }>
+    reminderDefaultsByUser: Map<string, { deadlineOneHourWarningEnabled: boolean; deadlineFinalWarningEnabled: boolean; deadlineDueWarningEnabled: boolean }>,
+    alarmOffsetsMs: Set<number>
 ) {
     const defaults = await getReminderDefaultsForUser(supabase, userId, reminderDefaultsByUser);
     const seededRows = buildDefaultDeadlineReminderRows({
@@ -374,8 +381,10 @@ async function insertDefaultDeadlineRemindersForGeneratedTask(
     });
     if (seededRows.length === 0) return;
     const nowIso = new Date().toISOString();
+    const deadlineMs = new Date(deadlineIso).getTime();
     const seededRowsWithTimestamps = seededRows.map((row) => ({
         ...row,
+        alarm_enabled: alarmOffsetsMs.has(new Date(row.reminder_at).getTime() - deadlineMs),
         created_at: row.created_at ?? nowIso,
         updated_at: row.updated_at ?? nowIso,
     }));
@@ -389,6 +398,41 @@ async function insertDefaultDeadlineRemindersForGeneratedTask(
     );
     if (error) {
         console.error(`Failed to seed default reminders for generated task ${taskId}:`, error);
+    }
+}
+
+async function applyGeneratedAlarmOffsets(
+    supabase: any,
+    taskId: string,
+    deadlineIso: string,
+    alarmOffsetsMs: Set<number>
+) {
+    if (alarmOffsetsMs.size === 0) return;
+
+    const deadlineMs = new Date(deadlineIso).getTime();
+    if (!Number.isFinite(deadlineMs)) return;
+
+    const { data: reminders, error } = await (supabase.from("task_reminders") as any)
+        .select("id, reminder_at")
+        .eq("parent_task_id", taskId);
+    if (error) {
+        console.error(`Failed to load generated reminders for task ${taskId}:`, error);
+        return;
+    }
+
+    const alarmReminderIds = ((reminders as Array<{ id: string; reminder_at: string }> | null) || [])
+        .filter((reminder) => {
+            const reminderMs = new Date(reminder.reminder_at).getTime();
+            return Number.isFinite(reminderMs) && alarmOffsetsMs.has(reminderMs - deadlineMs);
+        })
+        .map((reminder) => reminder.id);
+    if (alarmReminderIds.length === 0) return;
+
+    const { error: updateError } = await (supabase.from("task_reminders") as any)
+        .update({ alarm_enabled: true })
+        .in("id", alarmReminderIds);
+    if (updateError) {
+        console.error(`Failed to apply generated reminder alarms for task ${taskId}:`, updateError);
     }
 }
 
@@ -427,6 +471,7 @@ async function processRule(
     if (shouldRun) {
         console.log(`Generating task for rule ${rule.id} on ${currentLocalDateStr}`);
         const reminderOffsetsMs = await getReminderOffsetsForRule(rule, supabase);
+        const alarmOffsetsMs = new Set(sanitizeAlarmReminderOffsets(rule.alarm_reminder_offsets_ms));
 
         const [hours, minutes] = time_of_day.split(":").map(Number);
         // Midnight is the boundary between two daily instances. A task born at
@@ -529,14 +574,22 @@ async function processRule(
                 createdTask.id,
                 rule.user_id,
                 createdTask.deadline || deadlineIso,
-                reminderOffsetsMs
+                reminderOffsetsMs,
+                alarmOffsetsMs
             );
             await insertDefaultDeadlineRemindersForGeneratedTask(
                 supabase,
                 createdTask.id,
                 rule.user_id,
                 createdTask.deadline || deadlineIso,
-                reminderDefaultsByUser
+                reminderDefaultsByUser,
+                alarmOffsetsMs
+            );
+            await applyGeneratedAlarmOffsets(
+                supabase,
+                createdTask.id,
+                createdTask.deadline || deadlineIso,
+                alarmOffsetsMs
             );
             if (rule.google_sync_for_rule) {
                 await enqueueGoogleCalendarOutbox(rule.user_id, createdTask.id, "UPSERT");

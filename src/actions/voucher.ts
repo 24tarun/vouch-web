@@ -7,12 +7,12 @@ import { sendNotification } from "@/lib/notifications";
 import { type Database, type VoucherPendingTask } from "@/lib/types";
 import { type SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import {
     invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
 } from "@/lib/cache-tags";
 import { deleteTaskProof } from "@/lib/task-proof";
-import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { canVoucherSeeTask } from "@/lib/voucher-task-visibility";
 import { buildProofRequestCountByTaskId, type ProofRequestEventRow } from "@/lib/voucher-proof-request";
 import { sortPendingTasks } from "@/lib/voucher-pending-sort";
@@ -27,6 +27,7 @@ import {
     notifyCommitmentRevivedIfNeeded,
 } from "@/actions/commitments";
 import { revalidateTaskAndSocialSurfaces } from "@/actions/tasks/helpers";
+import { runTaskCommand } from "@/actions/tasks/command";
 
 async function enqueueGoogleCalendarUpsert(userId: string, taskId: string) {
     try {
@@ -66,27 +67,6 @@ function periodInTimezone(timezone: string | null | undefined, at = new Date()):
 }
 
 
-async function applyVoucherDecisionUpdate(
-    supabase: SupabaseClient<Database>,
-    taskId: string,
-    voucherId: string,
-    priorStatus: TaskStatus,
-    patch: Record<string, unknown>
-) {
-    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
-        .update(patch as any)
-        .eq("id", taskId as any)
-        .eq("voucher_id", voucherId as any)
-        .eq("status", priorStatus as any)
-        .select("id");
-
-    if (error) return { error: error.message };
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task is no longer awaiting voucher response." };
-    }
-    return { success: true as const };
-}
-
 function refreshVoucherDecisionSurfaces(taskId: string, ownerUserId: string, voucherId: string) {
     revalidateTaskAndSocialSurfaces(taskId, ownerUserId, voucherId);
 }
@@ -117,38 +97,14 @@ export async function voucherAccept(taskId: string) {
         return { error: `Cannot accept task in ${typedTask.status} status` };
     }
 
-    const cleanup = await deleteTaskProof(taskId, "voucher_accept");
-    if (!cleanup.success) {
-        return { error: cleanup.error || "Could not remove proof media." };
-    }
-
-    const priorStatus = typedTask.status;
-    const updateResult = await applyVoucherDecisionUpdate(
-        supabase,
-        taskId,
-        user.id,
-        priorStatus,
-        {
-            status: "ACCEPTED",
-            has_proof: cleanup.deleted,
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-        }
-    );
-    if ("error" in updateResult) return { error: updateResult.error };
-
-    // @ts-ignore
-    await supabase.from("task_events").insert({
-        task_id: taskId as any,
-        event_type: "VOUCHER_ACCEPT",
-        actor_id: (user as any).id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: priorStatus,
-        to_status: "ACCEPTED",
+    const command = await runTaskCommand(supabase as any, "decide_voucher_task_v2", {
+        p_task_id: taskId,
+        p_decision: "ACCEPT",
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
     });
-
-    await enqueueGoogleCalendarUpsert(typedTask.user_id, taskId);
+    if (!command.success) return { error: command.message };
+    const cleanup = await deleteTaskProof(taskId, "voucher_accept_post_commit");
+    if (!cleanup.success) console.error(`Post-commit proof cleanup failed for task ${taskId}:`, cleanup.error);
 
     // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
     // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
@@ -183,52 +139,14 @@ export async function voucherDeny(taskId: string) {
         return { error: `Cannot deny task in ${typedTask.status} status` };
     }
 
-    const cleanup = await deleteTaskProof(taskId, "voucher_deny");
-    if (!cleanup.success) {
-        return { error: cleanup.error || "Could not remove proof media." };
-    }
-
-    // Add to ledger
-    const currentPeriod = new Date().toISOString().slice(0, 7);
-    const priorStatus = typedTask.status;
-    const updateResult = await applyVoucherDecisionUpdate(
-        supabase,
-        taskId,
-        user.id,
-        priorStatus,
-        {
-            status: "DENIED",
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-        }
-    );
-    if ("error" in updateResult) return { error: updateResult.error };
-
-    // Create ledger entry (use admin client to bypass RLS — voucher's auth.uid() ≠ task owner)
-    const adminForLedger = createAdminClient();
-    const { error: ledgerError } = await (adminForLedger.from("ledger_entries" as any) as any).insert({
-        user_id: (task as any).user_id,
-        task_id: taskId as any,
-        period: currentPeriod,
-        amount_cents: (task as any).failure_cost_cents,
-        entry_type: "denied",
+    const command = await runTaskCommand(supabase as any, "decide_voucher_task_v2", {
+        p_task_id: taskId,
+        p_decision: "DENY",
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
     });
-    if (ledgerError) {
-        console.error(`[voucherDeny] Failed to insert ledger entry for task ${taskId}:`, ledgerError);
-    }
-
-    // @ts-ignore
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "VOUCHER_DENY",
-        actor_id: (user as any).id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: priorStatus,
-        to_status: "DENIED",
-    });
-
-    await enqueueGoogleCalendarUpsert(typedTask.user_id, taskId);
+    if (!command.success) return { error: command.message };
+    const cleanup = await deleteTaskProof(taskId, "voucher_deny_post_commit");
+    if (!cleanup.success) console.error(`Post-commit proof cleanup failed for task ${taskId}:`, cleanup.error);
 
     if (typedTask.user?.id) {
         await sendNotification({
@@ -646,51 +564,12 @@ export async function escalateToHumanVoucher(
         return { error: "New voucher must be a friend" };
     }
 
-    // Fetch new voucher's profile for notification
-    const { data: newVoucher } = await (supabase.from("profiles") as any)
-        .select("id, email, username")
-        .eq("id", (newVoucherId as any))
-        .maybeSingle();
-
-    // Change voucher to human, set ai_escalated_from flag, transition through ESCALATED to AWAITING_VOUCHER
-    // @ts-ignore
-    const { error: updateError } = await (supabase.from("tasks") as any)
-        .update({
-            voucher_id: (newVoucherId as any),
-            ai_escalated_from: true,
-            status: "AWAITING_VOUCHER" as any,
-            voucher_response_deadline: getVoucherResponseDeadline(),
-        } as any)
-        .eq("id", (taskId as any))
-        .eq("user_id", (user as any).id);
-
-    if (updateError) {
-        return { error: updateError.message };
-    }
-
-    // No ledger reversal needed — no penalty was charged at AI denial stage
-
-    // Write ESCALATED transitional event, then auto-hop to AWAITING_VOUCHER
-    await (supabase.from("task_events") as any).insert([
-        {
-            task_id: (taskId as any),
-            event_type: "ESCALATE",
-            actor_id: (user as any).id,
-            actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-            from_status: (task as any).status,
-            to_status: "ESCALATED",
-            metadata: { new_voucher_id: (newVoucherId as any) },
-        },
-        {
-            task_id: (taskId as any),
-            event_type: "AI_ESCALATE_TO_HUMAN",
-            actor_id: (user as any).id,
-            actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-            from_status: "ESCALATED",
-            to_status: "AWAITING_VOUCHER",
-            metadata: { new_voucher_id: (newVoucherId as any) },
-        },
-    ]);
+    const command = await runTaskCommand(supabase as any, "escalate_ai_task_v2", {
+        p_task_id: taskId,
+        p_friend_id: newVoucherId,
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+    });
+    if (!command.success) return { error: command.message };
 
     // Notify the new voucher
     if (newVoucherId) {
@@ -714,11 +593,4 @@ export async function escalateToHumanVoucher(
     revalidatePath(`/tasks/${taskId}`);
 
     return { success: true };
-}
-
-function getVoucherResponseDeadline(): string {
-    const deadline = new Date();
-    deadline.setDate(deadline.getDate() + 2);
-    deadline.setHours(23, 59, 59, 999);
-    return deadline.toISOString();
 }

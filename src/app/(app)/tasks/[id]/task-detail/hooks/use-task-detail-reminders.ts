@@ -98,6 +98,7 @@ export function useTaskDetailReminders({
                         user_id: taskState.user_id,
                         reminder_at: reminderIso,
                         source: MANUAL_REMINDER_SOURCE,
+                        alarm_enabled: false,
                         notified_at: null,
                         created_at: nowIso,
                         updated_at: nowIso,

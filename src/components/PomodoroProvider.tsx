@@ -9,6 +9,7 @@ import {
     pausePomoSession,
     resumePomoSession,
     endPomoSession,
+    heartbeatPomoSession,
     getActivePomoSession
 } from "@/actions/tasks";
 import { PomoSession } from "@/lib/types";
@@ -17,11 +18,13 @@ import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { MAX_POMO_DURATION_MINUTES } from "@/lib/constants";
 import { isValidPomoDurationMinutes } from "@/lib/pomodoro";
 import { createAutoLockController, shouldSuppressAutoLock } from "@/lib/auto-lock";
+import { describePomoConflict, type PomoConflictSummary } from "@/lib/pomodoro-owner";
 
 type PomoEndSource = "manual_stop" | "timer_completed" | "system";
 type PomoSessionWithTask = PomoSession & { task?: { title?: string | null } | null };
 type ActivePomoSessionResponse = {
     session: PomoSessionWithTask | null;
+    blockingSession?: (PomoSessionWithTask & PomoConflictSummary) | null;
     serverNow: string;
 };
 
@@ -58,6 +61,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
     const pomoChannelRef = useRef<RealtimeChannel | null>(null);
     const locallyStartedSessionIdRef = useRef<string | null>(null);
     const lastSeenSessionIdRef = useRef<string | null>(null);
+    const lastShownBlockingSessionIdRef = useRef<string | null>(null);
     const autoLockControllerRef = useRef<ReturnType<typeof createAutoLockController> | null>(null);
     if (!autoLockControllerRef.current) {
         autoLockControllerRef.current = createAutoLockController();
@@ -84,6 +88,15 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             }
 
             const sessionData = data.session;
+            const blockingSession = data.blockingSession ?? null;
+            if (blockingSession) {
+                if (lastShownBlockingSessionIdRef.current !== blockingSession.id) {
+                    toast.info(describePomoConflict(blockingSession));
+                    lastShownBlockingSessionIdRef.current = blockingSession.id;
+                }
+            } else {
+                lastShownBlockingSessionIdRef.current = null;
+            }
             const nextSessionId = sessionData?.id || null;
             const previousSessionId = lastSeenSessionIdRef.current;
             if (sessionData) {
@@ -162,6 +175,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
                 setTaskTitle(null);
                 locallyStartedSessionIdRef.current = null;
                 lastSeenSessionIdRef.current = null;
+                lastShownBlockingSessionIdRef.current = null;
             }
         });
 
@@ -199,6 +213,40 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
 
         return () => window.clearInterval(interval);
     }, [session, refreshSession]);
+
+    const activeSessionId = session?.id ?? null;
+
+    useEffect(() => {
+        if (!activeSessionId) return;
+
+        const heartbeat = () => {
+            void heartbeatPomoSession(activeSessionId);
+        };
+        const requestClose = (event: PageTransitionEvent) => {
+            if (event.persisted) return;
+            const payload = JSON.stringify({
+                action: "close_requested",
+                sessionId: activeSessionId,
+            });
+
+            if (navigator.sendBeacon?.("/api/pomo/lifecycle", payload)) return;
+            void fetch("/api/pomo/lifecycle", {
+                method: "POST",
+                body: payload,
+                credentials: "same-origin",
+                keepalive: true,
+            });
+        };
+
+        heartbeat();
+        const heartbeatInterval = window.setInterval(heartbeat, 10_000);
+        window.addEventListener("pagehide", requestClose);
+
+        return () => {
+            window.clearInterval(heartbeatInterval);
+            window.removeEventListener("pagehide", requestClose);
+        };
+    }, [activeSessionId]);
 
     const sessionStatus = session?.status;
 

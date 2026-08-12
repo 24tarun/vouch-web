@@ -143,6 +143,7 @@ export interface TaskReminder {
     user_id: string;
     reminder_at: string;
     source: "MANUAL" | "DEFAULT_DEADLINE_1H" | "DEFAULT_DEADLINE_10M" | "DEFAULT_DEADLINE_DUE";
+    alarm_enabled: boolean;
     notified_at: string | null;
     created_at: string;
     updated_at: string;
@@ -253,8 +254,11 @@ export interface PomoSession {
     started_at: string;
     paused_at: string | null;
     completed_at: string | null;
+    owner_heartbeat_at: string | null;
+    close_requested_at: string | null;
     created_at: string;
     updated_at: string;
+    owner_user_client_instance_id: string | null;
 }
 
 export interface WebPushSubscription {
@@ -390,6 +394,7 @@ export interface RecurrenceRule {
     google_event_duration_minutes?: number | null;
     google_event_color_id?: string | null;
     manual_reminder_offsets_ms?: number[] | null;
+    alarm_reminder_offsets_ms?: number[] | null;
     last_generated_date: string | null; // YYYY-MM-DD
     latest_iteration?: number;
     paused_at?: string | null;
@@ -488,7 +493,7 @@ export interface Database {
             }
             task_reminders: {
                 Row: TaskReminder
-                Insert: Omit<TaskReminder, "id" | "created_at" | "updated_at" | "source"> & Partial<Pick<TaskReminder, "created_at" | "updated_at" | "source">>
+                Insert: Omit<TaskReminder, "id" | "created_at" | "updated_at" | "source" | "alarm_enabled"> & Partial<Pick<TaskReminder, "created_at" | "updated_at" | "source" | "alarm_enabled">>
                 Update: Partial<TaskReminder>
             }
             reminder_device_claims: {

@@ -6,44 +6,6 @@ type WebkitWindow = Window & {
     webkitAudioContext?: typeof AudioContext;
 };
 
-function playPomoAutoEndSound() {
-    if (typeof window === 'undefined') return;
-
-    try {
-        const audioWindow = window as WebkitWindow;
-        const AudioCtx = window.AudioContext || audioWindow.webkitAudioContext;
-        if (!AudioCtx) return;
-
-        const ctx = new AudioCtx();
-        const startAt = ctx.currentTime + 0.01;
-
-        const playBeep = (offset: number, frequency: number) => {
-            const oscillator = ctx.createOscillator();
-            const gain = ctx.createGain();
-
-            oscillator.type = 'sine';
-            oscillator.frequency.value = frequency;
-            gain.gain.setValueAtTime(0.0001, startAt + offset);
-            gain.gain.exponentialRampToValueAtTime(0.14, startAt + offset + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.0001, startAt + offset + 0.2);
-
-            oscillator.connect(gain);
-            gain.connect(ctx.destination);
-            oscillator.start(startAt + offset);
-            oscillator.stop(startAt + offset + 0.22);
-        };
-
-        playBeep(0, 880);
-        playBeep(0.24, 988);
-
-        window.setTimeout(() => {
-            void ctx.close();
-        }, 1200);
-    } catch {
-        // Best-effort sound playback. Ignore unsupported/browser-blocked playback.
-    }
-}
-
 function playDefaultNotificationSound() {
     if (typeof window === 'undefined') return;
 
@@ -99,12 +61,8 @@ export function PWARegistration() {
         };
 
         const handleServiceWorkerMessage = (event: MessageEvent) => {
-            const payload = event.data as { type?: string; sound?: string } | undefined;
+            const payload = event.data as { type?: string } | undefined;
             if (!payload || payload.type !== 'tas-play-sound') return;
-            if (payload.sound === 'pomo-auto-end') {
-                playPomoAutoEndSound();
-                return;
-            }
             playDefaultNotificationSound();
         };
 

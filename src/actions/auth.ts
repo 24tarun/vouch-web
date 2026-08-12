@@ -72,9 +72,12 @@ async function autoEndLingeringPomoSession(
     userId: string,
     source: PomoAutoEndSource
 ) {
+    const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(userId);
+    if (!ownerUserClientInstanceId) return;
     const sessionResult = await (supabase.from("pomo_sessions") as any)
         .select("*")
         .eq("user_id", userId)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
         .in("status", ["ACTIVE", "PAUSED"])
         .order("created_at", { ascending: false })
         .limit(1)
@@ -103,6 +106,7 @@ async function autoEndLingeringPomoSession(
         })
         .eq("id", session.id)
         .eq("user_id", userId)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
         .in("status", ["ACTIVE", "PAUSED"])
         .select("id")
         .maybeSingle();
@@ -127,7 +131,7 @@ async function autoEndLingeringPomoSession(
         task_id: session.task_id,
         event_type: "POMO_COMPLETED",
         actor_id: userId,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(userId),
+        actor_user_client_instance_id: ownerUserClientInstanceId,
         from_status: task.status,
         to_status: task.status,
         metadata: {

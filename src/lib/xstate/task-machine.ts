@@ -1,6 +1,7 @@
 import { setup, assign } from "xstate";
 
 const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
+const AI_PROFILE_ID = "11111111-1111-1111-1111-111111111111";
 
 // Task status types — V2 lifecycle
 export type TaskStatus =
@@ -38,7 +39,6 @@ export type TaskEvent =
     | { type: "ESCALATE" }
     | { type: "TIMEOUT_VOUCHER" }
     | { type: "RECTIFY" }
-    | { type: "MONTH_CLOSE" }
     | { type: "OVERRIDE" };
 
 // Context for the task machine
@@ -99,6 +99,8 @@ export const taskMachine = setup({
         isBeforeDeadline: ({ context }) => {
             return new Date().getTime() < context.deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS;
         },
+        isSelfVouched: ({ context }) => context.voucherId === context.userId,
+        isAiVouched: ({ context }) => context.voucherId === AI_PROFILE_ID,
     },
 }).createMachine({
     id: "task",
@@ -118,42 +120,34 @@ export const taskMachine = setup({
                         },
                     ],
                 },
-                MARK_COMPLETE: {
-                    target: "MARKED_COMPLETE",
-                    guard: "isBeforeDeadline",
-                    actions: ["setMarkedCompletedAt"],
-                },
+                MARK_COMPLETE: [
+                    { target: "ACCEPTED", guard: ({ context }) => context.voucherId === context.userId && new Date().getTime() < context.deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS, actions: ["setMarkedCompletedAt"] },
+                    { target: "AWAITING_AI", guard: ({ context }) => context.voucherId === AI_PROFILE_ID && new Date().getTime() < context.deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS, actions: ["setMarkedCompletedAt"] },
+                    { target: "AWAITING_VOUCHER", guard: "isBeforeDeadline", actions: ["setMarkedCompletedAt", "setVoucherResponseDeadline"] },
+                ],
                 DEADLINE_PASSED: {
                     target: "MISSED",
                     actions: ["updateTimestamp"],
                 },
                 SURRENDER: {
                     target: "SURRENDERED",
-                    actions: ["updateTimestamp"],
-                },
-                OVERRIDE: {
-                    target: "SETTLED",
                     actions: ["updateTimestamp"],
                 },
             },
         },
         POSTPONED: {
             on: {
-                MARK_COMPLETE: {
-                    target: "MARKED_COMPLETE",
-                    guard: "isBeforeDeadline",
-                    actions: ["setMarkedCompletedAt"],
-                },
+                MARK_COMPLETE: [
+                    { target: "ACCEPTED", guard: ({ context }) => context.voucherId === context.userId && new Date().getTime() < context.deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS, actions: ["setMarkedCompletedAt"] },
+                    { target: "AWAITING_AI", guard: ({ context }) => context.voucherId === AI_PROFILE_ID && new Date().getTime() < context.deadline.getTime() + DEADLINE_INCLUSIVE_MINUTE_MS, actions: ["setMarkedCompletedAt"] },
+                    { target: "AWAITING_VOUCHER", guard: "isBeforeDeadline", actions: ["setMarkedCompletedAt", "setVoucherResponseDeadline"] },
+                ],
                 DEADLINE_PASSED: {
                     target: "MISSED",
                     actions: ["updateTimestamp"],
                 },
                 SURRENDER: {
                     target: "SURRENDERED",
-                    actions: ["updateTimestamp"],
-                },
-                OVERRIDE: {
-                    target: "SETTLED",
                     actions: ["updateTimestamp"],
                 },
             },
@@ -177,7 +171,7 @@ export const taskMachine = setup({
                     actions: ["updateTimestamp"],
                 },
                 AI_DENY: {
-                    target: "AI_DENIED",
+                    target: "AWAITING_USER",
                     actions: ["updateTimestamp"],
                 },
             },
@@ -224,8 +218,8 @@ export const taskMachine = setup({
                     actions: ["updateTimestamp"],
                 },
                 ESCALATE: {
-                    target: "ESCALATED",
-                    actions: ["updateTimestamp"],
+                    target: "AWAITING_VOUCHER",
+                    actions: ["updateTimestamp", "setVoucherResponseDeadline"],
                 },
                 ACCEPT_DENIAL: {
                     target: "DENIED",
@@ -241,37 +235,16 @@ export const taskMachine = setup({
             },
         },
         AWAITING_RECTIFICATION: {},
-        ACCEPTED: {
-            on: {
-                MONTH_CLOSE: {
-                    target: "SETTLED",
-                    actions: ["updateTimestamp"],
-                },
-            },
-        },
-        AUTO_ACCEPTED: {
-            on: {
-                MONTH_CLOSE: {
-                    target: "SETTLED",
-                    actions: ["updateTimestamp"],
-                },
-            },
-        },
-        AI_ACCEPTED: {
-            on: {
-                MONTH_CLOSE: {
-                    target: "SETTLED",
-                    actions: ["updateTimestamp"],
-                },
-            },
-        },
+        ACCEPTED: {},
+        AUTO_ACCEPTED: {},
+        AI_ACCEPTED: {},
         DENIED: {
             on: {
                 RECTIFY: {
                     target: "RECTIFIED",
                     actions: ["updateTimestamp"],
                 },
-                MONTH_CLOSE: {
+                OVERRIDE: {
                     target: "SETTLED",
                     actions: ["updateTimestamp"],
                 },
@@ -283,7 +256,7 @@ export const taskMachine = setup({
                     target: "RECTIFIED",
                     actions: ["updateTimestamp"],
                 },
-                MONTH_CLOSE: {
+                OVERRIDE: {
                     target: "SETTLED",
                     actions: ["updateTimestamp"],
                 },
@@ -295,20 +268,13 @@ export const taskMachine = setup({
                     target: "RECTIFIED",
                     actions: ["updateTimestamp"],
                 },
-                MONTH_CLOSE: {
+                OVERRIDE: {
                     target: "SETTLED",
                     actions: ["updateTimestamp"],
                 },
             },
         },
-        RECTIFIED: {
-            on: {
-                MONTH_CLOSE: {
-                    target: "SETTLED",
-                    actions: ["updateTimestamp"],
-                },
-            },
-        },
+        RECTIFIED: {},
         SETTLED: {
             type: "final",
         },
@@ -321,8 +287,8 @@ export const taskMachine = setup({
 // Helper function to get valid transitions from a state
 export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     const transitions: Record<TaskStatus, TaskEvent["type"][]> = {
-        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "SURRENDER", "OVERRIDE"],
-        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "SURRENDER", "OVERRIDE"],
+        ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "SURRENDER"],
+        POSTPONED: ["MARK_COMPLETE", "DEADLINE_PASSED", "SURRENDER"],
         MARKED_COMPLETE: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER", "AI_APPROVE", "AI_DENY"],
         AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER"],
         AWAITING_AI: ["AI_APPROVE", "AI_DENY"],
@@ -330,13 +296,13 @@ export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
         AWAITING_USER: ["APPEAL", "ESCALATE", "ACCEPT_DENIAL"],
         ESCALATED: [], // Auto-transitions to AWAITING_VOUCHER
         AWAITING_RECTIFICATION: [],
-        ACCEPTED: ["MONTH_CLOSE"],
-        AUTO_ACCEPTED: ["MONTH_CLOSE"],
-        AI_ACCEPTED: ["MONTH_CLOSE"],
-        DENIED: ["RECTIFY", "MONTH_CLOSE"],
-        MISSED: ["RECTIFY", "MONTH_CLOSE"],
-        SURRENDERED: ["RECTIFY", "MONTH_CLOSE"],
-        RECTIFIED: ["MONTH_CLOSE"],
+        ACCEPTED: [],
+        AUTO_ACCEPTED: [],
+        AI_ACCEPTED: [],
+        DENIED: ["RECTIFY", "OVERRIDE"],
+        MISSED: ["RECTIFY", "OVERRIDE"],
+        SURRENDERED: ["RECTIFY", "OVERRIDE"],
+        RECTIFIED: [],
         DELETED: [],
         SETTLED: [],
     };

@@ -70,6 +70,7 @@ export function buildDefaultDeadlineReminderRows({
             user_id: userId,
             reminder_at: reminderIso,
             source,
+            alarm_enabled: false,
             notified_at: isPast ? seededNowIso : null,
             created_at: seededNowIso,
             updated_at: seededNowIso,

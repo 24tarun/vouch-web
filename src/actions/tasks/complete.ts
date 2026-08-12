@@ -2,34 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
-import { deleteTaskProof, TASK_PROOFS_BUCKET, buildTaskProofObjectPath } from "@/lib/task-proof";
+import { deleteTaskProof } from "@/lib/task-proof";
 import { type TaskProofIntent } from "@/lib/task-proof";
-import {
-    getAwaitingProofReviewStatus,
-    canFinalizeOrRevertProof,
-} from "@/lib/task-proof-routing";
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
-import { normalizeProofTimestampText } from "@/lib/proof-timestamp";
+import { getTaskSubmissionWindowState } from "@/lib/task-submission-window";
 import {
-    DEADLINE_INCLUSIVE_MINUTE_MS,
-    getTaskSubmissionWindowState,
-} from "@/lib/task-submission-window";
-import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
-import {
-    enqueueGoogleCalendarUpsert,
     revalidateTaskAndSocialSurfaces,
     validateProofIntent,
-    getVoucherResponseDeadlineUtc,
     RecurrenceRuleTable,
     INCOMPLETE_SUBTASKS_ERROR,
     INCOMPLETE_POMO_REQUIREMENT_ERROR,
     ACTIVE_POMO_RUNNING_ERROR,
     REQUIRED_PROOF_FOR_COMPLETION_ERROR,
-    INVALID_TASK_PROOF_ERROR,
     type MarkTaskCompleteWithProofResult,
 } from "./helpers";
+import { runOrchestratedTaskCommand, runTaskCommand } from "./command";
 
 function buildBeforeStartSubmissionError(start: Date | null, end: Date | null): string {
     const fmt = (d: Date) =>
@@ -42,10 +30,6 @@ function buildBeforeStartSubmissionError(start: Date | null, end: Date | null): 
         });
     const window = start && end ? ` between ${fmt(start)} and ${fmt(end)}` : "";
     return `This task can only be submitted${window}.`;
-}
-
-function getCompletionDeadlineCutoffIso(nowIso: string): string {
-    return new Date(new Date(nowIso).getTime() - DEADLINE_INCLUSIVE_MINUTE_MS).toISOString();
 }
 
 async function validateCompletionPreconditions(
@@ -103,58 +87,6 @@ async function validateCompletionPreconditions(
     }
 
     return {};
-}
-
-async function completeSelfVouchedTask(
-    supabase: Awaited<ReturnType<typeof createClient>>,
-    taskId: string,
-    userId: string,
-    priorStatus: TaskStatus,
-    voucherId: string,
-    nowIso: string
-): Promise<{ success?: true; error?: string }> {
-    const completionDeadlineCutoffIso = getCompletionDeadlineCutoffIso(nowIso);
-    const cleanup = await deleteTaskProof(taskId, "self_vouch_auto_accept");
-    if (!cleanup.success) {
-        return { error: cleanup.error || "Could not clear previous proof media." };
-    }
-
-    const { data: updatedRows, error: updateError } = await (supabase.from("tasks") as any)
-        .update({
-            status: "ACCEPTED",
-            marked_completed_at: nowIso,
-            voucher_response_deadline: null,
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: nowIso,
-        } as any)
-        .eq("id", taskId as any)
-        .eq("user_id", userId as any)
-        .in("status", ["ACTIVE", "POSTPONED"] as any)
-        .gt("deadline", completionDeadlineCutoffIso as any)
-        .select("id");
-
-    if (updateError) return { error: updateError.message };
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task can no longer be marked complete. Please refresh." };
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "MARK_COMPLETE",
-        actor_id: userId as any,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(userId),
-        from_status: priorStatus,
-        to_status: "ACCEPTED",
-        metadata: {
-            self_vouched: true,
-            auto_accepted: true,
-        },
-    });
-
-    revalidateTaskAndSocialSurfaces(taskId, userId, voucherId);
-    return { success: true };
 }
 
 export async function cancelRepetition(taskId: string) {
@@ -303,25 +235,17 @@ export async function markTaskCompleteWithProofIntent(
     const requiresProofForCompletion =
         Boolean((task as any).requires_proof) &&
         !isSelfVouched;
-    const nowIso = new Date().toISOString();
-
-    if (isSelfVouched) {
-        return completeSelfVouchedTask(
-            supabase,
-            taskId,
-            user.id,
-            (task as any).status as TaskStatus,
-            (task as any).voucher_id as string,
-            nowIso
-        );
-    }
-
     const proofValidation = validateProofIntent(rawProofIntent);
     if (proofValidation.error) {
         return { error: proofValidation.error };
     }
 
     const proofIntent = proofValidation.proofIntent;
+    if (proofIntent && !isSelfVouched) {
+        const { initAwaitingVoucherProofUpload } = await import("./proof");
+        return initAwaitingVoucherProofUpload(taskId, proofIntent);
+    }
+
     const { data: existingUploadedProofRows, error: existingUploadedProofError } = await (supabase.from("task_completion_proofs") as any)
         .select("id")
         .eq("task_id", taskId as any)
@@ -339,148 +263,21 @@ export async function markTaskCompleteWithProofIntent(
         return { error: REQUIRED_PROOF_FOR_COMPLETION_ERROR };
     }
 
-    const completionStatus = getAwaitingProofReviewStatus((task as any).voucher_id);
-    const isAiVoucher = completionStatus === "AWAITING_AI";
-    const voucherResponseDeadline = isAiVoucher ? null : getVoucherResponseDeadlineUtc(new Date(), userTimeZone);
-    const completionDeadlineCutoffIso = getCompletionDeadlineCutoffIso(nowIso);
-
-    // @ts-ignore
-    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
-        .update({
-            status: completionStatus,
-            marked_completed_at: nowIso,
-            voucher_response_deadline: voucherResponseDeadline ? voucherResponseDeadline.toISOString() : null,
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: nowIso,
-        } as any)
-        .eq("id", (taskId as any))
-        .eq("user_id", (user as any).id)
-        .in("status", ["ACTIVE", "POSTPONED"] as any)
-        .gt("deadline", completionDeadlineCutoffIso)
-        .select("id");
-
-    if (error) {
-        return { error: error.message };
-    }
-
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task can no longer be marked complete. Please refresh." };
-    }
-
-    let proofUploadTarget: { bucket: string; objectPath: string; uploadToken?: string } | undefined;
-
-    if (proofIntent) {
-        const objectPath = buildTaskProofObjectPath({
-            ownerId: user.id,
-            taskId,
-            mimeType: proofIntent.mimeType,
-        });
-
-        const { data: existingProof } = await (supabase.from("task_completion_proofs") as any)
-            .select("bucket, object_path")
-            .eq("task_id", taskId as any)
-            .maybeSingle();
-
-        if (existingProof?.object_path) {
-            await (supabase.storage.from((existingProof.bucket as string) || TASK_PROOFS_BUCKET) as any)
-                .remove([(existingProof.object_path as string)]);
-        }
-
-        if (existingProof) {
-            await (supabase.from("task_completion_proofs") as any)
-                .delete()
-                .eq("task_id", taskId as any)
-                .eq("owner_id", user.id as any);
-        }
-
-        const { error: proofError } = await (supabase.from("task_completion_proofs") as any)
-            .insert({
-                task_id: taskId,
-                owner_id: user.id,
-                voucher_id: (task as any).voucher_id,
-                bucket: TASK_PROOFS_BUCKET,
-                object_path: objectPath,
-                media_kind: proofIntent.mediaKind,
-                mime_type: proofIntent.mimeType,
-                size_bytes: proofIntent.sizeBytes,
-                duration_ms: proofIntent.durationMs ?? null,
-                overlay_timestamp_text: normalizeProofTimestampText(proofIntent.overlayTimestampText),
-                upload_state: "PENDING",
-            });
-
-        if (proofError) {
-            await (supabase.from("tasks") as any)
-                .update({
-                    status: (task as any).postponed_at ? "POSTPONED" : "ACTIVE",
-                    marked_completed_at: null,
-                    voucher_response_deadline: null,
-                    proof_request_open: false,
-                    proof_requested_at: null,
-                    proof_requested_by: null,
-                    updated_at: new Date().toISOString(),
-                } as any)
-                .eq("id", taskId as any)
-                .eq("user_id", user.id as any)
-                .eq("status", completionStatus as any);
-
-            return { error: proofError.message };
-        }
-
-        const supabaseAdmin = createAdminClient();
-        const { data: signedUpload, error: signedUploadError } = await supabaseAdmin.storage
-            .from(TASK_PROOFS_BUCKET)
-            .createSignedUploadUrl(objectPath);
-
-        if (signedUploadError || !signedUpload?.token) {
-            await (supabase.from("tasks") as any)
-                .update({
-                    status: (task as any).postponed_at ? "POSTPONED" : "ACTIVE",
-                    marked_completed_at: null,
-                    voucher_response_deadline: null,
-                    proof_request_open: false,
-                    proof_requested_at: null,
-                    proof_requested_by: null,
-                    updated_at: new Date().toISOString(),
-                } as any)
-                .eq("id", taskId as any)
-                .eq("user_id", user.id as any)
-                .eq("status", completionStatus as any);
-
-            await deleteTaskProof(taskId, "signed_upload_url_failure");
-            return { error: signedUploadError?.message || "Could not create proof upload session." };
-        }
-
-        proofUploadTarget = {
-            bucket: TASK_PROOFS_BUCKET,
-            objectPath,
-            uploadToken: signedUpload.token,
-        };
-    } else if (!hasExistingUploadedProof) {
-        const cleanup = await deleteTaskProof(taskId, "mark_complete_without_proof");
-        if (!cleanup.success) {
-            return { error: cleanup.error || "Could not clear previous proof media." };
-        }
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: (taskId as any),
-        event_type: "MARK_COMPLETE",
-        actor_id: (user as any).id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: completionStatus,
-        metadata: proofIntent || hasExistingUploadedProof
-            ? {
-                has_proof: true,
-                ...(proofIntent ? { media_kind: proofIntent.mediaKind } : {}),
-            }
-            : null,
+    const command = await runOrchestratedTaskCommand(supabase as any, {
+        action: "complete-task-command",
+        taskId,
+        clientActionAt: new Date().toISOString(),
+        actorUserClientInstanceId: await resolveWebUserClientInstanceId(user.id),
     });
+    if (!command.success) return { error: command.message };
+
+    if (isSelfVouched || !hasExistingUploadedProof) {
+        const cleanup = await deleteTaskProof(taskId, "complete_task_post_commit");
+        if (!cleanup.success) console.error(`Post-commit proof cleanup failed for task ${taskId}:`, cleanup.error);
+    }
 
     revalidateTaskAndSocialSurfaces(taskId, (user as any).id, (task as any).voucher_id);
-    return { success: true, proofUploadTarget };
+    return { success: true };
 }
 
 export async function undoTaskComplete(taskId: string) {
@@ -503,56 +300,15 @@ export async function undoTaskComplete(taskId: string) {
         return { error: "Task not found" };
     }
 
-    if (!canFinalizeOrRevertProof((task as any).status)) {
-        return { error: `Cannot undo completion from ${(task as any).status} status` };
-    }
-
-    const nowIso = new Date().toISOString();
-    const completionDeadlineCutoffIso = getCompletionDeadlineCutoffIso(nowIso);
-    if (new Date(completionDeadlineCutoffIso) >= new Date((task as any).deadline)) {
-        return { error: "Deadline has passed" };
-    }
-
-    const cleanup = await deleteTaskProof(taskId, "undo_complete");
-    if (!cleanup.success) {
-        return { error: cleanup.error || "Could not remove proof media." };
-    }
-
-    const restoredStatus: "ACTIVE" | "POSTPONED" = (task as any).postponed_at ? "POSTPONED" : "ACTIVE";
-
-    // @ts-ignore
-    const { data: updatedRows, error } = await (supabase.from("tasks") as any)
-        .update({
-            status: restoredStatus,
-            marked_completed_at: null,
-            voucher_response_deadline: null,
-            proof_request_open: false,
-            proof_requested_at: null,
-            proof_requested_by: null,
-            updated_at: nowIso,
-        } as any)
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any)
-        .eq("status", (task as any).status as any)
-        .gt("deadline", completionDeadlineCutoffIso)
-        .select("id");
-
-    if (error) {
-        return { error: error.message };
-    }
-
-    if (!updatedRows || updatedRows.length === 0) {
-        return { error: "Task can no longer be reverted. Please refresh." };
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "UNDO_COMPLETE",
-        actor_id: user.id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: restoredStatus,
+    const command = await runTaskCommand(supabase as any, "undo_task_completion_v2", {
+        p_task_id: taskId,
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
     });
+    if (!command.success) return { error: command.message };
+    const restoredStatus = command.toStatus as "ACTIVE" | "POSTPONED";
+
+    const cleanup = await deleteTaskProof(taskId, "undo_complete_post_commit");
+    if (!cleanup.success) console.error(`Post-commit proof cleanup failed for task ${taskId}:`, cleanup.error);
 
     revalidateTaskAndSocialSurfaces(taskId, user.id, (task as any).voucher_id);
 
@@ -569,71 +325,11 @@ export async function overrideTask(taskId: string) {
         return { error: "Not authenticated" };
     }
 
-    const { data: task } = await (supabase.from("tasks") as any)
-        .select("*")
-        .eq("id", (taskId as any))
-        .eq("user_id", (user as any).id)
-        .single();
-
-    if (!task) {
-        return { error: "Task not found" };
-    }
-
-    if (!["DENIED", "MISSED", "SURRENDERED"].includes((task as any).status)) {
-        return { error: "Override can only be used on tasks that have been denied, missed, or surrendered." };
-    }
-
-    const now = new Date();
-    const currentPeriod = now.toISOString().slice(0, 7);
-
-    const failedPeriod = new Date((task as any).updated_at).toISOString().slice(0, 7);
-    if (failedPeriod !== currentPeriod) {
-        return { error: "Override can only be used on tasks that failed this month." };
-    }
-
-    const { count } = await supabase
-        .from("overrides" as any)
-        .select("*", { count: 'exact', head: true })
-        .eq("user_id", user.id)
-        .eq("period", currentPeriod);
-
-    if ((count || 0) >= 1) {
-        return { error: "You have already used your override for this month" };
-    }
-
-    const { error } = await (supabase.from("tasks") as any)
-        .update({ status: "SETTLED", updated_at: now.toISOString() } as any)
-        .eq("id", (taskId as any))
-        .eq("user_id", user.id);
-
-    if (error) {
-        return { error: error.message };
-    }
-
-    await (supabase.from("overrides" as any) as any).insert({
-        user_id: user.id,
-        task_id: taskId as any,
-        period: currentPeriod,
+    const command = await runTaskCommand(supabase as any, "override_task_v2", {
+        p_task_id: taskId,
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
     });
-
-    await (supabase.from("ledger_entries" as any) as any).insert({
-        user_id: user.id,
-        task_id: taskId as any,
-        period: currentPeriod,
-        amount_cents: -(task as any).failure_cost_cents,
-        entry_type: "override",
-    });
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "OVERRIDE",
-        actor_id: user.id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: "SETTLED",
-    });
-
-    await enqueueGoogleCalendarUpsert(user.id, taskId);
+    if (!command.success) return { error: command.message };
 
     revalidatePath(`/tasks/${taskId}`);
     revalidatePath("/tasks");

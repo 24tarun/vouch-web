@@ -6,6 +6,15 @@ import { MAX_POMO_DURATION_MINUTES } from "@/lib/constants";
 import { isValidPomoDurationMinutes } from "@/lib/pomodoro";
 import { sendNotification } from "@/lib/notifications";
 import { resolveWebUserClientInstanceId } from "@/lib/user-client-instance";
+import { describePomoConflict, type PomoConflictSummary } from "@/lib/pomodoro-owner";
+
+const ACTIVE_POMO_SELECT = `
+    *,
+    task:tasks(id, title),
+    owner:user_client_instances!pomo_sessions_owner_user_client_instance_id_fkey(
+        id, platform, client_name, device_label
+    )
+`;
 
 export async function startPomoSession(taskId: string, durationMinutes: number) {
     const supabase = await createClient();
@@ -32,16 +41,21 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
         return { error: "You don't have permission to start a Pomodoro session for this task." };
     }
 
+    const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    if (!ownerUserClientInstanceId) {
+        return { error: "Could not identify this browser. Refresh and try again." };
+    }
+
     // @ts-ignore
     const { data: existing } = await (supabase
         .from("pomo_sessions") as any)
-        .select("id")
+        .select(ACTIVE_POMO_SELECT)
         .eq("user_id", user.id)
         .in("status", ["ACTIVE", "PAUSED"])
         .maybeSingle();
 
     if (existing) {
-        return { error: "You already have an active session. Please stop it first." };
+        return { error: describePomoConflict(existing as PomoConflictSummary), conflict: existing };
     }
 
     // @ts-ignore
@@ -54,6 +68,9 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
             status: "ACTIVE",
             started_at: new Date().toISOString(),
             elapsed_seconds: 0,
+            owner_heartbeat_at: new Date().toISOString(),
+            close_requested_at: null,
+            owner_user_client_instance_id: ownerUserClientInstanceId,
         })
         .select()
         .single();
@@ -69,6 +86,8 @@ export async function pausePomoSession(sessionId: string) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Not authenticated" };
+    const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    if (!ownerUserClientInstanceId) return { error: "Could not identify this browser." };
 
     // @ts-ignore
     const { data: session } = await (supabase
@@ -76,6 +95,7 @@ export async function pausePomoSession(sessionId: string) {
         .select("*")
         .eq("id", sessionId)
         .eq("user_id", user.id)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
         .single();
 
     if (!session) return { error: "Session not found" };
@@ -92,8 +112,13 @@ export async function pausePomoSession(sessionId: string) {
             status: "PAUSED",
             elapsed_seconds: newElapsed,
             paused_at: now.toISOString(),
+            owner_heartbeat_at: now.toISOString(),
+            close_requested_at: null,
         })
-        .eq("id", sessionId);
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
+        .eq("status", "ACTIVE");
 
     if (error) return { error: error.message };
     revalidatePath("/tasks");
@@ -107,6 +132,8 @@ export async function resumePomoSession(sessionId: string) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Not authenticated" };
+    const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    if (!ownerUserClientInstanceId) return { error: "Could not identify this browser." };
 
     // @ts-ignore
     const { data: session } = await (supabase
@@ -114,6 +141,7 @@ export async function resumePomoSession(sessionId: string) {
         .select("status")
         .eq("id", sessionId)
         .eq("user_id", user.id)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
         .single();
 
     if (!session) return { error: "Session not found" };
@@ -126,9 +154,12 @@ export async function resumePomoSession(sessionId: string) {
             status: "ACTIVE",
             started_at: new Date().toISOString(),
             paused_at: null,
+            owner_heartbeat_at: new Date().toISOString(),
+            close_requested_at: null,
         })
         .eq("id", sessionId)
         .eq("user_id", user.id)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
         .eq("status", "PAUSED")
         .select("task_id")
         .single();
@@ -148,6 +179,8 @@ export async function endPomoSession(
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Not authenticated" };
+    const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    if (!ownerUserClientInstanceId) return { error: "Could not identify this browser." };
 
     // @ts-ignore
     const { data: session } = await (supabase
@@ -155,6 +188,7 @@ export async function endPomoSession(
         .select("*")
         .eq("id", sessionId)
         .eq("user_id", user.id)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
         .single();
 
     if (!session) return { error: "Session not found" };
@@ -168,6 +202,7 @@ export async function endPomoSession(
         const startTime = new Date(session.started_at);
         finalElapsed += Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
     }
+    finalElapsed = Math.min(session.duration_minutes * 60, finalElapsed);
 
     const terminalStatus = "COMPLETED";
     const completedAt = new Date().toISOString();
@@ -179,9 +214,11 @@ export async function endPomoSession(
             status: terminalStatus,
             elapsed_seconds: finalElapsed,
             completed_at: completedAt,
+            close_requested_at: null,
         })
         .eq("id", sessionId)
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId);
 
     if (error) return { error: error.message };
 
@@ -198,7 +235,7 @@ export async function endPomoSession(
                 task_id: session.task_id,
                 event_type: "POMO_COMPLETED",
                 actor_id: user.id,
-                actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+                actor_user_client_instance_id: ownerUserClientInstanceId,
                 from_status: task.status,
                 to_status: task.status,
                 metadata: {
@@ -238,23 +275,23 @@ export async function endPomoSession(
     return { success: true, counted: true };
 }
 
-export async function deletePomoSession(sessionId: string) {
+export async function heartbeatPomoSession(sessionId: string) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Not authenticated" };
 
-    // @ts-ignore
-    const { error } = await (supabase
-        .from("pomo_sessions") as any)
-        .update({
-            status: "DELETED",
-            completed_at: new Date().toISOString(),
-        })
-        .eq("id", sessionId)
-        .eq("user_id", user.id);
+    const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    if (!ownerUserClientInstanceId) return { error: "Could not identify this browser." };
 
-    if (error) return { error: error.message };
-    revalidatePath("/tasks");
+    const { error: sessionError } = await (supabase
+        .from("pomo_sessions") as any)
+        .update({ owner_heartbeat_at: new Date().toISOString(), close_requested_at: null })
+        .eq("id", sessionId)
+        .eq("user_id", user.id)
+        .eq("owner_user_client_instance_id", ownerUserClientInstanceId)
+        .in("status", ["ACTIVE", "PAUSED"]);
+
+    if (sessionError) return { error: sessionError.message };
     return { success: true };
 }
 
@@ -264,19 +301,25 @@ export async function getActivePomoSession() {
 
     const serverNow = new Date().toISOString();
     if (!user) return { session: null, serverNow };
+    const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
+    if (!ownerUserClientInstanceId) {
+        return { session: null, blockingSession: null, serverNow };
+    }
 
     // @ts-ignore
     const { data: session } = await (supabase
         .from("pomo_sessions") as any)
-        .select(`
-            *,
-            task:tasks(id, title)
-        `)
+        .select(ACTIVE_POMO_SELECT)
         .eq("user_id", user.id)
         .in("status", ["ACTIVE", "PAUSED"])
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-    return { session: session || null, serverNow };
+    const isOwned = session?.owner_user_client_instance_id === ownerUserClientInstanceId;
+    return {
+        session: isOwned ? session : null,
+        blockingSession: session && !isOwned ? session : null,
+        serverNow,
+    };
 }

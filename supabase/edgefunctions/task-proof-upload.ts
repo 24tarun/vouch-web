@@ -175,6 +175,19 @@ interface QueueAiEvalRequestBody {
   taskId: string;
 }
 
+interface CompleteTaskCommandRequestBody {
+  action: 'complete-task-command';
+  taskId: string;
+  clientActionAt: string;
+  actorUserClientInstanceId?: string | null;
+}
+
+interface SubmitAiAppealCommandRequestBody {
+  action: 'submit-ai-appeal-command';
+  taskId: string;
+  actorUserClientInstanceId?: string | null;
+}
+
 interface QueueAiRectificationEvalRequestBody {
   action: 'queue-rectification-ai-eval';
   taskId: string;
@@ -197,6 +210,8 @@ type RequestBody =
   | PurgeFinalRequestBody
   | RemoveCurrentRequestBody
   | QueueAiEvalRequestBody
+  | CompleteTaskCommandRequestBody
+  | SubmitAiAppealCommandRequestBody
   | QueueAiRectificationEvalRequestBody
   | QueueRectificationNotificationRequestBody;
 
@@ -644,6 +659,43 @@ Deno.serve(async (request) => {
     && isCompletionEditingLocked(taskStatus, taskDeadline)
   ) {
     return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
+  }
+
+  let taskCommandResult: Record<string, unknown> | null = null;
+  if (action === 'complete-task-command') {
+    const commandBody = body as CompleteTaskCommandRequestBody;
+    const { data: commandData, error: commandError } = await userClient.rpc('complete_task_v2', {
+      p_task_id: taskId,
+      p_client_action_at: commandBody.clientActionAt,
+      p_actor_user_client_instance_id: commandBody.actorUserClientInstanceId ?? null,
+    });
+    if (commandError) return json(400, { success: false, code: 'QUEUE_FAILED', error: commandError.message });
+    taskCommandResult = commandData as Record<string, unknown>;
+    if (!taskCommandResult?.success) {
+      return json(409, {
+        ...taskCommandResult,
+        error: String(taskCommandResult?.message ?? 'Task could not be completed.'),
+      });
+    }
+    if (taskCommandResult.toStatus !== 'AWAITING_AI') return json(200, taskCommandResult);
+    (task as { status: string }).status = 'AWAITING_AI';
+  }
+
+  if (action === 'submit-ai-appeal-command') {
+    const commandBody = body as SubmitAiAppealCommandRequestBody;
+    const { data: commandData, error: commandError } = await userClient.rpc('submit_ai_appeal_v2', {
+      p_task_id: taskId,
+      p_actor_user_client_instance_id: commandBody.actorUserClientInstanceId ?? null,
+    });
+    if (commandError) return json(400, { success: false, code: 'QUEUE_FAILED', error: commandError.message });
+    taskCommandResult = commandData as Record<string, unknown>;
+    if (!taskCommandResult?.success) {
+      return json(409, {
+        ...taskCommandResult,
+        error: String(taskCommandResult?.message ?? 'AI appeal could not be submitted.'),
+      });
+    }
+    (task as { status: string }).status = 'AWAITING_AI';
   }
 
   // Fetched while the device still has connectivity so a capture can be started
@@ -1169,7 +1221,7 @@ Deno.serve(async (request) => {
     return json(200, { success: true });
   }
 
-  if (action === 'queue-ai-eval') {
+  if (action === 'queue-ai-eval' || action === 'complete-task-command' || action === 'submit-ai-appeal-command') {
     const AI_PROFILE_ID = '11111111-1111-1111-1111-111111111111';
     const taskStatus = (task as { status: string }).status;
     const taskVoucherId = (task as { voucher_id: string }).voucher_id;
@@ -1183,15 +1235,14 @@ Deno.serve(async (request) => {
     }
 
     const compensateFailedQueue = async (reason: string) => {
-      await adminClient.rpc('release_ai_voucher_credit', {
-        p_user_id: user.id,
-        p_task_id: taskId,
-      });
-      await adminClient.rpc('rollback_ai_voucher_submission', {
+      const { data: rolledBack, error: rollbackError } = await adminClient.rpc('rollback_ai_voucher_submission', {
         p_user_id: user.id,
         p_task_id: taskId,
         p_reason: reason,
       });
+      if (rollbackError || !rolledBack) {
+        console.error('Atomic AI queue compensation failed for task', taskId, rollbackError);
+      }
     };
 
     const { data: reservationData, error: reservationError } = await adminClient
@@ -1202,6 +1253,7 @@ Deno.serve(async (request) => {
 
     if (reservationError) {
       console.error('AI voucher quota reservation failed for task', taskId, reservationError);
+      await compensateFailedQueue('AI_QUOTA_RESERVATION_FAILED');
       return json(500, { success: false, error: 'Could not check AI voucher credits.' });
     }
 
@@ -1259,7 +1311,7 @@ Deno.serve(async (request) => {
     }
 
     console.log('AI voucher evaluation queued for task', taskId);
-    return json(200, { success: true });
+    return json(200, taskCommandResult ?? { success: true });
   }
 
   if (action === 'queue-rectification-ai-eval') {

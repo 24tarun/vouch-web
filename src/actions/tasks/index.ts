@@ -35,7 +35,7 @@ export {
     pausePomoSession,
     resumePomoSession,
     endPomoSession,
-    deletePomoSession,
+    heartbeatPomoSession,
     getActivePomoSession,
 } from "./pomodoro";
 

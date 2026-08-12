@@ -567,7 +567,7 @@ export async function realignTaskRemindersAfterPostpone(
     newDeadline: Date
 ): Promise<{ error?: string }> {
     const { data: existingReminders, error: existingRemindersError } = await (supabase.from("task_reminders") as any)
-        .select("id, reminder_at, source, created_at, notified_at")
+        .select("id, reminder_at, source, alarm_enabled, created_at, notified_at")
         .eq("parent_task_id", taskId as any)
         .eq("user_id", userId as any);
 
@@ -589,10 +589,12 @@ export async function realignTaskRemindersAfterPostpone(
     const nowIso = now.toISOString();
     const deadlineDeltaMs = newDeadline.getTime() - oldDeadline.getTime();
     const rowsByReminderIso = new Map<string, Database["public"]["Tables"]["task_reminders"]["Insert"]>();
+    const alarmEnabledByDefaultSource = new Map<string, boolean>();
 
     for (const row of ((existingReminders as Array<{
         reminder_at: string;
         source?: string | null;
+        alarm_enabled?: boolean | null;
         created_at: string;
     }> | null) || [])) {
         const reminderMs = new Date(row.reminder_at).getTime();
@@ -602,6 +604,10 @@ export async function realignTaskRemindersAfterPostpone(
 
         const source = row.source || MANUAL_REMINDER_SOURCE;
         if (source !== MANUAL_REMINDER_SOURCE) {
+            alarmEnabledByDefaultSource.set(
+                source,
+                Boolean(alarmEnabledByDefaultSource.get(source) || row.alarm_enabled)
+            );
             continue;
         }
 
@@ -620,6 +626,7 @@ export async function realignTaskRemindersAfterPostpone(
             user_id: userId,
             reminder_at: shiftedReminderIso,
             source: MANUAL_REMINDER_SOURCE,
+            alarm_enabled: row.alarm_enabled ?? false,
             notified_at: null,
             created_at: row.created_at || nowIso,
             updated_at: nowIso,
@@ -646,12 +653,16 @@ export async function realignTaskRemindersAfterPostpone(
         }
 
         const reminderIso = new Date(reminderMs).toISOString();
-        if (rowsByReminderIso.has(reminderIso)) {
+        const alarmEnabled = alarmEnabledByDefaultSource.get(String(row.source)) ?? false;
+        const existingRow = rowsByReminderIso.get(reminderIso);
+        if (existingRow) {
+            if (alarmEnabled) existingRow.alarm_enabled = true;
             continue;
         }
 
         rowsByReminderIso.set(reminderIso, {
             ...row,
+            alarm_enabled: alarmEnabled,
             notified_at: null,
             created_at: row.created_at ?? nowIso,
             updated_at: nowIso,
