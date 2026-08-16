@@ -10,6 +10,7 @@ const migration = readFileSync(
     "utf8"
 );
 const generator = readFileSync(join(root, "src/trigger/recurrence-generator.ts"), "utf8");
+const reminderActions = readFileSync(join(root, "src/actions/tasks/subtasks.ts"), "utf8");
 
 test("reminder alarm columns default existing and new records to normal delivery", () => {
     assert.match(
@@ -59,4 +60,12 @@ test("recurrence generation applies alarm offsets to manual, preset, and deadlin
     assert.match(generator, /alarm_reminder_offsets_ms/);
     assert.match(generator, /alarm_enabled: alarmOffsetsMs\.has/);
     assert.match(generator, /applyGeneratedAlarmOffsets/);
+});
+
+test("task-detail reminder RPC calls retain the Supabase client context", () => {
+    assert.match(
+        reminderActions,
+        /const callReminderMutation = \(supabase\.rpc as unknown as \([\s\S]*?\)\.bind\(supabase\);/
+    );
+    assert.doesNotMatch(reminderActions, /const callReminderMutation = supabase\.rpc as unknown as/);
 });

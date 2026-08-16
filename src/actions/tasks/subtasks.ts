@@ -144,10 +144,10 @@ export async function replaceTaskReminders(taskId: string, remindersIso: string[
     }
 
     type ReminderMutationResult = { error: { message: string } | null };
-    const callReminderMutation = supabase.rpc as unknown as (
+    const callReminderMutation = (supabase.rpc as unknown as (
         functionName: string,
         params: Record<string, unknown>
-    ) => Promise<ReminderMutationResult>;
+    ) => Promise<ReminderMutationResult>).bind(supabase);
 
     for (const reminderDate of nextFutureReminders) {
         if (existingFutureIsoSet.has(reminderDate.toISOString())) continue;
