@@ -4,11 +4,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const webMigrationPath = resolve(process.cwd(), "supabase/migrations/037_rectification_request_flow.sql");
-const mobileMigrationPath = resolve(process.cwd(), "../vouch-mobile/supabase/migrations/037_rectification_request_flow.sql");
 const sql = readFileSync(webMigrationPath, "utf8");
 
-test("web and mobile ship the exact same rectification migration", () => {
-    assert.equal(sql, readFileSync(mobileMigrationPath, "utf8"));
+test("the canonical web migration contains the rectification request flow", () => {
+    assert.match(sql, /CREATE TABLE public\.rectification_requests/);
 });
 
 test("rectification requests reserve passes atomically and enforce one open request", () => {

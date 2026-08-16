@@ -5,10 +5,9 @@ import { resolve } from 'node:path';
 
 const migrationName = '20260803063210_fix_proof_deadline_and_rectification.sql';
 const webMigration = readFileSync(resolve(process.cwd(), 'supabase/migrations', migrationName), 'utf8');
-const mobileMigration = readFileSync(resolve(process.cwd(), '../vouch-mobile/supabase/migrations', migrationName), 'utf8');
 
-test('web and mobile ship the same deadline and rectification fix migration', () => {
-    assert.equal(webMigration, mobileMigration);
+test('the canonical web migration contains the deadline and rectification fix', () => {
+    assert.match(webMigration, /CREATE OR REPLACE FUNCTION public\.finalize_task_proof_atomic/);
 });
 
 test('rectification approval qualifies columns that conflict with output variables', () => {

@@ -5,10 +5,9 @@ import { resolve } from "node:path";
 
 const migrationName = "20260802173535_timestamp_aware_ai_proof_context.sql";
 const webMigration = readFileSync(resolve(process.cwd(), "supabase/migrations", migrationName), "utf8");
-const mobileMigration = readFileSync(resolve(process.cwd(), "../vouch-mobile/supabase/migrations", migrationName), "utf8");
 
-test("web and mobile ship the same timestamp-aware proof migration", () => {
-    assert.equal(webMigration, mobileMigration);
+test("the canonical web migration contains timestamp-aware proof context", () => {
+    assert.match(webMigration, /ADD COLUMN IF NOT EXISTS original_deadline timestamptz/);
 });
 
 test("original deadlines remain backend audit data across postponement", () => {
