@@ -23,12 +23,12 @@ import {
     parseRequiresProofFromFormData,
     getDefaultTaskDeadline,
     normalizeRemindersFromFormData,
+    normalizeUrgentRemindersFromFormData,
     buildManualReminderOffsetsFromDeadline,
     parseRequiredPomoMinutesFromFormData,
     insertTaskReminders,
     insertTaskReminderRows,
     insertTaskSubtasks,
-    invalidateActiveTasksCache,
     invalidatePendingVoucherRequestsCache,
     enqueueGoogleCalendarUpsert,
     revalidateTaskSurfaces,
@@ -313,16 +313,6 @@ export async function createTask(formData: FormData) {
     let shouldAutoCompletePastEvent = false;
     const creationNow = new Date();
     const creationNowIso = creationNow.toISOString();
-    const defaultEventDurationMinutesRaw = Number(
-        (reminderDefaultsProfile as { default_event_duration_minutes?: unknown } | null)?.default_event_duration_minutes
-    );
-    const defaultEventDurationMinutes =
-        Number.isInteger(defaultEventDurationMinutesRaw) &&
-            defaultEventDurationMinutesRaw >= 1 &&
-            defaultEventDurationMinutesRaw <= 720
-            ? defaultEventDurationMinutesRaw
-            : DEFAULT_EVENT_DURATION_MINUTES;
-
     if (titleSelection.googleSyncForTask) {
         if (!submittedEventStartIso || !submittedEventEndIso) {
             return { error: EVENT_BOUNDARY_REQUIRED_ERROR };
@@ -352,9 +342,14 @@ export async function createTask(formData: FormData) {
     if (remindersInput.error) {
         return { error: remindersInput.error };
     }
+    const urgentReminderMs = normalizeUrgentRemindersFromFormData(formData.get("urgentReminders"));
     const manualReminderOffsetsMs = buildManualReminderOffsetsFromDeadline(
         validatedDeadline,
         remindersInput.reminderDates
+    );
+    const alarmReminderOffsetsMs = buildManualReminderOffsetsFromDeadline(
+        validatedDeadline,
+        Array.from(urgentReminderMs.values()).map((ms) => new Date(ms))
     );
     const eventDurationMinutes = eventStartAtIso
         ? Math.max(1, Math.round((validatedDeadline.getTime() - new Date(eventStartAtIso).getTime()) / (1000 * 60)))
@@ -442,6 +437,7 @@ export async function createTask(formData: FormData) {
                 google_event_duration_minutes: eventDurationMinutes,
                 google_event_color_id: googleEventColorId,
                 manual_reminder_offsets_ms: manualReminderOffsetsMs,
+                alarm_reminder_offsets_ms: alarmReminderOffsetsMs,
                 last_generated_date: initialOccurrenceDate
             })
             .select()
@@ -488,7 +484,8 @@ export async function createTask(formData: FormData) {
         supabase,
         (user as any).id,
         (task as any).id,
-        remindersInput.reminderDates
+        remindersInput.reminderDates,
+        urgentReminderMs
     );
     if (reminderInsert.error) {
         return { error: reminderInsert.error };
@@ -506,6 +503,7 @@ export async function createTask(formData: FormData) {
             includeDefaultTenMinuteReminder,
         deadlineDueWarningEnabled:
             ((reminderDefaultsProfile as any)?.deadline_due_warning_enabled as boolean | undefined) ?? true,
+        urgentReminderMs,
         now: new Date(),
     });
     const seededReminderInsert = await insertTaskReminderRows(

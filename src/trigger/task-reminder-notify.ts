@@ -528,6 +528,10 @@ async function processDueTaskReminders(
     );
 
     for (const group of groupReminderNotificationEntries(notificationEntries)) {
+        // Once a push has gone out, this group must never be requeued: a
+        // rollback would make the next cron tick re-send the Expo push and the
+        // user's phone would show the same reminder twice.
+        let pushAttempted = false;
         try {
             // Completion can race the earlier bulk task lookup. Re-read the
             // group immediately before delivery so a task that has since moved
@@ -536,13 +540,17 @@ async function processDueTaskReminders(
             if (liveEntries.length === 0) continue;
             const liveGroup: ReminderNotificationGroup = { ...group, entries: liveEntries };
             const excludeClientInstanceIds = getExcludedClientInstanceIds(liveGroup, claimsByReminderId);
+            pushAttempted = true;
             const sendResult = await sendWithWebRetry({
                 ...buildReminderNotificationParams(liveGroup),
                 excludeClientInstanceIds,
             });
 
             if (webNeedsRetry(sendResult.push.web)) {
-                liveGroup.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
+                // Web push already got its in-tick retries. Give up on it
+                // rather than rolling the reminder back, because reprocessing
+                // would duplicate the mobile push that did deliver.
+                console.warn(`Web push exhausted retries for reminder group ${group.key}; not requeuing.`);
             }
 
             await sendRemoteDeliveryMarker(liveGroup, excludeClientInstanceIds);
@@ -554,7 +562,9 @@ async function processDueTaskReminders(
             }
         } catch (error) {
             console.error(`Failed to process task reminder group ${group.key}:`, error);
-            group.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
+            if (!pushAttempted) {
+                group.entries.forEach((entry) => remindersToRetry.add(entry.reminder.id));
+            }
         }
     }
 

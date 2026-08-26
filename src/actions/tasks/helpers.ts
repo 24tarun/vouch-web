@@ -326,6 +326,34 @@ export function normalizeRemindersFromFormData(
     }
 }
 
+/**
+ * Reminder instants the client marked urgent. Unknown or unparseable entries are
+ * ignored rather than rejected: urgency is a flag on reminders that are validated
+ * separately, so a stale entry must not block task creation.
+ */
+export function normalizeUrgentRemindersFromFormData(formValue: FormDataEntryValue | null): Set<number> {
+    const urgentMs = new Set<number>();
+    if (typeof formValue !== "string" || !formValue.trim()) return urgentMs;
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(formValue);
+    } catch {
+        return urgentMs;
+    }
+
+    if (!Array.isArray(parsed)) return urgentMs;
+
+    for (const value of parsed) {
+        if (typeof value !== "string") continue;
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) continue;
+        urgentMs.add(date.getTime());
+    }
+
+    return urgentMs;
+}
+
 export function buildManualReminderOffsetsFromDeadline(deadline: Date, reminderDates: Date[]): number[] {
     const deadlineMs = deadline.getTime();
     if (Number.isNaN(deadlineMs)) return [];
@@ -472,7 +500,8 @@ export async function insertTaskReminders(
     supabase: SupabaseClient<Database>,
     userId: string,
     parentTaskId: string,
-    reminderDates: Date[]
+    reminderDates: Date[],
+    urgentReminderMs?: Set<number>
 ): Promise<{ error?: string }> {
     return insertTaskReminderRows(
         supabase,
@@ -481,6 +510,7 @@ export async function insertTaskReminders(
             user_id: userId,
             reminder_at: reminderDate.toISOString(),
             source: MANUAL_REMINDER_SOURCE,
+            alarm_enabled: urgentReminderMs?.has(reminderDate.getTime()) ?? false,
             notified_at: null,
         }))
     );

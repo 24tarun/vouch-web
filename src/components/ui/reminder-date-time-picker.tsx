@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     addDays,
     addMonths,
@@ -14,7 +14,7 @@ import {
     startOfWeek,
     subMonths,
 } from "date-fns";
-import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { CustomTimePicker } from "@/components/ui/custom-time-picker";
 import {
     combineDateAndTime,
@@ -39,12 +39,82 @@ function getCalendarDays(month: Date): Date[] {
     return days;
 }
 
-const WEEKDAY_HEADERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+const WEEKDAY_HEADERS = ["M", "T", "W", "T", "F", "S", "S"];
+
+interface ReminderLineProps {
+    at: Date;
+    status: "scheduled" | "sent";
+    urgent: boolean;
+    onToggleUrgent: () => void;
+    onDelete: () => void;
+    disabled?: boolean;
+    /** Alarm-style delivery is only offered when the profile has it switched on. */
+    showAlarm?: boolean;
+}
+
+/** One reminder as a single row: time · date · alarm · status · delete. */
+export function ReminderLine({
+    at,
+    status,
+    urgent,
+    onToggleUrgent,
+    onDelete,
+    disabled = false,
+    showAlarm = true,
+}: ReminderLineProps) {
+    return (
+        <div className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1 text-sm transition-colors hover:bg-slate-800/40">
+            <span className="w-[46px] shrink-0 font-semibold tabular-nums text-slate-100">
+                {format(at, "HH:mm")}
+            </span>
+            <span className="w-[86px] shrink-0 tabular-nums text-slate-400">{format(at, "dd/MM/yyyy")}</span>
+            {showAlarm && (
+                <button
+                    type="button"
+                    onClick={onToggleUrgent}
+                    disabled={disabled}
+                    aria-pressed={urgent}
+                    aria-label={`${urgent ? "Disable" : "Enable"} alarm for reminder ${format(at, "HH:mm dd/MM/yyyy")}`}
+                    title={urgent ? "Alarm-style notification on" : "Ring as an alarm on mobile"}
+                    className={cn(
+                        "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors disabled:opacity-40",
+                        urgent
+                            ? "border-red-400/50 bg-red-500/20 text-red-200 hover:bg-red-500/30"
+                            : "border-slate-600/70 bg-slate-700/40 text-slate-300 hover:border-red-400/50 hover:bg-red-500/15 hover:text-red-200"
+                    )}
+                >
+                    Alarm
+                </button>
+            )}
+            <span className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500">
+                <span
+                    aria-hidden="true"
+                    className={cn(
+                        "h-1.5 w-1.5 rounded-full",
+                        status === "scheduled" ? "bg-emerald-400/70" : "bg-slate-600"
+                    )}
+                />
+                {status}
+            </span>
+            <span className="flex-1" />
+            <button
+                type="button"
+                onClick={onDelete}
+                disabled={disabled}
+                aria-label={`Delete reminder ${format(at, "HH:mm dd/MM/yyyy")}`}
+                className="shrink-0 rounded-md border border-slate-600/70 bg-slate-700/40 p-1.5 text-slate-300 transition-colors hover:border-red-400/50 hover:bg-red-500/15 hover:text-red-200 disabled:opacity-40"
+            >
+                <Trash2 className="h-3.5 w-3.5" />
+            </button>
+        </div>
+    );
+}
 
 interface ReminderDateTimePickerProps {
     value: string;
     onChange: (value: string) => void;
-    onAdd: () => void;
+    onAdd?: () => void;
+    onRemove?: () => void;
     disabled?: boolean;
     addDisabled?: boolean;
 }
@@ -53,10 +123,12 @@ export function ReminderDateTimePicker({
     value,
     onChange,
     onAdd,
+    onRemove,
     disabled = false,
     addDisabled = false,
 }: ReminderDateTimePickerProps) {
-    const [isOpen, setIsOpen] = useState(false);
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const calendarRef = useRef<HTMLDivElement>(null);
 
     const selectedDate = fromDateTimeLocalValue(value);
     const selectedDatePart = getDatePartFromLocalDateTime(value);
@@ -69,13 +141,19 @@ export function ReminderDateTimePicker({
 
     const calendarDays = useMemo(() => getCalendarDays(visibleMonth), [visibleMonth]);
 
-    const displayLabel = selectedDate
-        ? `${format(selectedDate, "dd MMM yyyy")}, ${selectedTimePart || "--:--"}`
-        : "Pick date & time";
+    useEffect(() => {
+        if (!isCalendarOpen) return;
+        const handleClickOutside = (e: MouseEvent) => {
+            if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+                setIsCalendarOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [isCalendarOpen]);
 
     const commitDatePart = (datePart: string) => {
-        const time = selectedTimePart || "12:00";
-        onChange(combineDateAndTime(datePart, time));
+        onChange(combineDateAndTime(datePart, selectedTimePart || "12:00"));
         const next = new Date(datePart);
         if (!Number.isNaN(next.getTime())) {
             setVisibleMonth(startOfMonth(next));
@@ -84,124 +162,137 @@ export function ReminderDateTimePicker({
 
     const commitTime = (time: string) => {
         if (!time) return;
-        const date = selectedDatePart || formatDatePart(new Date());
-        onChange(combineDateAndTime(date, time));
+        onChange(combineDateAndTime(selectedDatePart || formatDatePart(new Date()), time));
     };
 
+    const canAdd = Boolean(onAdd) && !addDisabled && Boolean(value);
+
     return (
-        <div className="space-y-2">
-            <div className="flex items-center gap-2">
+        <div className={cn("flex items-center gap-2", disabled && "pointer-events-none opacity-40")}>
+            <div ref={calendarRef} className="relative w-[150px] shrink-0">
                 <button
                     type="button"
-                    onClick={() => !disabled && setIsOpen(!isOpen)}
+                    onClick={() => setIsCalendarOpen((open) => !open)}
                     disabled={disabled}
                     className={cn(
-                        "flex h-11 flex-1 items-center gap-2.5 rounded-lg border px-3 text-left transition-colors",
-                        "border-slate-700 bg-slate-950/60 hover:border-slate-600",
-                        isOpen && "border-amber-400/50 ring-1 ring-amber-400/20",
-                        disabled && "opacity-40 cursor-not-allowed",
+                        "flex h-9 w-full items-center gap-2 rounded-lg border border-slate-700 bg-slate-950/60 px-2.5 text-left text-sm transition-colors hover:border-slate-600",
+                        isCalendarOpen && "border-amber-400/60",
                         selectedDate ? "text-slate-100" : "text-slate-500"
                     )}
                 >
-                    <Calendar className="h-4 w-4 shrink-0 text-amber-400/70" />
-                    <span className="text-sm">{displayLabel}</span>
+                    <CalendarDays className="h-4 w-4 shrink-0 text-amber-400/70" />
+                    <span>{selectedDate ? format(selectedDate, "EEE d MMM") : "Date"}</span>
                 </button>
-                <button
-                    type="button"
-                    onClick={() => {
-                        onAdd();
-                        setIsOpen(false);
-                    }}
-                    disabled={addDisabled}
-                    className="h-11 shrink-0 rounded-lg border border-slate-700 bg-slate-950/60 px-4 text-sm text-slate-200 transition-colors hover:bg-slate-800 disabled:border-slate-800 disabled:text-slate-500 disabled:opacity-100"
-                >
-                    Add
-                </button>
-            </div>
 
-            {isOpen && (
-                <div className="rounded-lg border border-slate-700 bg-slate-900/95 p-4 space-y-4">
-                    {/* Month header */}
-                    <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-slate-200">
-                            {format(visibleMonth, "MMMM yyyy")}
-                        </span>
-                        <div className="flex items-center gap-1">
-                            <button
-                                type="button"
-                                className="flex h-7 w-7 items-center justify-center text-amber-400 transition-colors hover:text-amber-300 disabled:opacity-30 disabled:text-slate-600"
-                                disabled={!canGoToPreviousMonth}
-                                onClick={() => {
-                                    if (!canGoToPreviousMonth) return;
-                                    setVisibleMonth((c) => {
-                                        const prev = subMonths(c, 1);
-                                        return prev.getTime() < currentMonth.getTime() ? currentMonth : prev;
-                                    });
-                                }}
-                            >
-                                <ChevronLeft className="h-4 w-4" strokeWidth={2.5} />
-                            </button>
-                            <button
-                                type="button"
-                                className="flex h-7 w-7 items-center justify-center text-amber-400 transition-colors hover:text-amber-300"
-                                onClick={() => setVisibleMonth((c) => addMonths(c, 1))}
-                            >
-                                <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
-                            </button>
+                {isCalendarOpen && (
+                    <div className="absolute left-0 top-full z-50 mt-1.5 w-[268px] rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl shadow-black/50">
+                        <div className="mb-1 flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-200">
+                                {format(visibleMonth, "MMMM yyyy")}
+                            </span>
+                            <div className="flex items-center gap-1">
+                                <button
+                                    type="button"
+                                    aria-label="Previous month"
+                                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white disabled:opacity-30"
+                                    disabled={!canGoToPreviousMonth}
+                                    onClick={() => {
+                                        if (!canGoToPreviousMonth) return;
+                                        setVisibleMonth((c) => {
+                                            const prev = subMonths(c, 1);
+                                            return prev.getTime() < currentMonth.getTime() ? currentMonth : prev;
+                                        });
+                                    }}
+                                >
+                                    <ChevronLeft className="h-4 w-4" strokeWidth={2.5} />
+                                </button>
+                                <button
+                                    type="button"
+                                    aria-label="Next month"
+                                    className="flex h-6 w-6 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+                                    onClick={() => setVisibleMonth((c) => addMonths(c, 1))}
+                                >
+                                    <ChevronRight className="h-4 w-4" strokeWidth={2.5} />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-7 text-center">
+                            {WEEKDAY_HEADERS.map((d, i) => (
+                                <div key={`${d}-${i}`} className="pb-1 text-[9px] font-semibold uppercase text-slate-600">
+                                    {d}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="grid grid-cols-7">
+                            {calendarDays.map((day) => {
+                                const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
+                                if (!isSameMonth(day, visibleMonth)) {
+                                    return <div key={day.toISOString()} className="h-8" />;
+                                }
+                                return (
+                                    <button
+                                        key={day.toISOString()}
+                                        type="button"
+                                        onClick={() => {
+                                            commitDatePart(formatDatePart(day));
+                                            setIsCalendarOpen(false);
+                                        }}
+                                        className="flex h-8 items-center justify-center"
+                                    >
+                                        <span
+                                            className={cn(
+                                                "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
+                                                isSelected
+                                                    ? "bg-amber-500 font-bold text-slate-950"
+                                                    : "text-slate-300 hover:bg-slate-800 hover:text-white",
+                                                isToday(day) && !isSelected && "text-amber-300"
+                                            )}
+                                        >
+                                            {format(day, "d")}
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
+                )}
+            </div>
 
-                    {/* Weekday headers */}
-                    <div className="grid grid-cols-7 text-center">
-                        {WEEKDAY_HEADERS.map((d) => (
-                            <div key={d} className="pb-2 text-[9px] font-semibold uppercase tracking-widest text-slate-500">
-                                {d}
-                            </div>
-                        ))}
-                    </div>
+            <CustomTimePicker
+                ariaLabel="Reminder time"
+                className="shrink-0"
+                value={selectedTimePart}
+                placeholder="--:--"
+                onChange={commitTime}
+                onSubmit={canAdd ? onAdd : undefined}
+                compact
+            />
 
-                    {/* Calendar grid */}
-                    <div className="grid grid-cols-7 gap-y-0.5">
-                        {calendarDays.map((day) => {
-                            const isSelected = selectedDate ? isSameDay(day, selectedDate) : false;
-                            const isMuted = !isSameMonth(day, visibleMonth);
-                            if (isMuted) {
-                                return <div key={day.toISOString()} className="h-8" />;
-                            }
-                            return (
-                                <button
-                                    key={day.toISOString()}
-                                    type="button"
-                                    onClick={() => commitDatePart(formatDatePart(day))}
-                                    className="flex h-8 items-center justify-center"
-                                >
-                                    <span
-                                        className={cn(
-                                            "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
-                                            isSelected
-                                                ? "bg-amber-500 text-white font-bold shadow-lg shadow-amber-500/25"
-                                                : "text-slate-300 hover:bg-slate-800 hover:text-white",
-                                            isToday(day) && !isSelected && "text-amber-300"
-                                        )}
-                                    >
-                                        {format(day, "d")}
-                                    </span>
-                                </button>
-                            );
-                        })}
-                    </div>
+            {onAdd && (
+                <button
+                    type="button"
+                    onClick={onAdd}
+                    disabled={!canAdd}
+                    aria-label="Add reminder"
+                    title="Add reminder"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-slate-950 transition-colors hover:bg-amber-400 disabled:bg-slate-800 disabled:text-slate-600"
+                >
+                    <Plus className="h-4 w-4" strokeWidth={3} />
+                </button>
+            )}
 
-                    {/* Time row */}
-                    <div className="flex items-center justify-between pt-1">
-                        <span className="text-sm font-semibold text-slate-200">Time</span>
-                        <CustomTimePicker
-                            value={selectedTimePart}
-                            placeholder="--:--"
-                            onChange={commitTime}
-                            compact
-                        />
-                    </div>
-                </div>
+            {onRemove && (
+                <button
+                    type="button"
+                    onClick={onRemove}
+                    aria-label="Delete reminder"
+                    title="Delete reminder"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-800 text-slate-500 transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+                >
+                    <Trash2 className="h-4 w-4" />
+                </button>
             )}
         </div>
     );

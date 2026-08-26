@@ -5,7 +5,7 @@ import { fromDateTimeLocalValue } from "@/lib/datetime-local";
 import { resolveEventSchedule } from "@/lib/task-title-event-time";
 import { EVENT_TOKEN_REGEX, getDefaultDeadline, parseProofRequiredFromTitle, parseReminderTimesFromTitle, parseRepeatTokenFromTitle, parseTaskDescription, resolveEventAnchorDate } from "@/lib/task-title-parser";
 import { hasParserDrivenDeadlineHint, parseTaskTitleAndSubtasks, resolveTaskDeadline } from "@/lib/parser_keyword_resolver";
-import { normalizeReminderDates, resolveDateSheetDraftSubmission } from "@/lib/task-deadline-sheet";
+import { normalizeReminderDates, resolveDateSheetDraftSubmission, resolveUrgentReminderIsos } from "@/lib/task-deadline-sheet";
 import { validateEventColorUsage } from "@/lib/task-title-event-color";
 import { parseRequiredPomoFromTitle } from "@/lib/pomodoro";
 import { buildReminderDateOnDeadlineDay, formatTimeUntilDeadline } from "@/components/task-input/utils/task-input-formatters";
@@ -15,6 +15,7 @@ interface UseTaskInputSubmitArgs {
     title: string;
     recurrenceType: string;
     customDays: number[];
+    isEventManuallySelected: boolean;
     selectedWeekday: number;
     selectedVoucherId: string;
     failureCost: string;
@@ -29,6 +30,8 @@ interface UseTaskInputSubmitArgs {
     reminderDraftValue: string;
     remindersDraft: Date[];
     reminders: Date[];
+    urgentReminderKeys: string[];
+    urgentReminderKeysDraft: string[];
     includeDefaultOneHourReminder: boolean;
     includeDefaultTenMinuteReminder: boolean;
     selectedDate: Date | null;
@@ -41,6 +44,7 @@ interface UseTaskInputSubmitArgs {
     setRecurrenceType: Dispatch<SetStateAction<string>>;
     setRecurrenceLabel: Dispatch<SetStateAction<string>>;
     setShowCustomRecurrenceInline: Dispatch<SetStateAction<boolean>>;
+    setIsEventManuallySelected: Dispatch<SetStateAction<boolean>>;
     setRequiresProof: Dispatch<SetStateAction<boolean>>;
     resetDeadlineToDefault: () => void;
 }
@@ -50,6 +54,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         title,
         recurrenceType,
         customDays,
+        isEventManuallySelected,
         selectedWeekday,
         selectedVoucherId,
         failureCost,
@@ -64,6 +69,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         reminderDraftValue,
         remindersDraft,
         reminders,
+        urgentReminderKeys,
+        urgentReminderKeysDraft,
         includeDefaultOneHourReminder,
         includeDefaultTenMinuteReminder,
         selectedDate,
@@ -76,6 +83,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         setRecurrenceType,
         setRecurrenceLabel,
         setShowCustomRecurrenceInline,
+        setIsEventManuallySelected,
         setRequiresProof,
         resetDeadlineToDefault,
     } = args;
@@ -86,6 +94,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         let effectiveSelectedDate = selectedDate;
         let effectiveEventStartDate = fromDateTimeLocalValue(eventStartValue);
         let effectiveReminders = reminders;
+        let effectiveUrgentReminderKeys = urgentReminderKeys;
 
         if (isDateSheetOpen) {
             const draftResult = resolveDateSheetDraftSubmission({
@@ -103,6 +112,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             effectiveSelectedDate = draftResult.deadline;
             effectiveEventStartDate = draftResult.eventStart;
             effectiveReminders = draftResult.reminders;
+            effectiveUrgentReminderKeys = urgentReminderKeysDraft;
         }
 
         const parsedDescription = parseTaskDescription(title);
@@ -122,7 +132,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             return;
         }
 
-        const isEventTask = EVENT_TOKEN_REGEX.test(parserTaskInput);
+        const isEventTask = isEventManuallySelected || EVENT_TOKEN_REGEX.test(parserTaskInput);
         const isStrict = /(^|\s)-bound(?=\s|$)/i.test(parserTaskInput);
         const colorValidation = validateEventColorUsage(parserTaskInput, isEventTask);
         if (colorValidation.error) {
@@ -223,6 +233,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             eventStartIso: eventStartDate ? eventStartDate.toISOString() : null,
             eventEndIso: eventEndDate ? eventEndDate.toISOString() : null,
             reminderIsos: remindersToSubmit.map((reminder) => reminder.toISOString()),
+            urgentReminderIsos: resolveUrgentReminderIsos(effectiveUrgentReminderKeys, deadlineToSubmit),
             includeDefaultOneHourReminder,
             includeDefaultTenMinuteReminder,
             voucherId: selectedVoucherId,
@@ -240,6 +251,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             setRecurrenceType("");
             setRecurrenceLabel("");
             setShowCustomRecurrenceInline(false);
+            setIsEventManuallySelected(false);
             setRequiresProof(defaultRequiresProofForAllTasks);
             resetDeadlineToDefault();
         };
@@ -267,6 +279,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
             formData.append("requiresProof", payload.requiresProof ? "true" : "false");
             if (payload.isStrict) formData.append("isStrict", "true");
             if (payload.reminderIsos.length > 0) formData.append("reminders", JSON.stringify(payload.reminderIsos));
+            if (payload.urgentReminderIsos.length > 0) formData.append("urgentReminders", JSON.stringify(payload.urgentReminderIsos));
             formData.append("includeDefaultOneHourReminder", payload.includeDefaultOneHourReminder ? "true" : "false");
             formData.append("includeDefaultTenMinuteReminder", payload.includeDefaultTenMinuteReminder ? "true" : "false");
 
@@ -293,6 +306,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         }
     }, [
         customDays,
+        isEventManuallySelected,
         deadlineDraftValue,
         defaultRequiresProofForAllTasks,
         eventStartValue,
@@ -307,6 +321,8 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         reminderDraftValue,
         reminders,
         remindersDraft,
+        urgentReminderKeys,
+        urgentReminderKeysDraft,
         includeDefaultOneHourReminder,
         includeDefaultTenMinuteReminder,
         requiresProof,
@@ -318,6 +334,7 @@ export function useTaskInputSubmit(args: UseTaskInputSubmitArgs) {
         setIsLoading,
         setRecurrenceLabel,
         setRecurrenceType,
+        setIsEventManuallySelected,
         setRequiresProof,
         setShowCustomRecurrenceInline,
         setShowShake,

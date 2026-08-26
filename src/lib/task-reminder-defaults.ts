@@ -25,6 +25,8 @@ interface BuildDefaultDeadlineReminderRowsInput {
     deadlineOneHourWarningEnabled: boolean;
     deadlineFinalWarningEnabled: boolean;
     deadlineDueWarningEnabled: boolean;
+    /** Reminder instants (ms) the user marked urgent, which arm the row's alarm. */
+    urgentReminderMs?: Set<number>;
     now?: Date;
 }
 
@@ -45,6 +47,7 @@ export function buildDefaultDeadlineReminderRows({
     deadlineOneHourWarningEnabled,
     deadlineFinalWarningEnabled,
     deadlineDueWarningEnabled,
+    urgentReminderMs,
     now = new Date(),
 }: BuildDefaultDeadlineReminderRowsInput): TaskReminderInsertRow[] {
     const deadlineMs = deadline.getTime();
@@ -70,7 +73,7 @@ export function buildDefaultDeadlineReminderRows({
             user_id: userId,
             reminder_at: reminderIso,
             source,
-            alarm_enabled: false,
+            alarm_enabled: urgentReminderMs?.has(reminderMs) ?? false,
             notified_at: isPast ? seededNowIso : null,
             created_at: seededNowIso,
             updated_at: seededNowIso,

@@ -73,6 +73,7 @@ interface DashboardClientProps {
     defaultTaskDeadlineTime: string;
     defaultRequiresProofForAllTasks: boolean;
     deadlineOneHourWarningEnabled: boolean;
+    alarmNotificationsEnabled?: boolean;
     deadlineFinalWarningEnabled: boolean;
     userId: string;
     username: string;
@@ -156,6 +157,9 @@ function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
     if (payload.reminderIsos.length > 0) {
         formData.append("reminders", JSON.stringify(payload.reminderIsos));
     }
+    if (payload.urgentReminderIsos.length > 0) {
+        formData.append("urgentReminders", JSON.stringify(payload.urgentReminderIsos));
+    }
     formData.append("includeDefaultOneHourReminder", payload.includeDefaultOneHourReminder ? "true" : "false");
     formData.append("includeDefaultTenMinuteReminder", payload.includeDefaultTenMinuteReminder ? "true" : "false");
 
@@ -187,6 +191,7 @@ export default function DashboardClient({
     defaultTaskDeadlineTime,
     defaultRequiresProofForAllTasks,
     deadlineOneHourWarningEnabled,
+    alarmNotificationsEnabled = false,
     deadlineFinalWarningEnabled,
     userId,
     username,
@@ -823,6 +828,7 @@ export default function DashboardClient({
         const proofDraft = proofDraftOverride ?? proofByTaskId[task.id] ?? null;
         if (requiresProofForCompletion && !proofDraft) {
             toast.error("Attach proof before marking this task complete.");
+            await openTaskProofPicker(task);
             return;
         }
 
@@ -1172,6 +1178,7 @@ export default function DashboardClient({
                 defaultTaskDeadlineTime={defaultTaskDeadlineTime}
                 defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
                 deadlineOneHourWarningEnabled={deadlineOneHourWarningEnabled}
+                alarmNotificationsEnabled={alarmNotificationsEnabled}
                 deadlineFinalWarningEnabled={deadlineFinalWarningEnabled}
                 selfUserId={userId}
                 onCreateTaskOptimistic={handleCreateTaskOptimistic}

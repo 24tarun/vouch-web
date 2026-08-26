@@ -16,7 +16,6 @@ import {
     startOfWeek,
     subMonths,
 } from "date-fns";
-import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CustomTimePicker } from "@/components/ui/custom-time-picker";
 import {
@@ -28,6 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const WEEKDAY_HEADERS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+
 
 function formatDatePart(date: Date): string {
     return format(date, "yyyy-MM-dd");
@@ -51,9 +51,6 @@ interface TaskDateTimePickerProps {
     eventStartValue: string;
     onDeadlineValueChange: (value: string) => void;
     onEventStartValueChange: (value: string) => void;
-    mode?: "deadline" | "reminder";
-    highlightCalendar?: boolean;
-    actions?: ReactNode;
     className?: string;
 }
 
@@ -62,9 +59,6 @@ export function TaskDateTimePicker({
     eventStartValue,
     onDeadlineValueChange,
     onEventStartValueChange,
-    mode = "deadline",
-    highlightCalendar = false,
-    actions,
     className,
 }: TaskDateTimePickerProps) {
     const selectedDeadline = fromDateTimeLocalValue(deadlineValue) ?? new Date();
@@ -86,7 +80,7 @@ export function TaskDateTimePicker({
             setVisibleMonth(startOfMonth(nextDate));
         }
         onDeadlineValueChange(combineDateAndTime(nextDatePart, selectedEndTime));
-        if (mode === "deadline" && selectedStartTime) {
+        if (selectedStartTime) {
             onEventStartValueChange(combineDateAndTime(nextDatePart, selectedStartTime));
         }
     };
@@ -105,18 +99,18 @@ export function TaskDateTimePicker({
     };
 
     return (
-        <div className={cn("grid gap-6 sm:grid-cols-[1fr_220px]", className)}>
+        <div className={cn("grid gap-6 md:grid-cols-[minmax(0,1fr)_230px]", className)}>
             {/* Left: Calendar */}
-            <div className={cn(highlightCalendar && "rounded-xl bg-slate-800/60")}>
+            <div>
                 {/* Month header */}
-                <div className="mb-4 flex items-center justify-between">
-                    <div className="text-lg font-semibold text-slate-100">
+                <div className="mb-3 flex items-center justify-between">
+                    <div className="text-base font-semibold text-slate-100 sm:text-lg">
                         {format(visibleMonth, "MMMM yyyy")}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
                         <button
                             type="button"
-                            className="flex h-8 w-8 items-center justify-center text-amber-400 transition-colors hover:text-amber-300 disabled:opacity-30 disabled:text-slate-600"
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-800 hover:text-white disabled:opacity-30 disabled:text-slate-700"
                             disabled={!canGoToPreviousMonth}
                             onClick={() => {
                                 if (!canGoToPreviousMonth) return;
@@ -131,7 +125,7 @@ export function TaskDateTimePicker({
                         </button>
                         <button
                             type="button"
-                            className="flex h-8 w-8 items-center justify-center text-amber-400 transition-colors hover:text-amber-300"
+                            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-300 transition-colors hover:bg-slate-800 hover:text-white"
                             onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
                             aria-label="Next month"
                         >
@@ -143,20 +137,20 @@ export function TaskDateTimePicker({
                 {/* Weekday headers */}
                 <div className="grid grid-cols-7 text-center">
                     {WEEKDAY_HEADERS.map((day) => (
-                        <div key={day} className="pb-3 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+                        <div key={day} className="pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 sm:text-[11px]">
                             {day}
                         </div>
                     ))}
                 </div>
 
                 {/* Calendar grid */}
-                <div className="grid grid-cols-7 gap-y-1">
+                <div className="grid grid-cols-7 gap-y-0.5">
                     {calendarDays.map((day) => {
                         const isSelected = isSameDay(day, selectedDeadline);
                         const isMuted = !isSameMonth(day, visibleMonth);
                         const isPast = isBefore(day, startOfDay(new Date()));
                         if (isMuted) {
-                            return <div key={day.toISOString()} className="h-11" aria-hidden="true" />;
+                            return <div key={day.toISOString()} className="h-10" aria-hidden="true" />;
                         }
 
                         return (
@@ -165,14 +159,14 @@ export function TaskDateTimePicker({
                                 type="button"
                                 disabled={isPast}
                                 onClick={() => commitDatePart(formatDatePart(day))}
-                                className="flex h-11 items-center justify-center"
+                                className="flex h-10 items-center justify-center"
                                 aria-pressed={isSelected}
                             >
                                 <span
                                     className={cn(
-                                        "flex h-9 w-9 items-center justify-center rounded-full text-sm font-medium transition-colors",
+                                        "flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium transition-colors",
                                         isSelected
-                                            ? "bg-amber-500 text-white font-bold"
+                                            ? "bg-amber-500 text-slate-950 font-bold shadow-[0_0_0_3px_rgba(245,158,11,0.12)]"
                                             : "text-slate-400 hover:bg-slate-800/60 hover:text-white",
                                         isPast && "text-slate-700 cursor-not-allowed hover:bg-transparent hover:text-slate-700",
                                         isToday(day) && !isSelected && "text-amber-300"
@@ -186,58 +180,38 @@ export function TaskDateTimePicker({
                 </div>
             </div>
 
-            {/* Right: Time + Actions */}
-            <div className="flex flex-col justify-between gap-5">
-                <div className="space-y-4">
-                    {mode === "deadline" ? (
-                        <TimeRow
-                            label="Start (optional)"
-                            value={selectedStartTime}
-                            placeholder="--:--"
-                            onChange={commitStartTime}
-                            allowClear
-                        />
-                    ) : null}
-                    <TimeRow
-                        label={mode === "deadline" ? "End" : "Time"}
+            {/* Right: Time */}
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-1 md:content-start">
+                <div>
+                    <div className="mb-1.5 flex items-center justify-between">
+                        <label className="text-sm text-slate-400">Start</label>
+                        {selectedStartTime && (
+                            <button
+                                type="button"
+                                onClick={() => commitStartTime("")}
+                                className="text-xs text-slate-600 transition-colors hover:text-red-400"
+                                aria-label="Clear start time"
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
+                    <CustomTimePicker
+                        ariaLabel="Start time"
+                        value={selectedStartTime}
+                        placeholder="--:--"
+                        onChange={commitStartTime}
+                    />
+                </div>
+                <div>
+                    <label className="mb-1.5 block text-sm text-slate-400">End</label>
+                    <CustomTimePicker
+                        ariaLabel="End time"
                         value={selectedEndTime}
-                        placeholder={mode === "deadline" ? "23:00" : "--:--"}
+                        placeholder="23:00"
                         onChange={commitEndTime}
                     />
                 </div>
-                {actions && <div className="space-y-2.5">{actions}</div>}
-            </div>
-        </div>
-    );
-}
-
-interface TimeRowProps {
-    label: string;
-    value: string;
-    placeholder: string;
-    allowClear?: boolean;
-    onChange: (value: string) => void;
-}
-
-function TimeRow({ label, value, placeholder, allowClear = false, onChange }: TimeRowProps) {
-    return (
-        <div>
-            <label className="mb-2 block text-sm text-slate-400">{label}</label>
-            <div className="flex items-center gap-2">
-                <CustomTimePicker
-                    value={value}
-                    placeholder={placeholder}
-                    onChange={onChange}
-                />
-                {allowClear && value && (
-                    <button
-                        type="button"
-                        onClick={() => onChange("")}
-                        className="rounded-full px-2.5 py-1 text-[11px] font-mono text-slate-500 transition-colors hover:text-red-400"
-                    >
-                        ✕
-                    </button>
-                )}
             </div>
         </div>
     );

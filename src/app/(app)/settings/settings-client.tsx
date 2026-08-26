@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import {
+    Ban,
+    BarChart3,
+    Bot,
+    CalendarDays,
+    HeartHandshake,
+    ShieldAlert,
+    SlidersHorizontal,
+    UsersRound,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { GlassToggle } from "@/components/GlassToggle";
 import { deleteAccount, getActiveVoucherTasks, updateUserDefaults, updateUsername } from "@/actions/auth";
 import { exportUserData } from "@/actions/export";
@@ -63,6 +74,35 @@ import {
 } from "@/app/(app)/settings/settings/utils/push";
 
 const VAPID_PUBLIC_KEY = normalizeVapidPublicKey(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "");
+
+const SETTINGS_SECTION_CLASS = "space-y-5 border-b border-slate-800/80 pb-8";
+
+function SettingsSectionHeading({
+    icon: Icon,
+    children,
+    tone = "default",
+}: {
+    icon: LucideIcon;
+    children: ReactNode;
+    tone?: "default" | "danger";
+}) {
+    return (
+        <div className="flex items-center gap-3">
+            <span
+                className={
+                    tone === "danger"
+                        ? "flex h-8 w-8 items-center justify-center text-red-300"
+                        : "flex h-8 w-8 items-center justify-center text-slate-400"
+                }
+            >
+                <Icon className="h-4 w-4" />
+            </span>
+            <h2 className={tone === "danger" ? "text-lg font-semibold text-red-200" : "text-lg font-semibold text-white"}>
+                {children}
+            </h2>
+        </div>
+    );
+}
 
 interface SettingsClientProps {
     profile: Profile;
@@ -813,53 +853,67 @@ export default function SettingsClient({
     }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-8 pb-20 px-4 md:px-0">
-            <div className="flex items-start justify-between gap-3">
-                <div>
-                    <h1 className="text-3xl font-bold text-white">Settings</h1>
-                </div>
+        <div className="mx-auto max-w-6xl space-y-6 px-4 pb-20 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">Settings</h1>
                 <div className="flex items-center gap-2">
                     <HardRefreshButton />
                     <SignOutMenuForm variant="nav" />
                 </div>
             </div>
-            <section className="space-y-4 border-b border-slate-900 pb-8">
-                <h2 className="text-xl font-semibold text-white">Stats</h2>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-4">
-                    <div>
+
+            <nav aria-label="Settings sections" className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {[
+                    ["#friends", "Friends"],
+                    ["#defaults", "Preferences"],
+                    ["#integrations", "Integrations"],
+                    ["#account", "Account"],
+                ].map(([href, label]) => (
+                    <a
+                        key={href}
+                        href={href}
+                        className="shrink-0 rounded-full border border-slate-800 bg-slate-950/40 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:border-slate-700 hover:text-white"
+                    >
+                        {label}
+                    </a>
+                ))}
+            </nav>
+
+            <section className={SETTINGS_SECTION_CLASS}>
+                <SettingsSectionHeading icon={BarChart3}>Overview</SettingsSectionHeading>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                    <div className="py-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Active</p>
-                        <p className="text-2xl font-light text-blue-400">{stats.activeTasks}</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-blue-400">{stats.activeTasks}</p>
                     </div>
-                    <div>
+                    <div className="py-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Time Focused</p>
-                        <p className="text-2xl font-light text-cyan-400">{stats.focusedHours}<span className="ml-1 text-base text-slate-500">h</span> {stats.focusedMinutes}<span className="ml-1 text-base text-slate-500">m</span></p>
+                        <p className="mt-1 whitespace-nowrap text-xl font-semibold tabular-nums text-cyan-400">{stats.focusedHours}<span className="ml-0.5 text-xs text-slate-500">h</span> {stats.focusedMinutes}<span className="ml-0.5 text-xs text-slate-500">m</span></p>
                     </div>
-                    <div>
+                    <div className="py-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pending Vouches</p>
-                        <p className="text-2xl font-light text-purple-400">{stats.pendingVouches}</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-purple-400">{stats.pendingVouches}</p>
                     </div>
-                    <div>
+                    <div className="py-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Accepted</p>
-                        <p className="text-2xl font-light text-lime-300">{stats.accepted}</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-lime-300">{stats.accepted}</p>
                     </div>
-                    <div>
+                    <div className="py-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Missed</p>
-                        <p className="text-2xl font-light text-red-500">{stats.missed}</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-red-400">{stats.missed}</p>
                     </div>
-                    <div>
+                    <div className="py-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Surrendered</p>
-                        <p className="text-2xl font-light text-red-500">{stats.surrendered}</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-red-400">{stats.surrendered}</p>
                     </div>
-                    <div>
+                    <div className="py-2">
                         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Denied</p>
-                        <p className="text-2xl font-light text-red-500">{stats.denied}</p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-red-400">{stats.denied}</p>
                     </div>
                 </div>
             </section>
-            <section className="space-y-6 border-b border-slate-900 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">Friends</h2>
-                </div>
+            <section id="friends" className={`${SETTINGS_SECTION_CLASS} scroll-mt-24`}>
+                <SettingsSectionHeading icon={UsersRound}>Friends</SettingsSectionHeading>
                 <div className="space-y-3">
                     <Input
                         id="friendSearch"
@@ -867,7 +921,7 @@ export default function SettingsClient({
                         placeholder="Search friends with their email or username"
                         value={friendSearchQuery}
                         onChange={(e) => setFriendSearchQuery(e.target.value)}
-                        className="bg-slate-800/40 border-slate-700 text-white"
+                        className="h-11 rounded-xl border-slate-800 bg-slate-950/50 text-white"
                     />
                 </div>
 
@@ -893,11 +947,11 @@ export default function SettingsClient({
                                 return (
                                     <div
                                         key={candidate.id}
-                                        className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                        className="flex flex-col gap-3 border-b border-slate-800/80 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
                                             <Avatar className="h-10 w-10 border border-slate-700 bg-slate-900">
-                                                <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                                <AvatarFallback className="bg-slate-900 text-[11px] font-semibold text-slate-300">
                                                     {candidate.username?.slice(0, 2).toUpperCase() || "??"}
                                                 </AvatarFallback>
                                             </Avatar>
@@ -906,7 +960,7 @@ export default function SettingsClient({
                                                 <p className="text-xs text-slate-400 truncate">{candidate.email}</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                                             {candidate.incoming_request_pending ? (
                                                 <span className="text-xs text-amber-300">Requested you</span>
                                             ) : candidate.outgoing_request_pending ? (
@@ -938,6 +992,11 @@ export default function SettingsClient({
                             })
                         )}
                     </div>
+                ) : relationshipsLoading ? (
+                    <div className="space-y-2" aria-label="Loading friends">
+                        <div className="h-14 animate-pulse rounded-xl bg-slate-900/70" />
+                        <div className="h-14 animate-pulse rounded-xl bg-slate-900/70" />
+                    </div>
                 ) : (
                     <div className="space-y-3">
                         {incomingRequests.map((request) => {
@@ -952,11 +1011,11 @@ export default function SettingsClient({
                             return (
                                 <div
                                     key={request.id}
-                                    className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                    className="flex flex-col gap-3 border-b border-slate-800/80 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
                                 >
                                     <div className="flex items-center gap-3 min-w-0">
                                         <Avatar className="h-10 w-10 border border-slate-700 bg-slate-900">
-                                            <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                            <AvatarFallback className="bg-slate-900 text-[11px] font-semibold text-slate-300">
                                                 {request.sender.initial}
                                             </AvatarFallback>
                                         </Avatar>
@@ -965,7 +1024,7 @@ export default function SettingsClient({
                                             <p className="text-xs text-slate-400 truncate">{request.sender.email}</p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                                         <Button
                                             type="button"
                                             size="sm"
@@ -1008,11 +1067,11 @@ export default function SettingsClient({
                             return (
                                 <div
                                     key={request.id}
-                                    className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                    className="flex flex-col gap-3 border-b border-slate-800/80 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
                                 >
                                     <div className="flex items-center gap-3 min-w-0">
                                         <Avatar className="h-10 w-10 border border-slate-700 bg-slate-900">
-                                            <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                            <AvatarFallback className="bg-slate-900 text-[11px] font-semibold text-slate-300">
                                                 {request.receiver.initial}
                                             </AvatarFallback>
                                         </Avatar>
@@ -1021,7 +1080,7 @@ export default function SettingsClient({
                                             <p className="text-xs text-slate-400 truncate">{request.receiver.email}</p>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                                         <Button
                                             type="button"
                                             variant="ghost"
@@ -1056,15 +1115,15 @@ export default function SettingsClient({
                             return (
                                 <div
                                     key={friend.id}
-                                    className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
+                                    className="flex flex-col gap-3 border-b border-slate-800/80 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
                                 >
                                     <div className="flex items-center gap-3 min-w-0">
                                         <Avatar className="relative h-10 w-10 border border-slate-700 bg-slate-900 overflow-visible">
-                                            <AvatarFallback className="bg-slate-900 text-slate-300 text-[11px] font-mono">
+                                            <AvatarFallback className="bg-slate-900 text-[11px] font-semibold text-slate-300">
                                                 {friend.username?.slice(0, 2).toUpperCase() || "??"}
                                             </AvatarFallback>
                                             <span
-                                                className="absolute -top-1 -right-1 rounded-full min-w-[34px] h-5 px-1.5 flex items-center justify-center text-[9px] font-mono font-semibold text-white leading-none border border-orange-300/50"
+                                                className="absolute -right-1 -top-1 flex h-5 min-w-[34px] items-center justify-center rounded-full border border-orange-300/50 px-1.5 text-[9px] font-semibold leading-none tabular-nums text-white"
                                                 style={{
                                                     background: "linear-gradient(90deg, rgb(234,88,12) 0%, rgb(251,146,60) 100%)",
                                                     boxShadow: "0 0 8px 1px rgba(251,146,60,0.5)",
@@ -1083,7 +1142,7 @@ export default function SettingsClient({
                                     {friend.id === AI_PROFILE_ID ? (
                                         <span className="text-xs text-slate-500">Managed in AI Features</span>
                                     ) : (
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                                             <Button
                                                 type="button"
                                                 variant="ghost"
@@ -1114,78 +1173,77 @@ export default function SettingsClient({
 
             </section>
 
-            <section className="space-y-4 border-b border-slate-900 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">Blocked Users</h2>
-                </div>
-                {blockedUsersLoading ? null : blockedUsers.length === 0 ? (
-                    null
-                ) : (
-                    <div>
-                        {blockedUsers.map((blockedUser) => (
-                            <div
-                                key={blockedUser.id}
-                                className="flex items-center justify-between gap-3 border-b border-slate-900 py-3 last:border-b-0"
-                            >
-                                <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-white truncate">{blockedUser.username}</p>
-                                    <p className="text-xs text-slate-400 truncate">{blockedUser.email}</p>
-                                </div>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => void handleUnblockUser(blockedUser.id, blockedUser.username)}
-                                    disabled={unblockingUserId === blockedUser.id}
-                                    className="text-cyan-300 hover:text-cyan-200 hover:bg-cyan-500/10"
+            {(blockedUsersLoading || blockedUsers.length > 0) && (
+                <section className={SETTINGS_SECTION_CLASS}>
+                    <SettingsSectionHeading icon={Ban}>Blocked users</SettingsSectionHeading>
+                    {blockedUsersLoading ? (
+                        <div className="h-10 animate-pulse rounded-xl bg-slate-900/70" />
+                    ) : (
+                        <div>
+                            {blockedUsers.map((blockedUser) => (
+                                <div
+                                    key={blockedUser.id}
+                                    className="flex flex-col gap-3 border-b border-slate-800/80 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between"
                                 >
-                                    {unblockingUserId === blockedUser.id ? "Unblocking..." : "Unblock"}
-                                </Button>
-                            </div>
-                        ))}
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-semibold text-white">{blockedUser.username}</p>
+                                        <p className="truncate text-xs text-slate-400">{blockedUser.email}</p>
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => void handleUnblockUser(blockedUser.id, blockedUser.username)}
+                                        disabled={unblockingUserId === blockedUser.id}
+                                        className="text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-200"
+                                    >
+                                        {unblockingUserId === blockedUser.id ? "Unblocking..." : "Unblock"}
+                                    </Button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </section>
+            )}
+
+            <section id="defaults" className={`${SETTINGS_SECTION_CLASS} scroll-mt-24`}>
+                <SettingsSectionHeading icon={SlidersHorizontal}>Preferences</SettingsSectionHeading>
+
+                <form
+                    onSubmit={handleUsernameSubmit}
+                    className="py-1"
+                >
+                    <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                        <div className="space-y-2">
+                            <Label htmlFor="username" className="text-slate-200">
+                                Username
+                            </Label>
+                            <Input
+                                id="username"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                minLength={3}
+                                required
+                                className="h-11 rounded-xl border-slate-800 bg-slate-950/50 text-white"
+                            />
+                        </div>
+                        <Button
+                            type="submit"
+                            disabled={isUsernameLoading || username === profile.username}
+                            className="h-11 rounded-xl bg-slate-100 px-5 font-semibold text-slate-950 hover:bg-white"
+                        >
+                            {isUsernameLoading ? "Saving..." : "Save"}
+                        </Button>
                     </div>
-                )}
-            </section>
+                    {usernameError && <p className="mt-3 text-sm text-red-400">{usernameError}</p>}
+                    {usernameSuccess && <p className="mt-3 text-sm text-green-400">Username updated!</p>}
+                </form>
 
-	            <section className="space-y-4 border-b border-slate-900 pb-8">
-	                <div className="space-y-1">
-	                    <h2 className="text-xl font-semibold text-white">Defaults</h2>
-	                </div>
-
-	                <div className="space-y-4">
-	                    <form onSubmit={handleUsernameSubmit} className="space-y-4">
-	                        <div className="space-y-2">
-	                            <Label htmlFor="username" className="text-slate-200">
-	                                Username
-	                            </Label>
-	                            <Input
-	                                id="username"
-	                                value={username}
-	                                onChange={(e) => setUsername(e.target.value)}
-	                                minLength={3}
-	                                required
-	                                className="bg-slate-800/40 border-slate-700 text-white"
-	                            />
-	                        </div>
-	
-	                        {usernameError && <p className="text-sm text-red-400">{usernameError}</p>}
-	                        {usernameSuccess && (
-	                            <p className="text-sm text-green-400">Username updated!</p>
-	                        )}
-	
-	                        <Button
-	                            type="submit"
-	                            disabled={isUsernameLoading || username === profile.username}
-	                            className="bg-slate-100 text-slate-950 hover:bg-white font-semibold"
-	                        >
-	                            {isUsernameLoading ? "Saving..." : "Save Changes"}
-	                        </Button>
-	                    </form>
-
-	                    <div className="space-y-2">
-	                        <Label htmlFor="defaultPomoDurationMinutes" className="text-slate-200">
-	                            Default Pomodoro Duration (minutes)
-	                        </Label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                        <Label htmlFor="defaultPomoDurationMinutes" className="text-slate-200">
+                            Pomodoro duration
+                        </Label>
                         <Input
                             id="defaultPomoDurationMinutes"
                             type="number"
@@ -1194,27 +1252,26 @@ export default function SettingsClient({
                             step="1"
                             value={defaultPomoDurationMinutes}
                             onChange={(e) => setDefaultPomoDurationMinutes(e.target.value)}
-                            className="bg-slate-800/40 border-slate-700 text-white"
+                            className="h-11 rounded-xl border-slate-800 bg-slate-950/50 text-white"
                         />
                     </div>
 
                     <div className="space-y-2">
                         <Label htmlFor="defaultTaskDeadlineTime" className="text-slate-200">
-                            Default Task Deadline
+                            Task deadline
                         </Label>
                         <Input
                             id="defaultTaskDeadlineTime"
                             type="time"
                             value={defaultTaskDeadlineTime}
                             onChange={(e) => setDefaultTaskDeadlineTime(e.target.value)}
-                            className="bg-slate-800/40 border-slate-700 text-white"
+                            className="h-11 rounded-xl border-slate-800 bg-slate-950/50 text-white"
                         />
-                        <p className="text-xs text-slate-400">Used when creating a task without an explicit time.</p>
                     </div>
 
                     <div className="space-y-2">
                         <Label htmlFor="defaultFailureCost" className="text-slate-200">
-                            Default Failure Cost ({currencySymbol})
+                            Failure cost ({currencySymbol})
                         </Label>
                         <Input
                             id="defaultFailureCost"
@@ -1224,13 +1281,13 @@ export default function SettingsClient({
                             step={failureCostBounds.step}
                             value={defaultFailureCostEuros}
                             onChange={(e) => setDefaultFailureCostEuros(e.target.value)}
-                            className="bg-slate-800/40 border-slate-700 text-white"
+                            className="h-11 rounded-xl border-slate-800 bg-slate-950/50 text-white"
                         />
                     </div>
 
                     <div className="space-y-2">
                         <Label htmlFor="defaultEventDurationMinutes" className="text-slate-200">
-                            Default Event Duration (minutes)
+                            Event duration
                         </Label>
                         <Input
                             id="defaultEventDurationMinutes"
@@ -1240,13 +1297,13 @@ export default function SettingsClient({
                             step="1"
                             value={defaultEventDurationMinutes}
                             onChange={(e) => setDefaultEventDurationMinutes(e.target.value)}
-                            className="bg-slate-800/40 border-slate-700 text-white"
+                            className="h-11 rounded-xl border-slate-800 bg-slate-950/50 text-white"
                         />
                     </div>
 
                     <div className="space-y-2">
                         <Label htmlFor="defaultVoucherId" className="text-slate-200">
-                            Default Voucher
+                            Voucher
                         </Label>
                         <Select
                             value={effectiveDefaultVoucherId}
@@ -1254,7 +1311,7 @@ export default function SettingsClient({
                         >
                             <SelectTrigger
                                 id="defaultVoucherId"
-                                className="bg-slate-800/40 border-slate-700 text-white w-full"
+                                className="h-11 w-full rounded-xl border-slate-800 bg-slate-950/50 text-white"
                             >
                                 <SelectValue placeholder="Select default voucher" />
                             </SelectTrigger>
@@ -1276,7 +1333,7 @@ export default function SettingsClient({
                         <Select value={currency} onValueChange={handleCurrencyChange}>
                             <SelectTrigger
                                 id="currency"
-                                className="bg-slate-800/40 border-slate-700 text-white w-full"
+                                className="h-11 w-full rounded-xl border-slate-800 bg-slate-950/50 text-white"
                             >
                                 <SelectValue placeholder="Select currency" />
                             </SelectTrigger>
@@ -1297,7 +1354,7 @@ export default function SettingsClient({
                         <Select value={timeZone} onValueChange={handleTimeZoneChange}>
                             <SelectTrigger
                                 id="timezone"
-                                className="bg-slate-800/40 border-slate-700 text-white w-full"
+                                className="h-11 w-full rounded-xl border-slate-800 bg-slate-950/50 text-white"
                             >
                                 <SelectValue placeholder="Select timezone" />
                             </SelectTrigger>
@@ -1310,14 +1367,14 @@ export default function SettingsClient({
                             </SelectContent>
                         </Select>
                     </div>
+                </div>
 
-                    <div aria-live="polite" className="min-h-5">
-                        {isDefaultsLoading ? (
-                            <p className="text-sm text-slate-300 leading-5">Saving...</p>
-                        ) : null}
-                    </div>
+                <div aria-live="polite" className="min-h-5">
+                    {isDefaultsLoading ? <p className="text-sm leading-5 text-slate-300">Saving...</p> : null}
+                </div>
 
-                    <div className="py-3 border-b border-slate-900">
+                <div className="divide-y divide-slate-800">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="deadlineOneHourWarningEnabled" className="text-slate-200">
@@ -1332,7 +1389,7 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="py-3 border-b border-slate-900">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="deadlineFinalWarningEnabled" className="flex items-center gap-2 cursor-pointer font-medium text-slate-200">
@@ -1347,13 +1404,12 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="py-3 border-b border-slate-900">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="deadlineDueWarningEnabled" className="flex items-center gap-2 cursor-pointer font-medium text-slate-200">
                                     Final call at deadline
                                 </Label>
-                                <p className="text-xs text-slate-400">Last chance to mark a task complete before it is missed.</p>
                             </div>
                             <GlassToggle
                                 id="deadlineDueWarningEnabled"
@@ -1363,7 +1419,7 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="py-3 border-b border-slate-900">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="defaultRequiresProofForAllTasks" className="text-slate-200">
@@ -1378,7 +1434,7 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="py-3 border-b border-slate-900">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="autoSubmitAfterProofUpload" className="text-slate-200">
@@ -1393,7 +1449,7 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="py-3 border-b border-slate-900">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="voucherCanViewActiveTasksEnabled" className="text-slate-200">
@@ -1408,7 +1464,7 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="py-3 border-b border-slate-900">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="alwaysShowActiveTasks" className="text-slate-200">
@@ -1423,7 +1479,7 @@ export default function SettingsClient({
                         </div>
                     </div>
 
-                    <div className="py-3">
+                    <div className="py-4">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="webNotificationsEnabled" className="text-slate-200">
@@ -1469,22 +1525,20 @@ export default function SettingsClient({
                             />
                         </div>
                     </div>
+                </div>
 
-                    <div aria-live="polite" className="min-h-5">
-                        {defaultsError ? (
-                            <p className="text-sm text-red-400 leading-5">{defaultsError}</p>
-                        ) : defaultsSuccess ? (
-                            <p className="text-sm text-green-400 leading-5">Defaults updated!</p>
-                        ) : null}
-                    </div>
+                <div aria-live="polite" className="min-h-5">
+                    {defaultsError ? (
+                        <p className="text-sm leading-5 text-red-400">{defaultsError}</p>
+                    ) : defaultsSuccess ? (
+                        <p className="text-sm leading-5 text-green-400">Preferences updated!</p>
+                    ) : null}
                 </div>
             </section>
 
-            <section className="space-y-4 border-b border-slate-900 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">AI Features</h2>
-                </div>
-                <div className="py-3">
+            <section className={SETTINGS_SECTION_CLASS}>
+                <SettingsSectionHeading icon={Bot}>AI</SettingsSectionHeading>
+                <div className="py-2">
                     <div className="flex items-center gap-4">
                         <div className="flex-1 min-w-0 space-y-1">
                             <Label htmlFor="aiFriendEnabled" className="text-slate-200">
@@ -1503,13 +1557,11 @@ export default function SettingsClient({
                 {aiFriendSuccess && <p className="text-sm text-green-400">{aiFriendSuccess}</p>}
             </section>
 
-            <section className="space-y-4 border-b border-slate-900 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">Google Calendar</h2>
-                </div>
+            <section id="integrations" className={`${SETTINGS_SECTION_CLASS} scroll-mt-24`}>
+                <SettingsSectionHeading icon={CalendarDays}>Google Calendar</SettingsSectionHeading>
 
                 <div className="space-y-4">
-                    <div className="py-3">
+                    <div className="py-2">
                         <div className="flex items-center gap-4">
                             <div className="flex-1 min-w-0 space-y-1">
                                 <Label htmlFor="googleConnectedToggle" className="text-slate-200">
@@ -1532,17 +1584,18 @@ export default function SettingsClient({
                                 variant="ghost"
                                 onClick={handleGoogleRefreshCalendars}
                                 disabled={isGoogleActionLoading}
-                                className="border border-slate-700 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                                className="rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
                             >
                                 {isGoogleActionLoading ? "Working..." : "Refresh Calendars"}
                             </Button>
                         </div>
                     )}
 
-                    {googleAccountEmail && (
-                        <p className="text-xs text-slate-400">
-                            Connected as <span className="text-slate-200">{googleAccountEmail}</span>
-                        </p>
+                    {(googleAccountEmail || googleSelectedCalendarSummary) && (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+                            {googleAccountEmail && <span className="text-slate-200">{googleAccountEmail}</span>}
+                            {googleSelectedCalendarSummary && <span>{googleSelectedCalendarSummary}</span>}
+                        </div>
                     )}
 
                     {googleConnected && (
@@ -1557,7 +1610,7 @@ export default function SettingsClient({
                                 >
                                     <SelectTrigger
                                         id="googleCalendarSelect"
-                                        className="bg-slate-800/40 border-slate-700 text-white w-full"
+                                        className="h-11 w-full rounded-xl border-slate-800 bg-slate-950/50 text-white"
                                     >
                                         <SelectValue
                                             placeholder={
@@ -1575,7 +1628,7 @@ export default function SettingsClient({
                                 </Select>
                             </div>
 
-                            <div className="border-b border-slate-900 py-3">
+                            <div className="border-t border-slate-800 py-4">
                                 <div className="flex items-center gap-4">
                                     <div className="flex-1 min-w-0 space-y-1">
                                         <Label htmlFor="googleSyncAppToGoogleEnabled" className="text-slate-200">
@@ -1595,67 +1648,21 @@ export default function SettingsClient({
                     )}
 
                     {googleLastError && (
-                        <p className="border-b border-red-900/60 pb-2 text-sm text-red-400">
+                        <p className="text-sm text-red-400">
                             {googleLastError}
                         </p>
                     )}
                     {googleActionSuccess && (
-                        <p className="border-b border-green-900/60 pb-2 text-sm text-green-400">
+                        <p className="text-sm text-green-400">
                             {googleActionSuccess}
                         </p>
                     )}
                 </div>
             </section>
 
-            <section className="space-y-4 border-b border-red-950 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-red-300">Danger Zone</h2>
-                </div>
-                <div className="space-y-2">
-                    <Button
-                        type="button"
-                        onClick={handleExportData}
-                        disabled={isExporting}
-                        className="bg-sky-700 hover:bg-sky-600 text-white font-semibold"
-                    >
-                        {isExporting ? "Exporting..." : "Export my data as a JSON"}
-                    </Button>
-                    {exportError && (
-                        <p className="text-sm text-red-400">{exportError}</p>
-                    )}
-                </div>
-                {deleteAccountError && (
-                    <p className="border-b border-red-900/60 pb-2 text-sm text-red-300">
-                        {deleteAccountError}
-                    </p>
-                )}
-                {deleteAccountSuccess && (
-                    <p className="border-b border-green-900/60 pb-2 text-sm text-green-300">
-                        Account successfully deleted. Redirecting...
-                    </p>
-                )}
-                <Button
-                    type="button"
-                    variant="destructive"
-                    onClick={handleDeleteAccount}
-                    disabled={isDeletingAccount || deleteAccountSuccess || isCheckingVoucherConflicts}
-                    className="bg-red-700 hover:bg-red-600 text-white"
-                >
-                    {deleteAccountSuccess
-                        ? "Account Deleted"
-                        : isDeletingAccount
-                            ? "Deleting Account..."
-                            : isCheckingVoucherConflicts
-                                ? "Checking..."
-                                : "Delete Account"}
-                </Button>
-            </section>
-
-            <section className="space-y-3 border-b border-slate-900 pb-8">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-white">Charity Choice</h2>
-                </div>
-                <div className="border-b border-slate-900 py-3">
+            <section className={SETTINGS_SECTION_CLASS}>
+                <SettingsSectionHeading icon={HeartHandshake}>Charity</SettingsSectionHeading>
+                <div className="py-2">
                     <div className="flex items-center gap-4">
                         <div className="flex-1 min-w-0 space-y-1">
                             <Label htmlFor="charityEnabled" className="text-slate-200">
@@ -1680,7 +1687,7 @@ export default function SettingsClient({
                         >
                             <SelectTrigger
                                 id="selectedCharityId"
-                                className="bg-slate-800/40 border-slate-700 text-white w-full"
+                                className="h-11 w-full rounded-xl border-slate-800 bg-slate-950/50 text-white"
                             >
                                 <SelectValue placeholder="Select one charity" />
                             </SelectTrigger>
@@ -1696,10 +1703,53 @@ export default function SettingsClient({
                 ) : null}
             </section>
 
-            <section className="pb-8">
+            <section
+                id="account"
+                className="scroll-mt-24 space-y-5 border-b border-red-500/20 pb-8"
+            >
+                <SettingsSectionHeading icon={ShieldAlert} tone="danger">Data &amp; account</SettingsSectionHeading>
+
+                <div className="flex flex-col gap-3 border-b border-slate-800 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="font-medium text-slate-200">Export data</span>
+                    <Button
+                        type="button"
+                        onClick={handleExportData}
+                        disabled={isExporting}
+                        className="rounded-xl bg-sky-700 font-semibold text-white hover:bg-sky-600"
+                    >
+                        {isExporting ? "Exporting..." : "Export JSON"}
+                    </Button>
+                </div>
+                {exportError && <p className="text-sm text-red-400">{exportError}</p>}
+
+                <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="font-medium text-red-200">Delete account</span>
+                    <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={handleDeleteAccount}
+                        disabled={isDeletingAccount || deleteAccountSuccess || isCheckingVoucherConflicts}
+                        className="rounded-xl bg-red-700 text-white hover:bg-red-600"
+                    >
+                        {deleteAccountSuccess
+                            ? "Account Deleted"
+                            : isDeletingAccount
+                                ? "Deleting Account..."
+                                : isCheckingVoucherConflicts
+                                    ? "Checking..."
+                                    : "Delete Account"}
+                    </Button>
+                </div>
+                {deleteAccountError && <p className="text-sm text-red-300">{deleteAccountError}</p>}
+                {deleteAccountSuccess && (
+                    <p className="text-sm text-green-300">Account successfully deleted. Redirecting...</p>
+                )}
+            </section>
+
+            <section>
                 <Link
                     href="/privacy-policy"
-                    className="flex items-center justify-between gap-4 border-b border-slate-900 py-3 text-slate-200 transition-colors hover:text-white"
+                    className="flex items-center justify-between gap-4 py-4 text-slate-200 transition-colors hover:text-white"
                 >
                     <span className="font-medium">Privacy Policy</span>
                     <span aria-hidden="true" className="text-slate-500">

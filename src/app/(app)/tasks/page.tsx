@@ -43,7 +43,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, default_task_deadline_time, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, username, hide_tips, always_show_active_tasks, auto_submit_after_proof_upload")
+            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, default_task_deadline_time, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, web_notifications_enabled, username, hide_tips, always_show_active_tasks, auto_submit_after_proof_upload")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => { console.log("[tasks/page] profileDefaults result:", JSON.stringify(result)); return result.data; }),
@@ -68,6 +68,7 @@ export default async function DashboardPage() {
         default_task_deadline_time: string | null;
         deadline_one_hour_warning_enabled: boolean | null;
         deadline_final_warning_enabled: boolean | null;
+        web_notifications_enabled: boolean | null;
         username: string | null;
         hide_tips: boolean | null;
         always_show_active_tasks: boolean | null;
@@ -92,6 +93,7 @@ export default async function DashboardPage() {
     const defaultRequiresProofForAllTasks = profileDefaults?.default_requires_proof_for_all_tasks ?? false;
     const deadlineOneHourWarningEnabled = profileDefaults?.deadline_one_hour_warning_enabled ?? true;
     const deadlineFinalWarningEnabled = profileDefaults?.deadline_final_warning_enabled ?? true;
+    const alarmNotificationsEnabled = profileDefaults?.web_notifications_enabled ?? false;
     const username =
         profileDefaults?.username?.trim() ||
         ((user?.user_metadata as { username?: string } | undefined)?.username?.trim() ?? "") ||
@@ -171,6 +173,7 @@ export default async function DashboardPage() {
             defaultRequiresProofForAllTasks={defaultRequiresProofForAllTasks}
             deadlineOneHourWarningEnabled={deadlineOneHourWarningEnabled}
             deadlineFinalWarningEnabled={deadlineFinalWarningEnabled}
+            alarmNotificationsEnabled={alarmNotificationsEnabled}
             userId={userId || ""}
             username={username}
             initialHideTips={initialHideTips}

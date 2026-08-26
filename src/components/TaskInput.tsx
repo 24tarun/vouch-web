@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Bell, Calendar, CalendarDays, Camera, Check, Loader2, Repeat, Trash2, User } from "lucide-react";
+import { Bell, CalendarDays, Camera, Check, Loader2, Repeat, User } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -29,22 +29,23 @@ import { getCurrencySymbol, getFailureCostBounds, type SupportedCurrency } from 
 import {
     DEFAULT_EVENT_DURATION_MINUTES,
 } from "@/lib/constants";
-import { resolveEventSchedule } from "@/lib/task-title-event-time";
 import {
     GOOGLE_EVENT_COLOR_OPTIONS,
     findNearestColorHelperToken,
     replaceNearestColorHelperToken,
-    stripEventColorTokens,
-    validateEventColorUsage,
 } from "@/lib/task-title-event-color";
-import { toast } from "sonner";
 import {
     fromDateTimeLocalValue,
     toDateTimeLocalValue,
 } from "@/lib/datetime-local";
 import { TaskDateTimePicker } from "@/components/ui/task-date-time-picker";
-import { parseRequiredPomoFromTitle } from "@/lib/pomodoro";
+import { ReminderDateTimePicker, ReminderLine } from "@/components/ui/reminder-date-time-picker";
 import {
+    DEFAULT_ONE_HOUR_REMINDER_KEY,
+    DEFAULT_ONE_HOUR_REMINDER_OFFSET_MS,
+    DEFAULT_TEN_MINUTE_REMINDER_KEY,
+    DEFAULT_TEN_MINUTE_REMINDER_OFFSET_MS,
+    manualReminderKey,
     normalizeReminderDates,
     resolveDateSheetDraftSubmission,
 } from "@/lib/task-deadline-sheet";
@@ -52,44 +53,25 @@ import {
     applyParserKeywordCompletion,
     buildTaskTitleOverlayModel,
     EVENT_TOKEN_REGEX,
-    extractWeekdayDateTokens,
     getDefaultDeadline,
-    isValidCalendarDate,
-    parseDateTokens,
     parseProofRequiredFromTitle,
-    parseReminderTimesFromTitle,
-    parseRepeatTokenFromTitle,
-    parseTaskInputTimeToken,
-    parseTimerMinutesToken,
-    resolveEventAnchorDate,
-    resolveUpcomingWeekdayDate,
-    stripRepeatTokens,
-    TOMORROW_KEYWORD_REGEX,
-    WEEKDAY_TOKEN_REGEX,
 } from "@/lib/task-title-parser";
-import {
-    buildReminderDateOnDeadlineDay,
-    formatCustomDaysLabel,
-    formatDeadlineLabel,
-    formatDeadlineTitle,
-    formatReminderLabel,
-    formatTimeUntilDeadline,
-    getSelectedWeekday,
-} from "@/components/task-input/utils/task-input-formatters";
+import { formatCustomDaysLabel, getSelectedWeekday } from "@/components/task-input/utils/task-input-formatters";
 import {
     hasParserDrivenDeadlineHint,
     resolveTaskDeadline,
-    stripMetadata,
-    parseTaskTitleAndSubtasks,
 } from "@/lib/parser_keyword_resolver";
 import type { ParserKeywordCompletion } from "@/lib/task-title-parser";
 import { useTaskInputSubmit } from "@/components/task-input/hooks/use-task-input-submit";
+import {
+    InlineTaskSchedule,
+    type InlineScheduledReminder,
+} from "@/components/task-input/inline-task-schedule";
 
-const TIME_TOKEN_REGEX = /(?:^|\s)@(\d{1,2}:\d{2}(?:\s*(?:am|pm))?|\d{1,4}(?:\s*(?:am|pm))?|\d{1,2}(?:\s*(?:am|pm))?)\b/i;
-const weekdayOrder = [1, 2, 3, 4, 5, 6, 0]; // Mon–Sun
-const weekdayShort = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const TITLE_TEXT_METRICS_CLASS =
     "text-base sm:text-lg font-medium leading-normal [font-kerning:none] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'clig'_0]";
+const weekdayOrder = [1, 2, 3, 4, 5, 6, 0]; // Mon–Sun
+const weekdayShort = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 interface TaskInputProps {
     friends: Profile[];
@@ -101,6 +83,8 @@ interface TaskInputProps {
     defaultRequiresProofForAllTasks: boolean;
     deadlineOneHourWarningEnabled?: boolean;
     deadlineFinalWarningEnabled?: boolean;
+    /** Gates the per-reminder ALARM toggle; alarms need push notifications switched on. */
+    alarmNotificationsEnabled?: boolean;
     selfUserId: string;
     onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
 }
@@ -116,6 +100,8 @@ export interface TaskInputCreatePayload {
     eventStartIso: string | null;
     eventEndIso: string | null;
     reminderIsos: string[];
+    /** Reminder instants that should fire as an alarm (`task_reminders.alarm_enabled`). */
+    urgentReminderIsos: string[];
     includeDefaultOneHourReminder: boolean;
     includeDefaultTenMinuteReminder: boolean;
     voucherId: string;
@@ -140,6 +126,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     defaultRequiresProofForAllTasks,
     deadlineOneHourWarningEnabled = true,
     deadlineFinalWarningEnabled = true,
+    alarmNotificationsEnabled = false,
     selfUserId,
     onCreateTaskOptimistic,
 }: TaskInputProps, ref) {
@@ -153,7 +140,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
 
     const [title, setTitle] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [hasMounted, setHasMounted] = useState(false);
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [selectedVoucherId, setSelectedVoucherId] = useState<string>(resolveVoucherSelection(defaultVoucherId));
     const [failureCost, setFailureCost] = useState(defaultFailureCostEuros);
@@ -169,12 +155,14 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const [reminderDraftValue, setReminderDraftValue] = useState("");
     const [includeDefaultOneHourReminder, setIncludeDefaultOneHourReminder] = useState(deadlineOneHourWarningEnabled);
     const [includeDefaultTenMinuteReminder, setIncludeDefaultTenMinuteReminder] = useState(deadlineFinalWarningEnabled);
-    const [isReminderSelectionMode, setIsReminderSelectionMode] = useState(false);
+    const [urgentReminderKeys, setUrgentReminderKeys] = useState<string[]>([]);
+    const [urgentReminderKeysDraft, setUrgentReminderKeysDraft] = useState<string[]>([]);
 
     const [recurrenceType, setRecurrenceType] = useState<string>("");
     const [recurrenceLabel, setRecurrenceLabel] = useState<string>("");
     const [showCustomRecurrenceInline, setShowCustomRecurrenceInline] = useState(false);
     const [customDays, setCustomDays] = useState<number[]>([]);
+    const [isEventManuallySelected, setIsEventManuallySelected] = useState(false);
     const [requiresProof, setRequiresProof] = useState(defaultRequiresProofForAllTasks);
     const [deadlineError, setDeadlineError] = useState<string | null>(null);
 
@@ -189,7 +177,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     const titleHighlightRef = useRef<HTMLDivElement>(null);
     const colorPickerListRef = useRef<HTMLDivElement>(null);
     const colorOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
-    const lastCalendarTapRef = useRef(0);
     const isComposingRef = useRef(false);
     const pendingCaretPositionRef = useRef<number | null>(null);
     const completionTapInProgressRef = useRef(false);
@@ -476,7 +463,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         const defaultDeadline = getDefaultDeadline(new Date(), defaultTaskDeadlineTime);
         setSelectedDate(defaultDeadline);
         setDeadlineDraftValue(toDateTimeLocalValue(defaultDeadline));
-        setHasMounted(true);
+        setDateSheetNowMs(Date.now());
     }, [defaultTaskDeadlineTime]);
 
     useEffect(() => {
@@ -513,6 +500,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setReminderDraftValue("");
         setIncludeDefaultOneHourReminder(deadlineOneHourWarningEnabled);
         setIncludeDefaultTenMinuteReminder(deadlineFinalWarningEnabled);
+        setUrgentReminderKeys([]);
+        setUrgentReminderKeysDraft([]);
         setEventStartValue("");
         setEventStartDraftValue("");
     };
@@ -524,24 +513,9 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setEventStartDraftValue(eventStartValue);
         setRemindersDraft(reminders.slice().sort((a, b) => a.getTime() - b.getTime()));
         setReminderDraftValue("");
-        setIncludeDefaultOneHourReminder(deadlineOneHourWarningEnabled);
-        setIncludeDefaultTenMinuteReminder(deadlineFinalWarningEnabled);
-        setIsReminderSelectionMode(false);
+        setUrgentReminderKeysDraft(urgentReminderKeys);
         setDateSheetNowMs(Date.now());
         setIsDateSheetOpen(true);
-    };
-
-    const handleCalendarClick = () => {
-        const now = Date.now();
-        const isDoubleTap = now - lastCalendarTapRef.current <= 300;
-        lastCalendarTapRef.current = now;
-
-        if (isDoubleTap) {
-            resetDeadlineToDefault();
-            return;
-        }
-
-        openDateSheet();
     };
 
     const commitDateSheetDraft = (closeSheet: boolean) => {
@@ -563,8 +537,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setEventStartValue(nextEventStartValue);
         setEventStartDraftValue(nextEventStartValue);
         setReminders(result.reminders);
+        setUrgentReminderKeys(urgentReminderKeysDraft);
         setReminderDraftValue("");
-        setIsReminderSelectionMode(false);
         if (closeSheet) {
             setIsDateSheetOpen(false);
         }
@@ -584,7 +558,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         const deadlineMs = deadline.getTime();
         if (Number.isNaN(deadlineMs)) return [];
 
-        const rows: Array<{ key: string; label: string; reminder: Date }> = [];
+        const rows: Array<{ key: string; label: string; reminder: Date; isPending?: boolean }> = [];
         const addDefaultReminder = (enabled: boolean, offsetMs: number, label: string, key: string) => {
             if (!enabled) return;
             const reminder = new Date(deadlineMs - offsetMs);
@@ -592,8 +566,18 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             rows.push({ key, label, reminder });
         };
 
-        addDefaultReminder(includeDefaultOneHourReminder, 60 * 60 * 1000, "1H", "default-1h");
-        addDefaultReminder(includeDefaultTenMinuteReminder, 10 * 60 * 1000, "10M", "default-10m");
+        addDefaultReminder(
+            includeDefaultOneHourReminder,
+            DEFAULT_ONE_HOUR_REMINDER_OFFSET_MS,
+            "1H",
+            DEFAULT_ONE_HOUR_REMINDER_KEY
+        );
+        addDefaultReminder(
+            includeDefaultTenMinuteReminder,
+            DEFAULT_TEN_MINUTE_REMINDER_OFFSET_MS,
+            "10M",
+            DEFAULT_TEN_MINUTE_REMINDER_KEY
+        );
 
         const pendingReminder = reminderDraftValue.trim()
             ? fromDateTimeLocalValue(reminderDraftValue)
@@ -602,13 +586,15 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
             pendingReminder ? [...remindersDraft, pendingReminder] : remindersDraft
         );
 
+        const draftReminderMsSet = new Set(remindersDraft.map((reminder) => reminder.getTime()));
         for (const reminder of manualReminders) {
             const reminderMs = reminder.getTime();
             if (reminderMs <= nowMs || reminderMs > deadlineMs) continue;
             rows.push({
-                key: `manual-${reminder.toISOString()}`,
+                key: manualReminderKey(reminder),
                 label: "Manual",
                 reminder,
+                isPending: !draftReminderMsSet.has(reminderMs),
             });
         }
 
@@ -622,27 +608,83 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         remindersDraft,
     ]);
 
-    const totalReminderCount = useMemo(() => {
+    const inlineScheduledReminders = useMemo<InlineScheduledReminder[]>(() => {
+        if (!selectedDate) return [];
+
+        const nowMs = dateSheetNowMs;
+        const deadlineMs = selectedDate.getTime();
+        const rows: InlineScheduledReminder[] = [];
+
+        if (includeDefaultOneHourReminder) {
+            const at = new Date(deadlineMs - DEFAULT_ONE_HOUR_REMINDER_OFFSET_MS);
+            if (at.getTime() > nowMs) rows.push({ key: DEFAULT_ONE_HOUR_REMINDER_KEY, at });
+        }
+        if (includeDefaultTenMinuteReminder) {
+            const at = new Date(deadlineMs - DEFAULT_TEN_MINUTE_REMINDER_OFFSET_MS);
+            if (at.getTime() > nowMs) rows.push({ key: DEFAULT_TEN_MINUTE_REMINDER_KEY, at });
+        }
+        for (const reminder of reminders) {
+            if (reminder.getTime() > nowMs && reminder.getTime() <= deadlineMs) {
+                rows.push({ key: manualReminderKey(reminder), at: reminder });
+            }
+        }
+
+        return rows.sort((a, b) => a.at.getTime() - b.at.getTime());
+    }, [dateSheetNowMs, includeDefaultOneHourReminder, includeDefaultTenMinuteReminder, reminders, selectedDate]);
+
+    const handleInlineDeadlineChange = (deadline: Date): boolean => {
+        if (deadline.getTime() <= Date.now()) {
+            setDeadlineError("Deadline must be in the future.");
+            return false;
+        }
+
+        setDeadlineError(null);
+        setDateSheetNowMs(Date.now());
+        setIsDeadlineManuallyPicked(true);
+        setSelectedDate(deadline);
+        setDeadlineDraftValue(toDateTimeLocalValue(deadline));
+        return true;
+    };
+
+    const handleResetDeadline = () => {
+        setDeadlineError(null);
+        setIsDeadlineManuallyPicked(false);
+        setDateSheetNowMs(Date.now());
+
+        const result = resolveTaskDeadline(title, new Date(), normalizedDefaultEventDurationMinutes);
+        const nextDeadline = result.error ? getDefaultDeadline() : result.deadline;
+        setSelectedDate(nextDeadline);
+        setDeadlineDraftValue(toDateTimeLocalValue(nextDeadline));
+    };
+
+    const handleInlineAddReminder = (reminder: Date): boolean => {
         const deadline = selectedDate;
-        if (!deadline) return reminders.length;
-
-        const nowMs = Date.now();
-        const deadlineMs = deadline.getTime();
-        if (Number.isNaN(deadlineMs)) return reminders.length;
-
-        let count = reminders.length;
-        const oneHourReminderMs = deadlineMs - (60 * 60 * 1000);
-        const tenMinuteReminderMs = deadlineMs - (10 * 60 * 1000);
-
-        if (includeDefaultOneHourReminder && oneHourReminderMs > nowMs) {
-            count += 1;
+        if (!deadline || reminder.getTime() <= Date.now()) {
+            setDeadlineError("Reminder must be in the future.");
+            return false;
         }
-        if (includeDefaultTenMinuteReminder && tenMinuteReminderMs > nowMs) {
-            count += 1;
+        if (reminder.getTime() > deadline.getTime()) {
+            setDeadlineError("Reminder must be before or at the deadline.");
+            return false;
         }
 
-        return count;
-    }, [includeDefaultOneHourReminder, includeDefaultTenMinuteReminder, reminders.length, selectedDate]);
+        setDeadlineError(null);
+        setDateSheetNowMs(Date.now());
+        setReminders((current) => normalizeReminderDates([...current, reminder]));
+        return true;
+    };
+
+    const handleInlineRemoveReminder = (key: string) => {
+        if (key === DEFAULT_ONE_HOUR_REMINDER_KEY) {
+            setIncludeDefaultOneHourReminder(false);
+        } else if (key === DEFAULT_TEN_MINUTE_REMINDER_KEY) {
+            setIncludeDefaultTenMinuteReminder(false);
+        } else if (key.startsWith("manual-")) {
+            const iso = key.slice("manual-".length);
+            setReminders((current) => current.filter((reminder) => reminder.toISOString() !== iso));
+        }
+        setUrgentReminderKeys((current) => current.filter((urgentKey) => urgentKey !== key));
+    };
 
     const handleDateSheetCreate = () => {
         if (isLoading) return;
@@ -672,38 +714,35 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setDeadlineError(null);
         setRemindersDraft((prev) => normalizeReminderDates([...prev, parsedReminder]));
         setReminderDraftValue("");
-        setIsReminderSelectionMode(false);
     };
 
     const handleRemoveReminderDraft = (iso: string) => {
         setRemindersDraft((prev) => prev.filter((reminder) => reminder.toISOString() !== iso));
+        setUrgentReminderKeysDraft((prev) => prev.filter((key) => key !== `manual-${iso}`));
     };
 
-    const handleRemoveReminderPreview = (label: string, reminderIso: string) => {
-        if (label === "1H") {
+    const toggleUrgentReminder = (key: string) => {
+        setUrgentReminderKeys((prev) =>
+            prev.includes(key) ? prev.filter((current) => current !== key) : [...prev, key]
+        );
+    };
+
+    const toggleUrgentReminderDraft = (key: string) => {
+        setUrgentReminderKeysDraft((prev) =>
+            prev.includes(key) ? prev.filter((current) => current !== key) : [...prev, key]
+        );
+    };
+
+    const handleDeleteReminderRow = (key: string) => {
+        if (key === DEFAULT_ONE_HOUR_REMINDER_KEY) {
             setIncludeDefaultOneHourReminder(false);
             return;
         }
-        if (label === "10M") {
+        if (key === DEFAULT_TEN_MINUTE_REMINDER_KEY) {
             setIncludeDefaultTenMinuteReminder(false);
             return;
         }
-        const pendingReminder = reminderDraftValue ? fromDateTimeLocalValue(reminderDraftValue) : null;
-        if (pendingReminder && pendingReminder.toISOString() === reminderIso) {
-            setReminderDraftValue("");
-        }
-        handleRemoveReminderDraft(reminderIso);
-    };
-
-    const reminderDraftLabel = useMemo(() => {
-        const reminderDate = fromDateTimeLocalValue(reminderDraftValue);
-        if (!reminderDate) return "Pick date & time";
-        return formatReminderLabel(reminderDate);
-    }, [reminderDraftValue]);
-
-    const handleSelectReminderMode = () => {
-        if (!deadlineDraftValue) return;
-        setIsReminderSelectionMode(true);
+        handleRemoveReminderDraft(key.slice("manual-".length));
     };
 
     const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -796,6 +835,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         title,
         recurrenceType,
         customDays,
+        isEventManuallySelected,
         selectedWeekday,
         selectedVoucherId,
         failureCost,
@@ -810,6 +850,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         reminderDraftValue,
         remindersDraft,
         reminders,
+        urgentReminderKeys,
+        urgentReminderKeysDraft,
         includeDefaultOneHourReminder,
         includeDefaultTenMinuteReminder,
         selectedDate,
@@ -822,26 +864,17 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setRecurrenceType,
         setRecurrenceLabel,
         setShowCustomRecurrenceInline,
+        setIsEventManuallySelected,
         setRequiresProof,
         resetDeadlineToDefault,
     });
 
+    // Parser flags keep their controls in sync when typed, while the controls
+    // themselves can still be toggled without rewriting the title.
     const isEventTask = EVENT_TOKEN_REGEX.test(title);
-
-    const handleEventToggle = useCallback(() => {
-        const titleWithoutEvent = title
-            .replace(/(^|\s)-event(?=\s|$)/gi, " ")
-            .replace(/\s+/g, " ")
-            .trim();
-
-        const baseTitle = title.trimEnd();
-        const nextTitle = isEventTask
-            ? titleWithoutEvent
-            : `${baseTitle}${baseTitle ? " " : ""}-event`;
-
-        commitTitleAndCaret(nextTitle, nextTitle.length);
-        keepTitleTypingInView(titleInputRef.current, true);
-    }, [commitTitleAndCaret, isEventTask, keepTitleTypingInView, title]);
+    const isProofTask = parseProofRequiredFromTitle(title);
+    const isEventControlPressed = isEventTask || isEventManuallySelected;
+    const isProofControlPressed = isProofTask || requiresProof;
 
     return (
         <form ref={formRef} onSubmit={handleSubmit} className="relative space-y-3 mb-8">
@@ -951,7 +984,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                     <div className="flex items-start gap-1.5">
                         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1 pr-1">
                             <div className="relative w-16 shrink-0">
-                                <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-[9px] font-mono pointer-events-none z-10">{currencySymbol}</span>
+                                <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-[9px] pointer-events-none z-10">{currencySymbol}</span>
                                 <input
                                     type="number"
                                     step={failureCostBounds.step}
@@ -959,17 +992,17 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     max={failureCostBounds.maxMajor}
                                     value={failureCost}
                                     onChange={(e) => setFailureCost(e.target.value)}
-                                    className="h-9 w-full pl-4 pr-1 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 rounded-lg text-slate-300 text-[11px] font-mono focus:outline-none focus:border-slate-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-center"
+                                    className="h-9 w-full pl-4 pr-1 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 rounded-lg text-slate-300 text-[11px] tabular-nums focus:outline-none focus:border-slate-600 transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none text-center"
                                     placeholder={defaultFailureCostEuros}
                                 />
                             </div>
 
-                            <div className={`min-w-[112px] flex-1 shrink ${showShake ? "animate-shake" : ""}`}>
+                            <div className={`w-[116px] shrink-0 ${showShake ? "animate-shake" : ""}`}>
                                 <Select value={selectedVoucherId} onValueChange={setSelectedVoucherId}>
-                                    <SelectTrigger className="h-9 w-full bg-slate-800/30 border-slate-700/30 text-slate-300 text-[10px] font-mono focus:ring-0 rounded-lg px-2.5">
-                                        <span className="flex min-w-0 items-center">
+                                    <SelectTrigger className="h-9 w-full rounded-lg border-slate-700/30 bg-slate-800/30 px-2.5 text-[10px] text-slate-300 focus:ring-0 focus-visible:border-slate-600 focus-visible:ring-0">
+                                        <span className="flex min-w-0 flex-1 items-center">
                                             <User className="h-3 w-3 mr-1.5 shrink-0 opacity-70" />
-                                            <SelectValue placeholder="Voucher" />
+                                            <SelectValue className="max-w-[8ch] truncate" placeholder="Voucher" />
                                         </span>
                                     </SelectTrigger>
                                     <SelectContent
@@ -979,7 +1012,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                         className="w-[var(--radix-select-trigger-width)] min-w-[var(--radix-select-trigger-width)] rounded-xl border-slate-700/80 bg-slate-900/95 text-slate-200 shadow-[0_14px_36px_rgba(2,6,23,0.6)] backdrop-blur-sm"
                                     >
                                         {selfUserId && (
-                                            <SelectItem value={selfUserId} className="text-[11px] font-mono focus:bg-slate-800 focus:text-white">
+                                            <SelectItem value={selfUserId} className="text-[11px] focus:bg-slate-800 focus:text-white">
                                                 Self
                                             </SelectItem>
                                         )}
@@ -987,7 +1020,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                             <SelectItem
                                                 key={friend.id}
                                                 value={friend.id}
-                                                className="text-[11px] font-mono focus:bg-slate-800 focus:text-white"
+                                                className="text-[11px] focus:bg-slate-800 focus:text-white"
                                             >
                                                 {friend.username || friend.email}
                                             </SelectItem>
@@ -998,31 +1031,24 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
 
                             <button
                                 type="button"
-                                onClick={handleCalendarClick}
-                                onDoubleClick={resetDeadlineToDefault}
+                                onClick={() => {
+                                    if (!isEventManuallySelected) {
+                                        setIsEventManuallySelected(true);
+                                        openDateSheet();
+                                    } else {
+                                        setIsEventManuallySelected(false);
+                                        setEventStartValue("");
+                                        setEventStartDraftValue("");
+                                    }
+                                }}
+                                aria-pressed={isEventControlPressed}
                                 className={cn(
-                                    "h-9 min-w-[160px] flex-1 px-2.5 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 text-slate-400 hover:text-slate-200 rounded-lg transition-all flex items-center justify-start gap-1.5",
-                                    selectedDate && "text-blue-400 border-blue-500/30 bg-blue-500/5"
-                                )}
-                                title={formatDeadlineTitle(selectedDate, hasMounted)}
-                            >
-                                <Calendar className="h-3.5 w-3.5 shrink-0" />
-                                <span className="text-[10px] font-mono truncate">
-                                    {formatDeadlineLabel(selectedDate, hasMounted)}
-                                    {totalReminderCount > 0 ? ` • ${totalReminderCount}R` : ""}
-                                </span>
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={handleEventToggle}
-                                className={cn(
-                                    "h-9 px-2.5 shrink-0 border rounded-lg transition-all flex items-center justify-center gap-1.5 text-[10px] font-mono",
-                                    isEventTask
+                                    "h-9 px-2.5 shrink-0 border rounded-lg transition-all flex items-center justify-center gap-1.5 text-[10px]",
+                                    isEventControlPressed
                                         ? "bg-indigo-500/15 border-indigo-400/40 text-indigo-200"
                                         : "bg-slate-800/30 hover:bg-slate-700/30 border-slate-700/30 text-slate-400 hover:text-slate-200"
                                 )}
-                                title={isEventTask ? "Event enabled for this task" : "Mark this task as an event"}
+                                title={isEventControlPressed ? "Event enabled" : "Mark this task as an event"}
                             >
                                 <CalendarDays className="h-3.5 w-3.5" />
                                 <span>Event</span>
@@ -1033,111 +1059,56 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     <button
                                         type="button"
                                         className={cn(
-                                            "h-9 w-9 shrink-0 bg-slate-800/30 hover:bg-slate-700/30 border border-slate-700/30 text-slate-400 hover:text-slate-200 rounded-lg transition-all flex items-center justify-center",
-                                            recurrenceType && "text-purple-400 border-purple-400/30 bg-purple-400/10"
+                                            "h-9 w-9 shrink-0 rounded-lg border border-slate-700/30 bg-slate-800/30 text-slate-400 transition-all hover:bg-slate-700/30 hover:text-slate-200",
+                                            recurrenceType && "border-purple-400/30 bg-purple-400/10 text-purple-400"
                                         )}
-                                        title={recurrenceLabel || "Repeat Task"}
+                                        title={recurrenceLabel || "Repeat task"}
                                     >
-                                        <Repeat className="h-3.5 w-3.5" />
+                                        <Repeat className="mx-auto h-3.5 w-3.5" />
                                     </button>
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800 text-slate-300 min-w-[180px]">
-                                    <DropdownMenuItem
-                                        onClick={() => {
-                                            setRecurrenceType("");
-                                            setRecurrenceLabel("");
-                                            setShowCustomRecurrenceInline(false);
-                                        }}
-                                        className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
-                                    >
-                                        None
-                                    </DropdownMenuItem>
+                                <DropdownMenuContent align="end" className="min-w-[180px] border-slate-800 bg-slate-900 text-slate-300">
+                                    <DropdownMenuItem onClick={() => {
+                                        setRecurrenceType("");
+                                        setRecurrenceLabel("");
+                                        setShowCustomRecurrenceInline(false);
+                                    }} className="cursor-pointer text-xs focus:bg-slate-800 focus:text-slate-200">None</DropdownMenuItem>
                                     <DropdownMenuSeparator className="bg-slate-800" />
-                                    <DropdownMenuItem
-                                        onClick={() => {
-                                            setRecurrenceType("DAILY");
-                                            setRecurrenceLabel("Daily");
+                                    {(["DAILY", "WEEKLY", "MONTHLY", "YEARLY"] as const).map((type) => (
+                                        <DropdownMenuItem key={type} onClick={() => {
+                                            setRecurrenceType(type);
+                                            setRecurrenceLabel(`${type[0]}${type.slice(1).toLowerCase()}`);
+                                            if (type === "WEEKLY") setCustomDays([selectedWeekday]);
                                             setShowCustomRecurrenceInline(false);
-                                        }}
-                                        className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs justify-between"
-                                    >
-                                        Daily
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        onClick={() => {
-                                            setRecurrenceType("WEEKLY");
-                                            setRecurrenceLabel("Weekly");
-                                            setCustomDays([selectedWeekday]);
-                                            setShowCustomRecurrenceInline(false);
-                                        }}
-                                        className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
-                                    >
-                                        Weekly
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        onClick={() => {
-                                            setRecurrenceType("MONTHLY");
-                                            setRecurrenceLabel("Monthly");
-                                            setShowCustomRecurrenceInline(false);
-                                        }}
-                                        className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
-                                    >
-                                        Monthly
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        onClick={() => {
-                                            setRecurrenceType("YEARLY");
-                                            setRecurrenceLabel("Yearly");
-                                            setShowCustomRecurrenceInline(false);
-                                        }}
-                                        className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
-                                    >
-                                        Yearly
-                                    </DropdownMenuItem>
+                                        }} className="cursor-pointer text-xs focus:bg-slate-800 focus:text-slate-200">
+                                            {`${type[0]}${type.slice(1).toLowerCase()}`}
+                                        </DropdownMenuItem>
+                                    ))}
                                     <DropdownMenuSeparator className="bg-slate-800" />
-                                    <DropdownMenuItem
-                                        onSelect={(e) => {
-                                            e.preventDefault();
-                                            const initialDays = customDays.length > 0 ? customDays : [selectedWeekday];
-                                            setCustomDays(initialDays);
-                                            setRecurrenceType("WEEKLY");
-                                            setRecurrenceLabel(`Custom: ${formatCustomDaysLabel(initialDays)}`);
-                                            setShowCustomRecurrenceInline((prev) => !prev);
-                                        }}
-                                        className="focus:bg-slate-800 focus:text-slate-200 cursor-pointer text-xs"
-                                    >
-                                        Custom...
-                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onSelect={(event) => {
+                                        event.preventDefault();
+                                        const initialDays = customDays.length > 0 ? customDays : [selectedWeekday];
+                                        setCustomDays(initialDays);
+                                        setRecurrenceType("WEEKLY");
+                                        setRecurrenceLabel(`Custom: ${formatCustomDaysLabel(initialDays)}`);
+                                        setShowCustomRecurrenceInline((current) => !current);
+                                    }} className="cursor-pointer text-xs focus:bg-slate-800 focus:text-slate-200">Custom...</DropdownMenuItem>
                                     {showCustomRecurrenceInline && (
-                                        <div className="px-2 pb-2 pt-1 border-t border-slate-800 mt-1 space-y-2">
-                                            <div className="text-[10px] text-slate-400 uppercase tracking-wide">Select days</div>
+                                        <div className="mt-1 space-y-2 border-t border-slate-800 px-2 pb-2 pt-1">
+                                            <div className="text-[10px] uppercase tracking-wide text-slate-400">Select days</div>
                                             <div className="grid grid-cols-7 gap-1">
                                                 {weekdayOrder.map((dayIdx) => {
                                                     const isSelected = customDays.includes(dayIdx);
-                                                    return (
-                                                        <button
-                                                            key={dayIdx}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                const next = customDays.includes(dayIdx)
-                                                                    ? customDays.filter((d) => d !== dayIdx)
-                                                                    : [...customDays, dayIdx];
-                                                                const normalizedRaw = weekdayOrder.filter((d) => next.includes(d));
-                                                                const normalized = normalizedRaw.length > 0 ? normalizedRaw : [dayIdx];
-                                                                setCustomDays(normalized);
-                                                                setRecurrenceType("WEEKLY");
-                                                                setRecurrenceLabel(`Custom: ${formatCustomDaysLabel(normalized)}`);
-                                                            }}
-                                                            className={cn(
-                                                                "h-7 w-7 rounded-md text-[10px] font-semibold transition-colors",
-                                                                isSelected
-                                                                    ? "bg-blue-600 text-white"
-                                                                    : "bg-slate-800/60 text-slate-300 hover:bg-slate-700"
-                                                            )}
-                                                        >
-                                                            {weekdayShort[dayIdx]}
-                                                        </button>
-                                                    );
+                                                    return <button key={dayIdx} type="button" onClick={() => {
+                                                        const next = isSelected ? customDays.filter((day) => day !== dayIdx) : [...customDays, dayIdx];
+                                                        const normalizedRaw = weekdayOrder.filter((day) => next.includes(day));
+                                                        const normalized = normalizedRaw.length > 0 ? normalizedRaw : [dayIdx];
+                                                        setCustomDays(normalized);
+                                                        setRecurrenceType("WEEKLY");
+                                                        setRecurrenceLabel(`Custom: ${formatCustomDaysLabel(normalized)}`);
+                                                    }} className={cn("h-7 w-7 rounded-md text-[10px] font-semibold transition-colors", isSelected ? "bg-blue-600 text-white" : "bg-slate-800/60 text-slate-300 hover:bg-slate-700")}>
+                                                        {weekdayShort[dayIdx]}
+                                                    </button>;
                                                 })}
                                             </div>
                                         </div>
@@ -1147,14 +1118,15 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
 
                             <button
                                 type="button"
-                                onClick={() => setRequiresProof((prev) => !prev)}
+                                onClick={() => setRequiresProof((current) => !current)}
+                                aria-pressed={isProofControlPressed}
                                 className={cn(
-                                    "h-9 px-2.5 shrink-0 border rounded-lg transition-all flex items-center justify-center gap-1.5 text-[10px] font-mono",
-                                    requiresProof
+                                    "h-9 px-2.5 shrink-0 border rounded-lg transition-all flex items-center justify-center gap-1.5 text-[10px]",
+                                    isProofControlPressed
                                         ? "bg-pink-400/10 border-pink-400/35 text-pink-400"
                                         : "bg-slate-800/30 hover:bg-slate-700/30 border-slate-700/30 text-slate-400 hover:text-slate-200"
                                 )}
-                                title={requiresProof ? "Proof required by default for this task" : "Proof optional for this task"}
+                                title={isProofControlPressed ? "Proof required" : "Proof optional for this task"}
                             >
                                 <Camera className="h-3.5 w-3.5" />
                                 <span>Proof</span>
@@ -1164,174 +1136,140 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="h-9 w-9 shrink-0 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-400 rounded-lg transition-all disabled:opacity-50 flex items-center justify-center"
+                            className="h-9 shrink-0 gap-1.5 px-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 rounded-lg text-[11px] font-semibold transition-all disabled:opacity-50 flex items-center justify-center"
                         >
                             {isLoading ? (
                                 <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
                             ) : (
                                 <Check className="h-3.5 w-3.5" strokeWidth={3} />
                             )}
+                            <span>Create</span>
                         </button>
+                    </div>
+
+                    <div className="mt-2 border-t border-slate-800/40 pt-2">
+                        {selectedDate && (
+                            <InlineTaskSchedule
+                                deadline={selectedDate}
+                                reminders={inlineScheduledReminders}
+                                onDeadlineChange={handleInlineDeadlineChange}
+                                onAddReminder={handleInlineAddReminder}
+                                onRemoveReminder={handleInlineRemoveReminder}
+                                onResetDeadline={handleResetDeadline}
+                                urgentReminderKeys={urgentReminderKeys}
+                                onToggleUrgentReminder={toggleUrgentReminder}
+                                alarmNotificationsEnabled={alarmNotificationsEnabled}
+                                disabled={isLoading}
+                            />
+                        )}
                     </div>
                 </div>
             </div>
 
+            {deadlineError && !isDateSheetOpen && (
+                <p role="alert" className="px-1 text-xs text-red-400">{deadlineError}</p>
+            )}
+
             <Dialog open={isDateSheetOpen} onOpenChange={setIsDateSheetOpen}>
-                <DialogContent className="bg-slate-900 border-slate-800 text-slate-200 sm:max-w-[720px] [&>[data-slot='dialog-close']]:text-slate-300 [&>[data-slot='dialog-close']]:opacity-100 [&>[data-slot='dialog-close']]:hover:text-white">
-                    <DialogHeader>
-                        <div className="flex items-center justify-between gap-3">
-                            <DialogTitle className="text-white">{isReminderSelectionMode ? "Set reminder" : "Set deadline"}</DialogTitle>
-                            <div className="inline-flex h-9 items-center rounded-lg border border-slate-700 bg-slate-900/70 p-1">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsReminderSelectionMode(false)}
-                                    className={cn(
-                                        "h-7 rounded-md px-3 text-xs font-semibold transition-colors",
-                                        !isReminderSelectionMode
-                                            ? "bg-slate-700 text-slate-100"
-                                            : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
-                                    )}
-                                >
-                                    Deadline
-                                </button>
-                                <div className="mx-1 h-4 w-px bg-slate-700" />
-                                <button
-                                    type="button"
-                                    onClick={handleSelectReminderMode}
-                                    disabled={!deadlineDraftValue}
-                                    className={cn(
-                                        "h-7 rounded-md px-3 text-xs font-semibold transition-colors",
-                                        isReminderSelectionMode
-                                            ? "bg-slate-700 text-slate-100"
-                                            : "text-slate-400 hover:bg-slate-800 hover:text-slate-200",
-                                        !deadlineDraftValue && "cursor-not-allowed opacity-40"
-                                    )}
-                                >
-                                    Reminder
-                                </button>
-                            </div>
-                        </div>
-                        <DialogDescription className="text-slate-400">
-                            Pick the task deadline and optional reminders.
+                <DialogContent className="max-h-[90vh] overflow-y-auto border-slate-800 bg-slate-900 p-0 text-slate-200 shadow-2xl shadow-black/60 sm:max-w-[760px] [&>[data-slot='dialog-close']]:right-5 [&>[data-slot='dialog-close']]:top-5 [&>[data-slot='dialog-close']]:text-slate-400 [&>[data-slot='dialog-close']]:opacity-100 [&>[data-slot='dialog-close']]:hover:text-white">
+                    <DialogHeader className="border-b border-slate-800 px-5 py-5 pr-14 sm:px-6 sm:py-6 sm:pr-16">
+                        <DialogTitle className="text-xl font-semibold text-white">Schedule task</DialogTitle>
+                        <DialogDescription className="sr-only">
+                            Set the task deadline and reminders.
                         </DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-3">
+                    <div className="space-y-4 px-5 py-5 sm:px-6">
                         <TaskDateTimePicker
-                            deadlineValue={isReminderSelectionMode ? reminderDraftValue : deadlineDraftValue}
-                            eventStartValue={isReminderSelectionMode ? "" : eventStartDraftValue}
-                            onDeadlineValueChange={isReminderSelectionMode ? setReminderDraftValue : setDeadlineDraftValue}
+                            deadlineValue={deadlineDraftValue}
+                            eventStartValue={eventStartDraftValue}
+                            onDeadlineValueChange={setDeadlineDraftValue}
                             onEventStartValueChange={setEventStartDraftValue}
-                            mode={isReminderSelectionMode ? "reminder" : "deadline"}
-                            highlightCalendar={isReminderSelectionMode}
-                            actions={
-                                <>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsDateSheetOpen(false)}
-                                            className="h-11 rounded-lg border border-slate-600 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800"
-                                        >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                resetDeadlineToDefault();
-                                                setIsDateSheetOpen(false);
-                                            }}
-                                            className="h-11 rounded-lg border border-slate-600 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800"
-                                        >
-                                            Reset
-                                        </button>
-                                    </div>
-                                    <button
-                                        type="button"
-                                        onClick={applyDateSheet}
-                                        disabled={!deadlineDraftValue}
-                                        className="h-11 w-full rounded-lg bg-amber-500 text-sm font-bold text-slate-900 transition-colors hover:bg-amber-400 disabled:opacity-50"
-                                    >
-                                        Confirm
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleDateSheetCreate}
-                                        disabled={isLoading || !deadlineDraftValue}
-                                        aria-label="Confirm and create task"
-                                        title="Confirm and create task"
-                                        className="h-11 w-full shrink-0 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm font-medium text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
-                                    >
-                                        {isLoading ? (
-                                            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
-                                        ) : (
-                                            <>
-                                                <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                                                <span>Confirm & Create Task</span>
-                                            </>
-                                        )}
-                                    </button>
-                                </>
-                            }
                         />
 
-                        <div className="space-y-2">
-                            <label className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-amber-300">
-                                <Bell className="h-4 w-4 text-amber-300" />
-                                Reminders
-                            </label>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    type="button"
-                                    onClick={handleSelectReminderMode}
-                                    disabled={!deadlineDraftValue}
-                                    className={cn(
-                                        "flex h-11 flex-1 items-center gap-2.5 rounded-lg border px-3 text-left transition-colors",
-                                        "border-slate-700 bg-slate-950/60 hover:border-slate-600",
-                                        isReminderSelectionMode && "border-amber-400/50 ring-1 ring-amber-400/20",
-                                        !deadlineDraftValue && "cursor-not-allowed opacity-40",
-                                        reminderDraftValue ? "text-slate-100" : "text-slate-500"
-                                    )}
-                                >
-                                    <Calendar className="h-4 w-4 shrink-0 text-amber-400/70" />
-                                    <span className="text-sm">{reminderDraftLabel}</span>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleAddReminderDraft}
-                                    disabled={!deadlineDraftValue || !reminderDraftValue}
-                                    className="h-11 shrink-0 rounded-lg border border-slate-700 bg-slate-950/60 px-4 text-sm text-slate-200 transition-colors hover:bg-slate-800 disabled:border-slate-800 disabled:text-slate-500 disabled:opacity-100"
-                                >
-                                    Add
-                                </button>
+                        <section className="pt-2">
+                            <div className="mb-1 flex items-center gap-2">
+                                <Bell className="h-3.5 w-3.5 text-amber-300" />
+                                <h3 className="text-sm font-semibold text-slate-200">Reminders</h3>
                             </div>
 
                             {scheduledReminderPreview.length > 0 && (
-                                <div className="space-y-1.5">
-                                    {scheduledReminderPreview.map(({ key, label, reminder }) => (
-                                        <div key={key} className="flex items-center justify-between gap-2">
-                                            <span className="text-sm text-slate-200">{formatReminderLabel(reminder)}</span>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs uppercase tracking-wide text-slate-400">{label}</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemoveReminderPreview(label, reminder.toISOString())}
-                                                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-red-400 transition-colors hover:bg-slate-800 hover:text-red-300"
-                                                    aria-label={`Delete reminder ${formatReminderLabel(reminder)}`}
-                                                    title="Delete reminder"
-                                                >
-                                                    <Trash2 className="h-3.5 w-3.5" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
+                                <div className="mb-2 divide-y divide-slate-800/70">
+                                    {scheduledReminderPreview
+                                        .filter((row) => !row.isPending)
+                                        .map((row) => (
+                                            <ReminderLine
+                                                key={row.key}
+                                                at={row.reminder}
+                                                status="scheduled"
+                                                urgent={urgentReminderKeysDraft.includes(row.key)}
+                                                showAlarm={alarmNotificationsEnabled}
+                                                onToggleUrgent={() => toggleUrgentReminderDraft(row.key)}
+                                                onDelete={() => handleDeleteReminderRow(row.key)}
+                                            />
+                                        ))}
                                 </div>
                             )}
 
-                        </div>
+                            <ReminderDateTimePicker
+                                value={reminderDraftValue}
+                                onChange={setReminderDraftValue}
+                                onAdd={handleAddReminderDraft}
+                                disabled={!deadlineDraftValue}
+                                addDisabled={!deadlineDraftValue || !reminderDraftValue}
+                            />
+                        </section>
 
                         {deadlineError && (
                             <p className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{deadlineError}</p>
                         )}
+                    </div>
+
+                    <div className="flex flex-col-reverse gap-3 border-t border-slate-800 bg-slate-950/25 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                resetDeadlineToDefault();
+                                setIsDateSheetOpen(false);
+                            }}
+                            className="h-10 rounded-lg px-3 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
+                        >
+                            Reset to default
+                        </button>
+                        <div className="grid grid-cols-2 gap-2 sm:flex">
+                            <button
+                                type="button"
+                                onClick={() => setIsDateSheetOpen(false)}
+                                className="h-10 rounded-lg border border-slate-700 px-4 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={applyDateSheet}
+                                disabled={!deadlineDraftValue}
+                                className="h-10 rounded-lg border border-amber-500/40 px-4 text-sm font-semibold text-amber-300 transition-colors hover:bg-amber-500/10 disabled:opacity-40"
+                            >
+                                Save
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDateSheetCreate}
+                                disabled={isLoading || !deadlineDraftValue}
+                                aria-label="Save and create task"
+                                title="Save and create task"
+                                className="col-span-2 flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-500 px-5 text-sm font-bold text-slate-950 transition-colors hover:bg-amber-400 disabled:opacity-50 sm:col-span-1"
+                            >
+                                {isLoading ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-700" />
+                                ) : (
+                                    <>
+                                        <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                                        <span>Create task</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
                     </div>
                 </DialogContent>
             </Dialog>

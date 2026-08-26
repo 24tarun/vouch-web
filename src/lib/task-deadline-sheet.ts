@@ -15,6 +15,44 @@ export function normalizeReminderDates(values: Date[]): Date[] {
     return Array.from(deduped.values()).sort((a, b) => a.getTime() - b.getTime());
 }
 
+/**
+ * Urgency (alarm_enabled) is tracked by reminder identity rather than by instant, so a
+ * default reminder stays urgent when the deadline — and therefore its time — moves.
+ */
+export const DEFAULT_ONE_HOUR_REMINDER_KEY = "default-1h";
+export const DEFAULT_TEN_MINUTE_REMINDER_KEY = "default-10m";
+export const DEFAULT_ONE_HOUR_REMINDER_OFFSET_MS = 60 * 60 * 1000;
+export const DEFAULT_TEN_MINUTE_REMINDER_OFFSET_MS = 10 * 60 * 1000;
+
+export function manualReminderKey(reminder: Date): string {
+    return `manual-${reminder.toISOString()}`;
+}
+
+/** Turns urgency keys into the reminder instants they point at for a given deadline. */
+export function resolveUrgentReminderIsos(urgentReminderKeys: string[], deadline: Date): string[] {
+    const deadlineMs = deadline.getTime();
+    if (Number.isNaN(deadlineMs)) return [];
+
+    const isos = new Set<string>();
+    for (const key of urgentReminderKeys) {
+        if (key === DEFAULT_ONE_HOUR_REMINDER_KEY) {
+            isos.add(new Date(deadlineMs - DEFAULT_ONE_HOUR_REMINDER_OFFSET_MS).toISOString());
+            continue;
+        }
+        if (key === DEFAULT_TEN_MINUTE_REMINDER_KEY) {
+            isos.add(new Date(deadlineMs - DEFAULT_TEN_MINUTE_REMINDER_OFFSET_MS).toISOString());
+            continue;
+        }
+        if (!key.startsWith("manual-")) continue;
+
+        const parsed = new Date(key.slice("manual-".length));
+        if (Number.isNaN(parsed.getTime())) continue;
+        isos.add(parsed.toISOString());
+    }
+
+    return Array.from(isos.values()).sort();
+}
+
 export function resolveDateSheetDraftSubmission(params: {
     deadlineDraftValue: string;
     eventStartDraftValue?: string;

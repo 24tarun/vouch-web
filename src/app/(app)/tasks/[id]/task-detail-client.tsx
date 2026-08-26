@@ -10,14 +10,6 @@ import { Button } from "@/components/ui/button";
 import { Camera, Check, CircleX, Pause, Play, Plus, Repeat, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ReminderDateTimePicker } from "@/components/ui/reminder-date-time-picker";
 import { PostponeDeadlineDialog } from "@/components/PostponeDeadlineDialog";
@@ -67,7 +59,6 @@ import {
 import {
     formatDateTimeDdMmYy,
     formatFocusTime,
-    formatOrdinal,
     sortTaskReminders,
 } from "@/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
 import { useTaskDetailActivitySteps } from "@/app/(app)/tasks/[id]/task-detail/hooks/use-task-detail-activity-steps";
@@ -291,12 +282,6 @@ export default function TaskDetailClient({
         isPending: false,
         isAddingSubtask,
     });
-    const reminderButtonVisibility = getTaskDetailReminderButtonVisibility({
-        canManageActionChildren,
-        isSavePending: pendingActions.has("saveReminders"),
-        hasDraftValue: Boolean(newReminderLocal.trim()),
-        isPastReminder: false,
-    });
     const showAwaitingOwnerActionRow =
         buttonVisibility.awaiting.addProof ||
         buttonVisibility.awaiting.undoComplete;
@@ -337,9 +322,6 @@ export default function TaskDetailClient({
         }
     }, [isRecurrencePaused]);
     const iterationNumber = taskState.iteration_number ?? null;
-    const iterationLabel = iterationNumber !== null
-        ? `${formatOrdinal(iterationNumber)} iteration`
-        : "one-off task";
     const canViewStoredProof =
         taskState.status === "AWAITING_VOUCHER" || taskState.status === "AWAITING_AI" || taskState.status === "MARKED_COMPLETE" || taskState.status === "AWAITING_USER" || taskState.status === "AWAITING_RECTIFICATION";
     const hasOpenProofRequest =
@@ -926,16 +908,6 @@ export default function TaskDetailClient({
     return (
         <>
         <style>{`
-            @keyframes riseUp {
-                from { opacity: 0; transform: translateY(24px); }
-                to   { opacity: 1; transform: translateY(0); }
-            }
-            .td-rise { animation: riseUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) both; }
-            .td-d1 { animation-delay: 0.06s; }
-            .td-d2 { animation-delay: 0.18s; }
-            .td-d3 { animation-delay: 0.30s; }
-            .td-d4 { animation-delay: 0.42s; }
-            .td-d5 { animation-delay: 0.56s; }
             @keyframes proofUploadBlink {
                 0%, 100% { opacity: 1; }
                 50% { opacity: 0.2; }
@@ -964,7 +936,7 @@ export default function TaskDetailClient({
             />
 
             {/* ① HERO HEADER */}
-            <div className="td-rise td-d1 relative pt-2">
+            <div className="relative pt-2">
                 <div className="relative">
                     <div className="relative">
 
@@ -1029,7 +1001,7 @@ export default function TaskDetailClient({
 
                     {/* ③ STATUS CONTEXT BANNER */}
                     {taskState.status === "AWAITING_RECTIFICATION" && (
-                        <div className="td-rise td-d3 rounded-xl border border-violet-500/30 bg-violet-950/15 overflow-hidden">
+                        <div className="rounded-xl border border-violet-500/30 bg-violet-950/15 overflow-hidden">
                             <div className="h-px bg-gradient-to-r from-violet-500/70 via-violet-400/20 to-transparent" />
                             <div className="px-5 py-4 space-y-3">
                                 <div className="flex items-center gap-3">
@@ -1100,7 +1072,7 @@ export default function TaskDetailClient({
                     )}
 
                     {(taskState.status === "AWAITING_VOUCHER" || taskState.status === "MARKED_COMPLETE") && (
-                        <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
+                        <div className="rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
@@ -1142,7 +1114,7 @@ export default function TaskDetailClient({
                     )}
 
                     {taskState.status === "AWAITING_AI" && (
-                        <div className="td-rise td-d3 rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
+                        <div className="rounded-xl border border-purple-500/20 bg-purple-950/15 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-purple-500/60 via-purple-400/20 to-transparent" />
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
@@ -1174,7 +1146,7 @@ export default function TaskDetailClient({
                     )}
 
                     {taskState.status === "AWAITING_USER" && isAiVouched && (
-                        <div className="td-rise td-d3 rounded-xl border border-orange-500/20 bg-orange-950/10 overflow-hidden">
+                        <div className="rounded-xl border border-orange-500/20 bg-orange-950/10 overflow-hidden">
                     <div className="h-px bg-gradient-to-r from-orange-500/60 via-orange-400/20 to-transparent" />
                     <div className="px-5 py-4 space-y-3">
                         <div className="flex items-center gap-3 mb-1">
@@ -1251,7 +1223,7 @@ export default function TaskDetailClient({
 
                     {/* Stored proof */}
                     {storedProof && storedProofSrc && !proofDraft && (
-                        <div className="td-rise td-d3 space-y-2">
+                        <div className="space-y-2">
                     <div className="flex items-center gap-3">
                         <div style={{ width: 24, height: 1, background: '#f472b6', boxShadow: '0 0 6px rgba(244,114,182,0.35)', flexShrink: 0 }} />
                         <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
@@ -1304,7 +1276,7 @@ export default function TaskDetailClient({
 
                     {/* Proof draft preview */}
                     {proofDraft && (
-                        <div className="td-rise td-d3 space-y-2">
+                        <div className="space-y-2">
                     <div className="flex items-center gap-3">
                         <div style={{ width: 24, height: 1, background: '#f472b6', boxShadow: '0 0 6px rgba(244,114,182,0.35)', flexShrink: 0 }} />
                         <span className="text-[10px] uppercase tracking-wider font-bold text-pink-400">
@@ -1359,7 +1331,7 @@ export default function TaskDetailClient({
                     )}
 
                     {/* ACTIONS BAR */}
-                    <div className="td-rise td-d3 space-y-3">
+                    <div className="space-y-3">
                 {isOwner && isActiveParentTask && potentialRp !== null && potentialRp > 0 && (
                     <p className="text-xs font-mono text-orange-400/80">
                         +{potentialRp} RP on completion
@@ -1671,7 +1643,7 @@ export default function TaskDetailClient({
                 </div>
 
                 {/* ⑦ ACTIVITY LOG */}
-                <aside className="td-rise td-d5 mt-7 lg:mt-0 lg:col-span-1 lg:sticky lg:top-24">
+                <aside className="mt-7 lg:mt-0 lg:col-span-1 lg:sticky lg:top-24">
                     <div className="rounded-xl border border-slate-800/80 bg-slate-950/35 p-4 lg:p-5 space-y-4">
                         <div className="flex w-full items-center gap-3">
                             <div className="h-px flex-1 bg-cyan-400/80 shadow-[0_0_6px_rgba(0,217,255,0.35)]" />

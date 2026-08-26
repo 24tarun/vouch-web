@@ -1,7 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toDateTimeLocalValue } from "../../src/lib/datetime-local.ts";
-import { resolveDateSheetDraftSubmission } from "../../src/lib/task-deadline-sheet.ts";
+import {
+    DEFAULT_ONE_HOUR_REMINDER_KEY,
+    DEFAULT_TEN_MINUTE_REMINDER_KEY,
+    manualReminderKey,
+    resolveDateSheetDraftSubmission,
+    resolveUrgentReminderIsos,
+} from "../../src/lib/task-deadline-sheet.ts";
 
 test("date-sheet submit includes the unsaved reminder draft when applying", () => {
     /*
@@ -172,4 +178,48 @@ test("date-sheet submit rejects an end time before a start time", () => {
     assert.deepEqual(result, {
         error: "End time must be after start time.",
     });
+});
+
+test("urgent reminder keys resolve against the deadline that is actually submitted", () => {
+    /*
+     * WHAT + WHY:
+     * Urgency is stored per reminder identity, not per instant, so marking the default 1H reminder
+     * urgent and then moving the deadline must still flag the reminder at the new deadline minus 1H.
+     *
+     * PASSING SCENARIO:
+     * Default keys resolve relative to the passed deadline; manual keys keep their own instant.
+     *
+     * FAILING SCENARIO:
+     * If defaults resolved against the old deadline, the created task would carry an alarm flag on a
+     * reminder row that no longer exists, and the reminder the user marked would fire silently.
+     */
+    const deadline = new Date(2026, 7, 17, 23, 0, 0, 0);
+    const manualReminder = new Date(2026, 7, 17, 9, 0, 0, 0);
+
+    const isos = resolveUrgentReminderIsos(
+        [DEFAULT_ONE_HOUR_REMINDER_KEY, DEFAULT_TEN_MINUTE_REMINDER_KEY, manualReminderKey(manualReminder)],
+        deadline
+    );
+
+    assert.deepEqual(isos, [
+        manualReminder.toISOString(),
+        new Date(deadline.getTime() - 60 * 60 * 1000).toISOString(),
+        new Date(deadline.getTime() - 10 * 60 * 1000).toISOString(),
+    ].sort());
+});
+
+test("unknown urgency keys are ignored instead of poisoning the alarm list", () => {
+    /*
+     * WHAT + WHY:
+     * Keys survive in state across deadline edits, so the resolver must tolerate junk.
+     *
+     * PASSING SCENARIO:
+     * Garbage keys drop out and the valid ones still resolve.
+     *
+     * FAILING SCENARIO:
+     * An Invalid Date ISO would throw or be sent to the server as an unparseable reminder instant.
+     */
+    const deadline = new Date(2026, 7, 17, 23, 0, 0, 0);
+
+    assert.deepEqual(resolveUrgentReminderIsos(["nonsense", "manual-not-a-date"], deadline), []);
 });

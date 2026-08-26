@@ -85,7 +85,7 @@ export default async function SettingsPage() {
                 />
             </div>
             <div className="pt-6 pb-safe">
-                <BuildStamp className="text-center text-[10px] leading-4 tracking-[0.03em] text-slate-400 font-mono" />
+                <BuildStamp className="text-center text-[10px] leading-4 tracking-[0.03em] text-slate-400" />
             </div>
         </div>
     );
