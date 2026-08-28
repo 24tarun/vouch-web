@@ -161,7 +161,7 @@ export async function initAwaitingVoucherProofUpload(
     };
 }
 
-export async function removeTaskProofAttachment(taskId: string) {
+async function removeTaskProofCommand(taskId: string) {
     const supabase = await createClient();
     const {
         data: { user },
@@ -171,47 +171,34 @@ export async function removeTaskProofAttachment(taskId: string) {
         return { error: "Not authenticated" };
     }
 
-    const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, voucher_id, status, deadline")
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any)
-        .single();
-
-    if (!task) {
-        return { error: "Task not found" };
-    }
-
-    if (!["ACTIVE", "POSTPONED", "AWAITING_USER", "AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"].includes((task as any).status)) {
-        return { error: `Proof cannot be removed in ${(task as any).status} status.` };
-    }
-
-    if ((task as any).status !== "AWAITING_RECTIFICATION" && isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
-        return { error: COMPLETION_EDIT_LOCKED_ERROR };
-    }
-
-    const cleanup = await deleteTaskProof(taskId, "owner_remove_proof_attachment");
-    if (!cleanup.success) {
-        return { error: cleanup.error || "Could not remove proof media." };
-    }
-
-    const { error: eventError } = await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "PROOF_REMOVED",
-        actor_id: user.id as any,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: (task as any).status,
+    const command = await runTaskCommand(supabase, "remove_task_proof_v2", {
+        p_task_id: taskId,
+        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
     });
-    if (eventError) {
-        console.error("Failed to log PROOF_REMOVED event:", eventError);
+    if (!command.success) return { error: command.message };
+
+    const cleanup = await deleteTaskProof(taskId, "owner_remove_proof_post_command");
+    if (!cleanup.success) {
+        console.error(`Post-command proof cleanup deferred for task ${taskId}:`, cleanup.error);
     }
 
-    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
+    const task = command.task;
+    invalidateActiveTasksCache(user.id);
+    if (typeof task?.voucher_id === "string") {
+        invalidatePendingVoucherRequestsCache(task.voucher_id);
+    }
     revalidatePath("/tasks");
     revalidatePath("/settings");
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
-    return { success: true };
+    return {
+        success: true,
+        status: command.fromStatus === command.toStatus ? null : command.toStatus as "ACTIVE" | "POSTPONED",
+    };
+}
+
+export async function removeTaskProofAttachment(taskId: string) {
+    return removeTaskProofCommand(taskId);
 }
 
 export async function finalizeTaskProofUpload(taskId: string, proofMeta: TaskProofMetadata) {
@@ -426,56 +413,6 @@ export async function submitAwaitingUserProofToAi(
     revalidatePath("/friends");
     revalidatePath(`/tasks/${taskId}`);
 
-    return { success: true };
-}
-
-export async function removeAwaitingVoucherProof(taskId: string) {
-    const supabase = await createClient();
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-        return { error: "Not authenticated" };
-    }
-
-    const { data: task } = await (supabase.from("tasks") as any)
-        .select("id, user_id, voucher_id, status, deadline")
-        .eq("id", taskId as any)
-        .eq("user_id", user.id as any)
-        .single();
-
-    if (!task) {
-        return { error: "Task not found" };
-    }
-
-    if (!canFinalizeOrRevertProof((task as any).status)) {
-        return { error: "Proof can only be removed while awaiting voucher response." };
-    }
-
-    if ((task as any).status !== "AWAITING_RECTIFICATION" && isTaskCompletionLocked((task as any).status, (task as any).deadline)) {
-        return { error: COMPLETION_EDIT_LOCKED_ERROR };
-    }
-
-    const cleanup = await deleteTaskProof(taskId, "owner_remove_awaiting_proof");
-    if (!cleanup.success) {
-        return { error: cleanup.error || "Could not remove proof media." };
-    }
-
-    await (supabase.from("task_events") as any).insert({
-        task_id: taskId as any,
-        event_type: "PROOF_REMOVED",
-        actor_id: user.id as any,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
-        from_status: (task as any).status,
-        to_status: (task as any).status,
-    });
-
-    invalidatePendingVoucherRequestsCache((task as any).voucher_id);
-    revalidatePath("/tasks");
-    revalidatePath("/settings");
-    revalidatePath("/friends");
-    revalidatePath(`/tasks/${taskId}`);
     return { success: true };
 }
 

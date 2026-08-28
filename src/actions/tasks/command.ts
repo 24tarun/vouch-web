@@ -7,6 +7,10 @@ export type TaskCommandResult =
         deletedTaskId?: string;
         fromStatus: string;
         toStatus: string | null;
+        proofStorage?: {
+            bucket: string;
+            objectPath: string;
+        } | null;
     }
     | {
         success: false;

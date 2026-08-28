@@ -14,7 +14,6 @@ export {
     finalizeTaskProofUpload,
     submitAwaitingUserProofToAi,
     removeTaskProofAttachment,
-    removeAwaitingVoucherProof,
     revertTaskCompletionAfterProofFailure,
 } from "./proof";
 

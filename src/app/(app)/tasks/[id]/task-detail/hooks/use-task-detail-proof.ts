@@ -5,7 +5,6 @@ import {
     initAwaitingVoucherProofUpload,
     markTaskCompleteWithProofIntent,
     removeTaskProofAttachment,
-    removeAwaitingVoucherProof,
     revertTaskCompletionAfterProofFailure,
     submitAwaitingUserProofToAi,
     undoTaskComplete,
@@ -382,12 +381,8 @@ export function useTaskDetailProof({
         if ((mode === "draft" && !canOpenForDraft) || (mode === "awaiting-upload" && !canOpenForAwaitingUpload)) return;
 
         if (proofDraft) {
-            const shouldReplace = window.confirm("A proof file is already attached. Press OK to replace it, or Cancel to remove it.");
+            const shouldReplace = window.confirm("A proof file is already attached. Press OK to replace it, or Cancel to keep it.");
             if (!shouldReplace) {
-                clearPersistedProofDraft();
-                setProofDraft(null);
-                setProofUploadStatus("idle");
-                setProofUploadError(null);
                 return;
             }
         }
@@ -395,15 +390,11 @@ export function useTaskDetailProof({
         proofPickerModeRef.current = mode;
         setShowWebcamModal(true);
     }, [
-        clearPersistedProofDraft,
         isOwner,
         isActiveParentTask,
         isActionPending,
         taskState.status,
         proofDraft,
-        setProofDraft,
-        setProofUploadStatus,
-        setProofUploadError,
         proofPickerModeRef,
         rejectLockedCompletionEdit,
         setShowWebcamModal,
@@ -618,7 +609,7 @@ export function useTaskDetailProof({
 
     const handleRemoveStoredProof = useCallback(async () => {
         if (isActionPending("removeStoredProof")) return;
-        if (!isOwner || !storedProof) return;
+        if (!isOwner || (!storedProof && !taskState.completion_proof)) return;
         if (rejectLockedCompletionEdit()) return;
         if (!["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"].includes(taskState.status)) {
             toast.error("Proof can only be removed while awaiting review.");
@@ -627,6 +618,8 @@ export function useTaskDetailProof({
 
         setActionPending("removeStoredProof", true);
         const nowIso = new Date().toISOString();
+        const reopensTask = taskState.status !== "AWAITING_RECTIFICATION";
+        const restoredStatus: "ACTIVE" | "POSTPONED" = taskState.postponed_at ? "POSTPONED" : "ACTIVE";
 
         await runOptimisticMutation({
             captureSnapshot: () => ({ taskState }),
@@ -634,17 +627,27 @@ export function useTaskDetailProof({
                 setTaskState((prev) => ({
                     ...prev,
                     completion_proof: null,
+                    status: reopensTask ? restoredStatus : prev.status,
+                    marked_completed_at: reopensTask ? null : prev.marked_completed_at,
+                    voucher_response_deadline: reopensTask ? null : prev.voucher_response_deadline,
+                    proof_request_open: reopensTask ? false : prev.proof_request_open,
+                    proof_requested_at: reopensTask ? null : prev.proof_requested_at,
+                    proof_requested_by: reopensTask ? null : prev.proof_requested_by,
                     updated_at: nowIso,
                 }));
                 setProofUploadError(null);
             },
-            runMutation: () => removeAwaitingVoucherProof(taskState.id),
+            runMutation: () => removeTaskProofAttachment(taskState.id),
             rollback: (snapshot) => {
                 setTaskState(snapshot.taskState);
             },
             onSuccess: () => {
                 void purgeLocalProofMedia(taskState.id);
-                toast.success("Proof removed.");
+                toast.success(
+                    reopensTask
+                        ? `Proof removed. Your task has been moved to ${restoredStatus.toLowerCase()}.`
+                        : "Proof removed."
+                );
                 refreshInBackground();
             },
         });
@@ -663,6 +666,11 @@ export function useTaskDetailProof({
         const hasServerProof = Boolean(storedProof || taskState.completion_proof);
         if (!hasServerProof) return;
 
+        if (["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"].includes(taskState.status)) {
+            await handleRemoveStoredProof();
+            return;
+        }
+
         const result = await removeTaskProofAttachment(taskState.id);
         if (result?.error) {
             toast.error(result.error);
@@ -677,7 +685,7 @@ export function useTaskDetailProof({
         }));
         toast.success("Proof removed.");
         refreshInBackground();
-    }, [clearPersistedProofDraft, isOwner, refreshInBackground, rejectLockedCompletionEdit, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, storedProof, taskState.completion_proof, taskState.id]);
+    }, [clearPersistedProofDraft, handleRemoveStoredProof, isOwner, refreshInBackground, rejectLockedCompletionEdit, setProofDraft, setProofUploadError, setProofUploadStatus, setTaskState, storedProof, taskState.completion_proof, taskState.id, taskState.status]);
 
     return {
         processSelectedProofFile,

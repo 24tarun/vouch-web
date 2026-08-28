@@ -1255,11 +1255,17 @@ export default function TaskDetailClient({
                                 />
                             )}
                             {["AWAITING_VOUCHER", "AWAITING_AI", "MARKED_COMPLETE", "AWAITING_RECTIFICATION"].includes(taskState.status) && (buttonVisibility.proof.removeStored || taskState.status === "AWAITING_RECTIFICATION") && (
-                                <Button type="button" variant="ghost" onClick={handleRemoveStoredProof}
-                                    className={cn(uniformActionButtonClass, "inline-flex items-center", TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
-                                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                                    Remove Proof
-                                </Button>
+                                <>
+                                    <Button type="button" variant="ghost" onClick={() => openProofPicker("awaiting-upload")}
+                                        className={cn(uniformActionButtonClass, "inline-flex items-center", TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
+                                        Replace Proof
+                                    </Button>
+                                    <Button type="button" variant="ghost" onClick={handleRemoveStoredProof}
+                                        className={cn(uniformActionButtonClass, "inline-flex items-center", TASK_DETAIL_BUTTON_CLASSES.proof.removeStored)}>
+                                        <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                                        Remove Proof
+                                    </Button>
+                                </>
                             )}
                         </div>
                     </div>

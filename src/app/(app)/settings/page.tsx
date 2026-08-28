@@ -4,6 +4,7 @@ import SettingsClient from "./settings-client";
 import { getFriends } from "@/actions/friends";
 import { getGoogleCalendarIntegrationState } from "@/actions/google-calendar";
 import { BuildStamp } from "@/components/BuildStamp";
+import { getIntegrationApiKeySummary } from "@/actions/integration-api-keys";
 
 type SettingsStats = {
     activeTasks: number;
@@ -39,9 +40,10 @@ export default async function SettingsPage() {
         redirect("/login?error=profile_missing");
     }
 
-    const [friends, googleCalendarIntegration, tasksResult, pomoSessionsResult] = await Promise.all([
+    const [friends, googleCalendarIntegration, apiKeySummary, tasksResult, pomoSessionsResult] = await Promise.all([
         getFriends(),
         getGoogleCalendarIntegrationState(),
+        getIntegrationApiKeySummary(),
         supabase
             .from("tasks")
             .select("id, status")
@@ -80,6 +82,7 @@ export default async function SettingsPage() {
                     profile={profile}
                     friends={friends}
                     googleCalendarIntegration={googleCalendarIntegration}
+                    apiKeySummary={apiKeySummary}
                     charities={(charities as Array<{ id: string; key: string; name: string; is_active: boolean; created_at: string; updated_at: string }> | null) ?? []}
                     stats={stats}
                 />

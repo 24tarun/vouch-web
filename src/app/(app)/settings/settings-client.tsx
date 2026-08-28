@@ -60,6 +60,8 @@ import { AI_VOUCHER_DISPLAY_NAME, AI_PROFILE_ID } from "@/lib/ai-voucher/constan
 import { normalizePomoDurationMinutes } from "@/lib/pomodoro";
 import { formatTimeZoneLabel, getTimeZoneOptions } from "@/lib/timezones";
 import { DeleteAccountModal } from "@/app/(app)/settings/settings/sections/delete-account-modal";
+import { ApiKeySection } from "@/app/(app)/settings/settings/sections/api-key-section";
+import type { IntegrationApiKeySummary } from "@/actions/integration-api-keys";
 import { useSettingsRelationships } from "@/app/(app)/settings/settings/hooks/use-settings-relationships";
 import { useSettingsGoogleCalendar } from "@/app/(app)/settings/settings/hooks/use-settings-google-calendar";
 import {
@@ -108,6 +110,7 @@ interface SettingsClientProps {
     profile: Profile;
     friends: FriendProfile[];
     googleCalendarIntegration: GoogleCalendarIntegrationState;
+    apiKeySummary: IntegrationApiKeySummary | null;
     charities: Charity[];
     stats: {
         activeTasks: number;
@@ -131,6 +134,7 @@ export default function SettingsClient({
     profile,
     friends: initialFriends,
     googleCalendarIntegration,
+    apiKeySummary,
     charities,
     stats,
 }: SettingsClientProps) {
@@ -867,6 +871,7 @@ export default function SettingsClient({
                     ["#friends", "Friends"],
                     ["#defaults", "Preferences"],
                     ["#integrations", "Integrations"],
+                    ["#api", "API"],
                     ["#account", "Account"],
                 ].map(([href, label]) => (
                     <a
@@ -1659,6 +1664,8 @@ export default function SettingsClient({
                     )}
                 </div>
             </section>
+
+            <ApiKeySection initialSummary={apiKeySummary} />
 
             <section className={SETTINGS_SECTION_CLASS}>
                 <SettingsSectionHeading icon={HeartHandshake}>Charity</SettingsSectionHeading>

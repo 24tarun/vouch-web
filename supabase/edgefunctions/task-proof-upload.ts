@@ -653,14 +653,6 @@ Deno.serve(async (request) => {
 
   const taskStatus = (task as { status: string }).status;
   const taskDeadline = (task as { deadline?: string | null }).deadline;
-  if (
-    action === 'remove-current'
-    && taskStatus !== 'AWAITING_RECTIFICATION'
-    && isCompletionEditingLocked(taskStatus, taskDeadline)
-  ) {
-    return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
-  }
-
   let taskCommandResult: Record<string, unknown> | null = null;
   if (action === 'complete-task-command') {
     const commandBody = body as CompleteTaskCommandRequestBody;
@@ -1177,48 +1169,53 @@ Deno.serve(async (request) => {
   }
 
   if (action === 'remove-current') {
-    const { data: proofRow, error: proofRowError } = await adminClient
-      .from('task_completion_proofs')
-      .select('id, bucket, object_path')
-      .eq('task_id', taskId)
-      .eq('owner_id', user.id)
-      .maybeSingle();
-
-    if (proofRowError) {
-      return json(400, { success: false, error: proofRowError.message });
+    const { data: commandData, error: commandError } = await userClient.rpc('remove_task_proof_v2', {
+      p_task_id: taskId,
+      p_actor_user_client_instance_id: null,
+    });
+    const commandResult = commandData as {
+      success?: boolean;
+      message?: string;
+      fromStatus?: string;
+      toStatus?: string;
+      proofStorage?: { bucket?: string; objectPath?: string } | null;
+    } | null;
+    if (commandError || !commandResult?.success) {
+      return json(409, {
+        success: false,
+        error: commandError?.message || commandResult?.message || 'Proof could not be removed.',
+      });
     }
 
-    if (proofRow?.object_path) {
-      await adminClient.storage
-        .from(((proofRow as { bucket?: string }).bucket || TASK_PROOFS_BUCKET))
-        .remove([String((proofRow as { object_path: string }).object_path)]);
+    let cleanupWarning: string | null = null;
+    let storageCleanupSucceeded = true;
+    if (commandResult.proofStorage?.objectPath) {
+      const { error: storageError } = await adminClient.storage
+        .from(commandResult.proofStorage.bucket || TASK_PROOFS_BUCKET)
+        .remove([commandResult.proofStorage.objectPath]);
+      if (storageError) {
+        console.error('Post-command proof storage cleanup failed for task', taskId, storageError);
+        cleanupWarning = storageError.message;
+        storageCleanupSucceeded = false;
+      }
     }
-
-    if (proofRow?.id) {
-      const { error: deleteError } = await adminClient
+    if (commandResult.proofStorage && storageCleanupSucceeded) {
+      const { error: rowDeleteError } = await adminClient
         .from('task_completion_proofs')
         .delete()
-        .eq('id', String((proofRow as { id: string }).id))
+        .eq('task_id', taskId)
         .eq('owner_id', user.id);
-
-      if (deleteError) {
-        return json(400, { success: false, error: deleteError.message });
+      if (rowDeleteError) {
+        console.error('Post-command proof row cleanup failed for task', taskId, rowDeleteError);
+        cleanupWarning = rowDeleteError.message;
       }
     }
 
-    await adminClient
-      .from('tasks')
-      .update({
-        has_proof: false,
-        proof_request_open: false,
-        proof_requested_at: null,
-        proof_requested_by: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', taskId)
-      .eq('user_id', user.id);
-
-    return json(200, { success: true });
+    return json(200, {
+      success: true,
+      status: commandResult.fromStatus === commandResult.toStatus ? null : commandResult.toStatus,
+      cleanupWarning,
+    });
   }
 
   if (action === 'queue-ai-eval' || action === 'complete-task-command' || action === 'submit-ai-appeal-command') {

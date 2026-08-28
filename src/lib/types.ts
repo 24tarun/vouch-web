@@ -49,6 +49,14 @@ export interface Friendship {
     created_at: string;
 }
 
+export interface IntegrationApiKey {
+    user_id: string;
+    key_prefix: string;
+    secret_hash: string;
+    created_at: string;
+    last_used_at: string | null;
+}
+
 export interface Task {
     id: string;
     user_id: string;
@@ -465,6 +473,12 @@ export interface Database {
                 Row: Friendship
                 Insert: Omit<Friendship, "id" | "created_at">
                 Update: Partial<Friendship>
+            }
+            integration_api_keys: {
+                Row: IntegrationApiKey
+                Insert: Omit<IntegrationApiKey, "created_at" | "last_used_at"> & Partial<Pick<IntegrationApiKey, "created_at" | "last_used_at">>
+                Update: Partial<Omit<IntegrationApiKey, "user_id">>
+                Relationships: []
             }
             tasks: {
                 Row: Task

@@ -123,6 +123,7 @@ export async function getTask(taskId: string) {
                 (supabase.from("task_completion_proofs") as any)
                     .select("*")
                     .eq("task_id", taskId as any)
+                    .eq("upload_state", "UPLOADED" as any)
                     .maybeSingle(),
                 (supabaseAdmin.from("google_calendar_task_links") as any)
                     .select("last_origin")

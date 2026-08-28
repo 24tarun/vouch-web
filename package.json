@@ -30,7 +30,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.3",
-    "@trigger.dev/sdk": "4.5.10",
+    "@trigger.dev/sdk": "4.5.12",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.37.0",
     "canvas-confetti": "^1.9.4",
