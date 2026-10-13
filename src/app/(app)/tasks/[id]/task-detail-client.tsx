@@ -1,4 +1,5 @@
 "use client";
+import { TaskGroupLink } from "@/components/groups/TaskGroupLink";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -979,6 +980,7 @@ export default function TaskDetailClient({
                 <div className="space-y-7 lg:col-span-2">
                     {/* ② STATS STRIP */}
                     <TaskDetailStatsStrip
+                        groupRow={taskState.user_id === viewerId && taskState.status !== "DELETED" ? <TaskGroupLink task={taskState} /> : undefined}
                         deadline={displayedDeadline}
                         status={taskState.status}
                         formattedFailureCost={displayedFailureCost}

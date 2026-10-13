@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { getGroups } from "@/actions/groups";
 import { unstable_noStore as noStore } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { Task } from "@/lib/types";
@@ -43,7 +45,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, default_task_deadline_time, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, web_notifications_enabled, username, hide_tips, always_show_active_tasks, auto_submit_after_proof_upload")
+            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, default_task_deadline_time, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, web_notifications_enabled, username, hide_tips, always_show_active_tasks, auto_submit_after_proof_upload, timezone")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => { console.log("[tasks/page] profileDefaults result:", JSON.stringify(result)); return result.data; }),
@@ -54,11 +56,13 @@ export default async function DashboardPage() {
             .eq("user_id", userId || "")
             .in("status", finalStatuses)
             .order("updated_at", { ascending: false })
+            .order("id", { ascending: false })
             .limit(10),
         getUserReputationScore(userId || ""),
     ]);
 
     const profileDefaults = rawProfileDefaults as {
+        timezone: string | null;
         currency: string | null;
         default_failure_cost_cents: number | null;
         default_voucher_id: string | null;
@@ -107,7 +111,8 @@ export default async function DashboardPage() {
     const dedupedActiveTasks = (((activeTasks as Task[]) || []).filter(
         (task) => !completedTaskIds.has(task.id)
     ));
-    const initialTasks = [...dedupedActiveTasks, ...completedTasks];
+    const initialGroups = await getGroups().catch(() => []);
+    const initialTasks = [...new Map([...initialGroups.flatMap(group => group.members.filter(task => ["ACTIVE", "POSTPONED"].includes(task.status))), ...dedupedActiveTasks, ...completedTasks].map(task => [task.id, task])).values()];
     const initialTaskIds = initialTasks.map((task) => task.id);
 
     const subtasksByParent = new Map<string, NonNullable<Task["subtasks"]>>();
@@ -161,7 +166,9 @@ export default async function DashboardPage() {
     }));
 
     return (
-        <DashboardClient
+        <Suspense><DashboardClient
+            initialGroups={initialGroups}
+            timezone={profileDefaults?.timezone}
             initialTasks={initialTasksWithSubtasks}
             friends={friends}
             defaultFailureCostEuros={defaultFailureCostEuros}
@@ -180,6 +187,6 @@ export default async function DashboardPage() {
             alwaysShowActiveTasks={alwaysShowActiveTasks}
             reputationScore={reputationScore}
             autoSubmitAfterProofUpload={autoSubmitAfterProofUpload}
-        />
+        /></Suspense>
     );
 }

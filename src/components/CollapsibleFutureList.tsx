@@ -2,16 +2,15 @@
 
 import { type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { Task } from "../lib/types";
 import { Button } from "./ui/button";
 import { useCollapsibleSection } from "@/lib/ui/useCollapsibleSection";
 
-interface CollapsibleFutureListProps {
-    tasks: Task[];
-    renderTask: (task: Task) => ReactNode;
+interface CollapsibleFutureListProps<T> {
+    tasks: T[];
+    renderTask: (task: T) => ReactNode;
 }
 
-export function CollapsibleFutureList({ tasks, renderTask }: CollapsibleFutureListProps) {
+export function CollapsibleFutureList<T>({ tasks, renderTask }: CollapsibleFutureListProps<T>) {
     const [isOpen, toggle] = useCollapsibleSection("dashboard.future.open");
 
     if (tasks.length === 0) return null;

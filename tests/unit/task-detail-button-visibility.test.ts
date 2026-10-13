@@ -167,6 +167,18 @@ test("historical owners can pause or stop a surviving recurrence rule", () => {
     assert.equal(visibility.actions.pauseRepetition, true);
     assert.equal(visibility.actions.cancelRepetition, true);
     assert.equal(visibility.actions.markComplete, false);
+    assert.equal(visibility.actions.subtasksToggle, true);
+
+    assert.deepEqual(getTaskDetailSubtaskButtonVisibility({
+        canManageActionChildren: false,
+        isPending: false,
+        isAddingSubtask: false,
+    }), {
+        add: false,
+        toggle: false,
+        rename: false,
+        delete: false,
+    });
 });
 
 test("awaiting owner actions disappear when pending or when undo complete is blocked after deadline", () => {

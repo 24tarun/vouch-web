@@ -1,5 +1,6 @@
 "use client";
 
+import { GroupTitleRow } from "@/components/groups/GroupTitleRow";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,7 +21,20 @@ import {
     getTaskSubmissionWindowState,
 } from "@/lib/task-submission-window";
 
+export interface GroupRowPresentation {
+    title: string;
+    detailPath: string;
+    expanded: boolean;
+    onToggle: () => void;
+    onOpen: () => void;
+    onDelete: () => void;
+    historyStatus?: 'pending' | 'failed' | 'completed';
+    muted?: boolean;
+}
 interface TaskRowProps {
+    timezone?: string;
+    groupPresentation?: GroupRowPresentation;
+
     task: Task;
     onComplete?: (task: Task) => void;
     isCompleting?: boolean;
@@ -39,6 +53,8 @@ interface TaskRowProps {
 const PREFETCH_STATUSES = new Set(["ACTIVE", "POSTPONED", "MARKED_COMPLETE", "AWAITING_VOUCHER", "AWAITING_AI", "AWAITING_USER", "AWAITING_RECTIFICATION"]);
 
 export function TaskRow({
+    timezone,
+    groupPresentation,
     task,
     onComplete,
     isCompleting = false,
@@ -92,10 +108,11 @@ export function TaskRow({
             hour: "2-digit",
             minute: "2-digit",
             hour12: false,
-        })} ${deadline.toLocaleDateString("en-GB", { day: "2-digit" })} ${deadline
-            .toLocaleDateString("en-GB", { month: "short" })
+            timeZone: timezone,
+        })} ${deadline.toLocaleDateString("en-GB", { day: "2-digit", timeZone: timezone })} ${deadline
+            .toLocaleDateString("en-GB", { month: "short", timeZone: timezone })
             }`;
-    }, [task.deadline]);
+    }, [task.deadline, timezone]);
     const submissionWindow = useMemo(
         () => getTaskSubmissionWindowState({
             startAtIso: task.start_at ?? null,
@@ -424,7 +441,7 @@ export function TaskRow({
     };
 
     const currentStatusColor = statusColors[task.status] || "";
-    const detailPath = `/tasks/${task.id}`;
+    const detailPath = groupPresentation?.detailPath || `/tasks/${task.id}`;
     const shouldPrefetchDetail = PREFETCH_STATUSES.has(task.status);
 
     const prefetchTaskDetails = () => {
@@ -459,7 +476,7 @@ export function TaskRow({
                 "opacity-60 cursor-not-allowed"
             )}
             title={disabledCompleteTitle}
-            aria-label="Mark complete"
+            aria-label={groupPresentation ? `Complete ${task.title} in ${groupPresentation.title}` : "Mark complete"}
         >
             <span
                 className={cn(
@@ -576,6 +593,10 @@ export function TaskRow({
             </Button>
         </>
     );
+
+    if (groupPresentation) {
+        return <GroupTitleRow {...groupPresentation} onPrefetch={prefetchTaskDetails} onComplete={handleCheck} completeControl={renderCheckQuickAction()} deadline={deadlineLabel} overdue={isOverdue} />;
+    }
 
     return (
         <div>

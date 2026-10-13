@@ -1,5 +1,6 @@
 "use server";
 
+import { withDetachedGroupLinks } from "@/lib/groups/detach-links";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { type TaskStatus } from "@/lib/xstate/task-machine";
@@ -82,30 +83,6 @@ export async function ownerTempDeleteTask(taskId: string) {
         return { error: "Recurring task instances cannot be deleted. Pause or stop the repetition instead." };
     }
 
-    const { data: linkedLinks } = await (supabase.from("commitment_task_links") as any)
-        .select("id, commitment_id, commitments!inner(name, status)")
-        .eq("task_id", taskId as any);
-
-    if (((linkedLinks as any[]) || []).length > 0) {
-        for (const link of ((linkedLinks as any[]) || [])) {
-            if (link?.commitments?.status === "ACTIVE") {
-                return {
-                    error: `This task is part of the active commitment '${link.commitments.name}'. Delete that commitment first.`,
-                };
-            }
-        }
-
-        const draftLinkIds = ((linkedLinks as any[]) || [])
-            .filter((link) => link?.commitments?.status === "DRAFT" && link?.id)
-            .map((link) => link.id);
-
-        if (draftLinkIds.length > 0) {
-            await (supabase.from("commitment_task_links") as any)
-                .delete()
-                .in("id", draftLinkIds as any);
-        }
-    }
-
     if (!isOwnerTempDeletableStatus(task.status as TaskStatus)) {
         return { error: `Cannot delete task in ${(task as any).status} status` };
     }
@@ -114,11 +91,15 @@ export async function ownerTempDeleteTask(taskId: string) {
         return { error: "Delete window expired. Tasks can only be deleted within 1 hour." };
     }
 
-    const command = await runTaskCommand(supabase as any, "delete_task_v2", {
-        p_task_id: taskId,
-        p_actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+    const actorId = await resolveWebUserClientInstanceId(user.id);
+    const result = await withDetachedGroupLinks(supabase, 'task_id', taskId, async () => {
+        const command = await runTaskCommand(supabase as any, "delete_task_v2", {
+            p_task_id: taskId,
+            p_actor_user_client_instance_id: actorId,
+        });
+        return command.success ? {} : { error: command.message };
     });
-    if (!command.success) return { error: command.message };
+    if (result.error) return { error: result.error };
 
     invalidateActiveTasksCache(user.id);
     invalidatePendingVoucherRequestsCache((task as any).voucher_id);

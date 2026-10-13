@@ -209,7 +209,6 @@ export function NavLinks({ userId, username = "User", avatarUrl = null }: NavLin
         () => [
             { href: "/tasks", label: "Tasks" },
             { href: "/friends", label: "Friends", badge: friendsBadgeCount > 0 ? friendsBadgeCount : undefined },
-            { href: "/commit", label: "Commit" },
             { href: "/ledger", label: "Ledger" },
             { href: "/settings", label: "Settings", badge: settingsBadgeCount > 0 ? settingsBadgeCount : undefined },
         ],
@@ -266,7 +265,7 @@ export function NavLinks({ userId, username = "User", avatarUrl = null }: NavLin
 
     return (
         <div className="w-full overflow-hidden">
-            <div className="grid w-full grid-cols-5 items-center justify-items-center px-1">
+            <div className="grid w-full grid-cols-4 items-center justify-items-center px-1">
                 {links.map((link) => {
                     const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
                     const ariaLabel =

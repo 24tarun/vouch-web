@@ -310,17 +310,28 @@ async function signCaptureLicense(payload: CaptureLicensePayload, secret: string
   return signToken(payload, secret);
 }
 
+type CaptureAttestationResult =
+  | { status: 'valid'; payload: CaptureAttestationPayload }
+  // Structurally invalid, forged, or otherwise untrustworthy -- must hard-fail.
+  | { status: 'invalid' }
+  // Signature checks out and the payload is well-formed, it has simply aged
+  // past CAPTURE_ATTESTATION_TTL_MS. Distinct from 'invalid' so the caller can
+  // fall back to a cached capture license instead of rejecting outright, since
+  // the TTL is shorter than the advertised upload window (see
+  // code-review/02-correctness-findings.md #4).
+  | { status: 'expired' };
+
 async function verifyCaptureAttestation(
   token: string,
   secret: string,
-): Promise<CaptureAttestationPayload | null> {
+): Promise<CaptureAttestationResult> {
   try {
     const payload = await verifyToken<CaptureAttestationPayload>(token, secret);
-    if (!payload) return null;
-    if (payload.version !== 1 || new Date(payload.expiresAt).getTime() <= Date.now()) return null;
-    return payload;
+    if (!payload || payload.version !== 1) return { status: 'invalid' };
+    if (new Date(payload.expiresAt).getTime() <= Date.now()) return { status: 'expired' };
+    return { status: 'valid', payload };
   } catch {
-    return null;
+    return { status: 'invalid' };
   }
 }
 
@@ -772,28 +783,43 @@ Deno.serve(async (request) => {
     const proofIntent = parsed.value;
     let deadlineAttestedAt: string | null = null;
     if (proofIntent.captureAttestation) {
-      const attestation = await verifyCaptureAttestation(proofIntent.captureAttestation, env.serviceRoleKey);
-      const proofTimestampMs = proofIntent.proofTimestampAt
-        ? new Date(proofIntent.proofTimestampAt).getTime()
-        : NaN;
-      const attestedTimestampMs = attestation ? new Date(attestation.startedAt).getTime() : NaN;
-      if (
-        !attestation
-        || attestation.taskId !== taskId
-        || attestation.ownerId !== user.id
-        || attestation.mediaKind !== proofIntent.mediaKind
-        || proofIntent.proofOrigin !== 'CAMERA'
-        || proofIntent.proofTimestampSource !== 'CAMERA_CAPTURE'
-        || !Number.isFinite(proofTimestampMs)
-        || Math.abs(proofTimestampMs - attestedTimestampMs) > 1_000
-      ) {
+      const attestationResult = await verifyCaptureAttestation(proofIntent.captureAttestation, env.serviceRoleKey);
+
+      if (attestationResult.status === 'valid') {
+        const attestation = attestationResult.payload;
+        const proofTimestampMs = proofIntent.proofTimestampAt
+          ? new Date(proofIntent.proofTimestampAt).getTime()
+          : NaN;
+        const attestedTimestampMs = new Date(attestation.startedAt).getTime();
+        if (
+          attestation.taskId !== taskId
+          || attestation.ownerId !== user.id
+          || attestation.mediaKind !== proofIntent.mediaKind
+          || proofIntent.proofOrigin !== 'CAMERA'
+          || proofIntent.proofTimestampSource !== 'CAMERA_CAPTURE'
+          || !Number.isFinite(proofTimestampMs)
+          || Math.abs(proofTimestampMs - attestedTimestampMs) > 1_000
+        ) {
+          return json(400, { success: false, error: 'Proof capture timing could not be verified.' });
+        }
+        deadlineAttestedAt = attestation.startedAt;
+      } else if (attestationResult.status === 'invalid' || !proofIntent.captureLicense) {
+        // A forged/malformed attestation always hard-fails. An expired one
+        // with no cached license to fall back on also hard-fails, same as
+        // before this fix.
         return json(400, { success: false, error: 'Proof capture timing could not be verified.' });
       }
-      deadlineAttestedAt = attestation.startedAt;
-    } else if (proofIntent.captureLicense) {
+      // else: the attestation merely expired (CAPTURE_ATTESTATION_TTL_MS is
+      // shorter than CAPTURE_UPLOAD_WINDOW_MS) and a cached license is
+      // present, so fall through to the license check below instead of
+      // rejecting an upload that is still within its advertised window.
+    }
+
+    if (!deadlineAttestedAt && proofIntent.captureLicense) {
       // Offline path: the device had no connectivity to obtain a server
       // attestation at capture time, so it presents the license it fetched
-      // earlier plus the start time it recorded locally.
+      // earlier plus the start time it recorded locally. Also reached when a
+      // server attestation was obtained but has since expired.
       if (
         proofIntent.proofOrigin !== 'CAMERA'
         || proofIntent.proofTimestampSource !== 'CAMERA_CAPTURE'

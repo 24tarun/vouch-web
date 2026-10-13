@@ -33,7 +33,8 @@ export function LedgerReportButton() {
             variant="outline"
             onClick={handleRequest}
             disabled={status === "loading"}
-            className="h-8 border-slate-800 bg-slate-900/50 text-slate-400 hover:text-slate-200 transition-all gap-2"
+            aria-label="Request Current Month Ledger"
+            className="h-8 shrink-0 whitespace-nowrap border-slate-800 bg-slate-900/50 text-slate-400 hover:text-slate-200 transition-all gap-2"
         >
             {status === "loading" ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -42,7 +43,7 @@ export function LedgerReportButton() {
             ) : (
                 <Mail className="h-3 w-3" />
             )}
-            {status === "loading" ? "Sending..." : status === "success" ? "Sent!" : status === "error" ? "Failed" : "Request Ledger Till Date"}
+            {status === "loading" ? "Sending..." : status === "success" ? "Sent!" : status === "error" ? "Failed" : "Request ledger"}
         </Button>
     );
 }

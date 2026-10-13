@@ -1,5 +1,6 @@
 "use server";
 
+import { withDetachedGroupLinks } from "@/lib/groups/detach-links";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { canTransition, type TaskStatus } from "@/lib/xstate/task-machine";
@@ -10,6 +11,7 @@ import { getTaskSubmissionWindowState } from "@/lib/task-submission-window";
 import {
     revalidateTaskAndSocialSurfaces,
     validateProofIntent,
+    invalidateActiveTasksCache,
     RecurrenceRuleTable,
     INCOMPLETE_SUBTASKS_ERROR,
     INCOMPLETE_POMO_REQUIREMENT_ERROR,
@@ -108,32 +110,20 @@ export async function cancelRepetition(taskId: string) {
 
     const ruleId = (task as any).recurrence_rule_id;
 
-    const { data: linkedCommitments } = await (supabase.from("commitment_task_links") as any)
-        .select("commitment_id, commitments!inner(name, status)")
-        .eq("recurrence_rule_id", ruleId as any)
-        .in("commitments.status", ["DRAFT", "ACTIVE"] as any);
-
-    if (((linkedCommitments as any[]) || []).length > 0) {
-        const first = (linkedCommitments as any[])[0];
-        const name = String(first?.commitments?.name || "this commitment");
-        return {
-            error: `This recurring task is part of the commitment '${name}'. Delete that commitment first.`,
-        };
-    }
-
-    // @ts-ignore
-    const { error } = await (supabase.from(RecurrenceRuleTable) as any)
-        .delete()
-        .eq("id", ruleId)
-        .eq("user_id", user.id);
-
-    if (error) return { error: error.message };
+    const actorId = await resolveWebUserClientInstanceId(user.id);
+    const result = await withDetachedGroupLinks(supabase, 'recurrence_rule_id', ruleId, async () => {
+        const { error } = await (supabase.from(RecurrenceRuleTable) as any)
+            .delete().eq('id', ruleId).eq('user_id', user.id);
+        return error ? { error: error.message as string } : {};
+    });
+    if (result.error) return { error: result.error };
+    invalidateActiveTasksCache(user.id);
 
     const { error: eventError } = await (supabase.from("task_events") as any).insert({
         task_id: taskId,
         event_type: "REPETITION_STOPPED",
         actor_id: user.id,
-        actor_user_client_instance_id: await resolveWebUserClientInstanceId(user.id),
+        actor_user_client_instance_id: actorId,
         from_status: (task as any).status,
         to_status: (task as any).status,
     });

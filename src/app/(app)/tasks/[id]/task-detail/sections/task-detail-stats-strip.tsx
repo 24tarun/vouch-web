@@ -1,10 +1,12 @@
-import { formatDateTimeDdMmYy, formatFocusTime } from "@/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
+import type { ReactNode } from "react";
+import { formatFocusTime } from "@/app/(app)/tasks/[id]/task-detail/utils/task-detail-helpers";
 import { Pencil } from "lucide-react";
 import { TaskStatusBadge } from "@/design-system";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 import type { RecurrenceEditorField } from "@/app/(app)/tasks/[id]/task-detail/paused-recurrence-editor-dialog";
 
 interface TaskDetailStatsStripProps {
+    groupRow?: ReactNode;
     deadline: Date;
     status: TaskStatus;
     formattedFailureCost: string;
@@ -18,6 +20,7 @@ interface TaskDetailStatsStripProps {
 }
 
 export function TaskDetailStatsStrip({
+    groupRow,
     deadline,
     status,
     formattedFailureCost,
@@ -61,9 +64,10 @@ export function TaskDetailStatsStrip({
                         className={`text-xs font-mono text-right ${valueClassName("deadline")}`}
                         data-highlighted={isHighlighted("deadline") || undefined}
                     >
-                        {formatDateTimeDdMmYy(deadline)}
+                        {`${deadline.toLocaleDateString('en-GB', { weekday: 'short' })} ${deadline.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })} ${deadline.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`}
                     </p>
                 </div>
+                {groupRow}
                 <div className="flex items-center justify-between gap-3 min-h-[32px]">
                     <div className="flex items-center gap-1.5">
                         {canEditFutureRepetitions && editButton("failureCost", "failure cost")}

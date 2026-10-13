@@ -118,9 +118,9 @@ export default async function LedgerPage() {
 
             {/* Ledger List */}
             <section className="space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-900 pb-2">
-                    <h2 className="text-xl font-semibold text-slate-500">
-                        Monthly Activity
+                <div className="flex min-w-0 items-center justify-between gap-2 border-b border-slate-900 pb-2">
+                    <h2 className="min-w-0 flex-1 whitespace-nowrap text-[clamp(0.85rem,3.5vw,1.375rem)] font-semibold text-slate-500">
+                        {new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
                     </h2>
                     <LedgerReportButton />
                 </div>

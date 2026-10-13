@@ -4,6 +4,9 @@ import { TextDecoder, TextEncoder } from "node:util";
 import { JSDOM } from "jsdom";
 import React from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { GroupTitleRow } from "../../src/components/groups/GroupTitleRow";
+import { GroupDeletionChoices } from "../../src/components/groups/DeleteGroupDialog";
+import { TaskDetailStatsStrip } from "../../src/app/(app)/tasks/[id]/task-detail/sections/task-detail-stats-strip";
 import { TaskInput } from "../../src/components/TaskInput";
 import type { Profile } from "../../src/lib/types";
 
@@ -113,7 +116,7 @@ test("typing partial keyword keeps caret at native input end while ghost suffix 
         />
     );
 
-    const input = view.getByPlaceholderText("click the bulb button on the right") as HTMLInputElement;
+    const input = view.getByPlaceholderText("Task title") as HTMLInputElement;
     const typed = "check dustbin emptiness tmr";
     setTitleInputValueAndCaret(input, typed);
     await waitFor(() => {
@@ -155,7 +158,7 @@ test("Tab accepts completion atomically and places caret at inserted token end",
         />
     );
 
-    const input = view.getByPlaceholderText("click the bulb button on the right") as HTMLInputElement;
+    const input = view.getByPlaceholderText("Task title") as HTMLInputElement;
     const typed = "check dustbin emptiness tmr";
     setTitleInputValueAndCaret(input, typed);
     await waitFor(() => {
@@ -198,7 +201,7 @@ test("tapping ghost suffix accepts completion and places caret at inserted token
         />
     );
 
-    const input = view.getByPlaceholderText("click the bulb button on the right") as HTMLInputElement;
+    const input = view.getByPlaceholderText("Task title") as HTMLInputElement;
     const typed = "check dustbin emptiness tmr";
     setTitleInputValueAndCaret(input, typed);
     const suffix = await waitFor(() => {
@@ -243,7 +246,7 @@ test("tapping completion fragment does not auto-accept completion", async () => 
         />
     );
 
-    const input = view.getByPlaceholderText("click the bulb button on the right") as HTMLInputElement;
+    const input = view.getByPlaceholderText("Task title") as HTMLInputElement;
     const typed = "check dustbin emptiness tmr";
     setTitleInputValueAndCaret(input, typed);
     const fragmentNode = await waitFor(() => {
@@ -289,7 +292,7 @@ test("weekday completion suffix is contiguous with typed fragment in overlay str
         />
     );
 
-    const input = view.getByPlaceholderText("click the bulb button on the right") as HTMLInputElement;
+    const input = view.getByPlaceholderText("Task title") as HTMLInputElement;
     const typed = "groceries mond";
     setTitleInputValueAndCaret(input, typed);
 
@@ -330,7 +333,7 @@ test("Tab completion is ignored during composition and only applies after compos
         />
     );
 
-    const input = view.getByPlaceholderText("click the bulb button on the right") as HTMLInputElement;
+    const input = view.getByPlaceholderText("Task title") as HTMLInputElement;
     const typed = "check dustbin emptiness tmr";
     setTitleInputValueAndCaret(input, typed);
 
@@ -362,4 +365,58 @@ test("Tab completion is ignored during composition and only applies after compos
         assert.equal(input.value, "check dustbin emptiness tmrw");
         assert.equal(input.selectionStart, input.value.length);
     });
+});
+
+test('group toggle changes the placeholder and disables task settings without opening another view', () => {
+    const view = render(<TaskInput friends={[]} defaultFailureCostEuros="1.00" defaultCurrency="EUR" defaultVoucherId="self" defaultEventDurationMinutes={60} defaultTaskDeadlineTime="23:00" defaultRequiresProofForAllTasks={false} selfUserId="self" />);
+    const toggle = view.getByRole('button', { name: 'Create as group' });
+    assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+    fireEvent.click(toggle);
+    assert.ok(view.getByPlaceholderText('Group title'));
+    assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+    assert.ok(view.container.querySelector('fieldset')?.disabled);
+    assert.equal(view.queryByRole('dialog'), null);
+    fireEvent.click(toggle);
+    assert.ok(view.getByPlaceholderText('Task title'));
+    assert.equal(view.container.querySelector('fieldset')?.disabled, false);
+});
+
+test('creating a task inside a group locks the group-title toggle', () => {
+    const view = render(<TaskInput targetGroupId="morning" friends={[]} defaultFailureCostEuros="1.00" defaultCurrency="EUR" defaultVoucherId="self" defaultEventDurationMinutes={60} defaultTaskDeadlineTime="23:00" defaultRequiresProofForAllTasks={false} selfUserId="self" />);
+    assert.ok((view.getByRole('button', { name: 'Create as group' }) as HTMLButtonElement).disabled);
+    assert.ok(view.getByPlaceholderText('Task title'));
+});
+
+test('group header toggles membership and left swipe opens deletion instead of completing', () => {
+    let expanded = 0, deleted = 0, completed = 0;
+    const view = render(<GroupTitleRow title="Morning routine" expanded={false} onToggle={() => expanded++} onOpen={() => {}} onDelete={() => deleted++} onComplete={() => completed++} deadline="08:00" />);
+    const title = view.getByRole('button', { name: 'Expand Morning routine group' });
+    const icons = title.querySelectorAll('svg');
+    assert.ok(icons[0].classList.contains('lucide-folder-plus'));
+    assert.ok(icons[1].classList.contains('lucide-chevron-right'));
+    fireEvent.click(title);
+    assert.equal(expanded, 1);
+    const row = view.container.firstElementChild!;
+    fireEvent.touchStart(row, { touches: [{ clientX: 200, clientY: 20 }] });
+    fireEvent.touchEnd(row, { changedTouches: [{ clientX: 70, clientY: 20 }] });
+    assert.equal(deleted, 1);
+    assert.equal(completed, 0);
+    fireEvent.touchStart(row, { touches: [{ clientX: 70, clientY: 20 }] });
+    fireEvent.touchEnd(row, { changedTouches: [{ clientX: 200, clientY: 20 }] });
+    assert.equal(completed, 1);
+});
+
+test('group deletion choices offer keep, delete and cancel actions', () => {
+    let cancelled = 0;
+    const view = render(<GroupDeletionChoices onKeep={() => {}} onDelete={() => {}} onCancel={() => cancelled++} />);
+    assert.ok(view.getByRole('button', { name: 'Keep linked tasks' }));
+    assert.ok(view.getByRole('button', { name: 'Delete linked tasks' }));
+    fireEvent.click(view.getByRole('button', { name: 'Cancel' }));
+    assert.equal(cancelled, 1);
+});
+
+test('task details use the compact deadline and place the group inside the table', () => {
+    const view = render(<TaskDetailStatsStrip deadline={new Date(2026, 8, 17, 23, 59)} status="ACTIVE" formattedFailureCost="€1" voucherLabel="madhu" totalPomoSeconds={0} sessionCount={0} proofRequired groupRow={<button>Morning routine</button>} />);
+    assert.ok(view.getByText('Thu 17/09 23:59'));
+    assert.ok(view.getByRole('button', { name: 'Morning routine' }));
 });

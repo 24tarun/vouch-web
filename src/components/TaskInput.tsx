@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Bell, CalendarDays, Camera, Check, Loader2, Repeat, User } from "lucide-react";
+import { Bell, Camera, Check, FolderPlus, Loader2, Repeat, User } from "lucide-react";
 import {
     Select,
     SelectContent,
@@ -52,7 +52,6 @@ import {
 import {
     applyParserKeywordCompletion,
     buildTaskTitleOverlayModel,
-    EVENT_TOKEN_REGEX,
     getDefaultDeadline,
     parseProofRequiredFromTitle,
 } from "@/lib/task-title-parser";
@@ -62,6 +61,8 @@ import {
     resolveTaskDeadline,
 } from "@/lib/parser_keyword_resolver";
 import type { ParserKeywordCompletion } from "@/lib/task-title-parser";
+import { toast } from "sonner";
+import { createGroup } from "@/actions/groups";
 import { useTaskInputSubmit } from "@/components/task-input/hooks/use-task-input-submit";
 import {
     InlineTaskSchedule,
@@ -74,6 +75,10 @@ const weekdayOrder = [1, 2, 3, 4, 5, 6, 0]; // Mon–Sun
 const weekdayShort = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 interface TaskInputProps {
+    initialGroupMode?: boolean;
+    sourceGroupTaskId?: string;
+    targetGroupId?: string;
+    onGroupCreated?: () => void;
     friends: Profile[];
     defaultFailureCostEuros: string;
     defaultCurrency: SupportedCurrency;
@@ -117,6 +122,10 @@ export interface TaskInputHandle {
 }
 
 export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function TaskInput({
+    initialGroupMode = false,
+    sourceGroupTaskId,
+    targetGroupId,
+    onGroupCreated,
     friends,
     defaultFailureCostEuros,
     defaultCurrency,
@@ -130,6 +139,9 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     selfUserId,
     onCreateTaskOptimistic,
 }: TaskInputProps, ref) {
+    const [groupMode, setGroupMode] = useState(initialGroupMode);
+    const groupLock = useRef(false);
+    useEffect(() => { setGroupMode(initialGroupMode); if (initialGroupMode || targetGroupId) { titleInputRef.current?.focus(); titleInputRef.current?.scrollIntoView({ block: 'center' }); } }, [initialGroupMode, sourceGroupTaskId, targetGroupId]);
     const LAST_VOUCHER_STORAGE_KEY = "task-input:last-voucher-id";
 
     const resolveVoucherSelection = useCallback((candidate: string | null | undefined) => {
@@ -506,18 +518,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         setEventStartDraftValue("");
     };
 
-    const openDateSheet = () => {
-        setDeadlineDraftValue(
-            toDateTimeLocalValue(selectedDate ?? getDefaultDeadline())
-        );
-        setEventStartDraftValue(eventStartValue);
-        setRemindersDraft(reminders.slice().sort((a, b) => a.getTime() - b.getTime()));
-        setReminderDraftValue("");
-        setUrgentReminderKeysDraft(urgentReminderKeys);
-        setDateSheetNowMs(Date.now());
-        setIsDateSheetOpen(true);
-    };
-
     const commitDateSheetDraft = (closeSheet: boolean) => {
         const result = resolveDateSheetDraftSubmission({
             deadlineDraftValue,
@@ -746,6 +746,10 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     };
 
     const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (groupMode) {
+            if (e.key === 'Enter' && !isComposingRef.current) { e.preventDefault(); formRef.current?.requestSubmit(); }
+            return;
+        }
         syncTitleCaretFromInput();
 
         const isComposing = isComposingRef.current || e.nativeEvent.isComposing;
@@ -831,7 +835,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
 
 
 
-    const handleSubmit = useTaskInputSubmit({
+    const handleTaskSubmit = useTaskInputSubmit({
         title,
         recurrenceType,
         customDays,
@@ -869,18 +873,30 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         resetDeadlineToDefault,
     });
 
+    const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (event) => {
+        if (!groupMode) { await handleTaskSubmit(event); return; }
+        event.preventDefault();
+        if (groupLock.current || isLoading) return;
+        if (!title.trim()) { toast.error('Group title is required.'); return; }
+        groupLock.current = true; setIsLoading(true);
+        try {
+            const result = await createGroup(title, sourceGroupTaskId);
+            if ('error' in result) toast.error(result.error);
+            if ('groupId' in result && result.groupId) { setTitle(''); setGroupMode(false); onGroupCreated?.(); }
+        } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not create group.'); }
+        finally { groupLock.current = false; setIsLoading(false); }
+    };
+
     // Parser flags keep their controls in sync when typed, while the controls
     // themselves can still be toggled without rewriting the title.
-    const isEventTask = EVENT_TOKEN_REGEX.test(title);
     const isProofTask = parseProofRequiredFromTitle(title);
-    const isEventControlPressed = isEventTask || isEventManuallySelected;
     const isProofControlPressed = isProofTask || requiresProof;
 
     return (
         <form ref={formRef} onSubmit={handleSubmit} className="relative space-y-3 mb-8">
             <div className="bg-slate-900/50 border border-slate-800/50 focus-within:border-slate-700/50 rounded-xl transition-all shadow-2xl overflow-visible">
                 <div className="relative">
-                    {showTitleOverlay && (
+                    {showTitleOverlay && !groupMode && (
                         <div
                             ref={titleHighlightRef}
                             aria-hidden="true"
@@ -936,15 +952,15 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                         }}
                         onScroll={syncTitleHighlightScroll}
                         enterKeyHint="done"
-                        placeholder="click the bulb button on the right"
+                        placeholder={groupMode ? "Group title" : "Task title"}
                         className={cn(
                             "relative z-20 w-full bg-transparent border-none px-5 py-4 placeholder:text-slate-500/70 focus:outline-none transition-colors",
-                            showTitleOverlay ? "text-transparent caret-white" : "text-white caret-white",
+                            showTitleOverlay && !groupMode ? "text-transparent caret-white" : "text-white caret-white",
                             TITLE_TEXT_METRICS_CLASS
                         )}
                         disabled={isLoading}
                     />
-                    {isColorPickerVisible && (
+                    {isColorPickerVisible && !groupMode && (
                         <div
                             className="absolute left-5 right-5 top-full z-30 mt-2 rounded-lg border border-slate-700/60 bg-slate-950/95 shadow-xl backdrop-blur-sm"
                             onMouseDown={(e) => e.preventDefault()}
@@ -982,7 +998,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
 
                 <div className="p-2 border-t border-slate-800/30">
                     <div className="flex items-start gap-1.5">
-                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1 pr-1">
+                        <fieldset disabled={groupMode || isLoading} className={cn("flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1 pr-1", groupMode && "opacity-35 pointer-events-none")} >
                             <div className="relative w-16 shrink-0">
                                 <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-[9px] pointer-events-none z-10">{currencySymbol}</span>
                                 <input
@@ -998,7 +1014,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                             </div>
 
                             <div className={`w-[116px] shrink-0 ${showShake ? "animate-shake" : ""}`}>
-                                <Select value={selectedVoucherId} onValueChange={setSelectedVoucherId}>
+                                <Select disabled={groupMode || isLoading} value={selectedVoucherId} onValueChange={setSelectedVoucherId}>
                                     <SelectTrigger className="h-9 w-full rounded-lg border-slate-700/30 bg-slate-800/30 px-2.5 text-[10px] text-slate-300 focus:ring-0 focus-visible:border-slate-600 focus-visible:ring-0">
                                         <span className="flex min-w-0 flex-1 items-center">
                                             <User className="h-3 w-3 mr-1.5 shrink-0 opacity-70" />
@@ -1028,31 +1044,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                     </SelectContent>
                                 </Select>
                             </div>
-
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (!isEventManuallySelected) {
-                                        setIsEventManuallySelected(true);
-                                        openDateSheet();
-                                    } else {
-                                        setIsEventManuallySelected(false);
-                                        setEventStartValue("");
-                                        setEventStartDraftValue("");
-                                    }
-                                }}
-                                aria-pressed={isEventControlPressed}
-                                className={cn(
-                                    "h-9 px-2.5 shrink-0 border rounded-lg transition-all flex items-center justify-center gap-1.5 text-[10px]",
-                                    isEventControlPressed
-                                        ? "bg-indigo-500/15 border-indigo-400/40 text-indigo-200"
-                                        : "bg-slate-800/30 hover:bg-slate-700/30 border-slate-700/30 text-slate-400 hover:text-slate-200"
-                                )}
-                                title={isEventControlPressed ? "Event enabled" : "Mark this task as an event"}
-                            >
-                                <CalendarDays className="h-3.5 w-3.5" />
-                                <span>Event</span>
-                            </button>
 
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -1131,8 +1122,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                 <Camera className="h-3.5 w-3.5" />
                                 <span>Proof</span>
                             </button>
-                        </div>
-
+                        </fieldset>
+                        <button type="button" disabled={!!targetGroupId || isLoading} aria-label="Create as group" aria-pressed={groupMode} onClick={() => setGroupMode(current => !current)} className={cn("h-9 w-9 shrink-0 rounded-lg border flex items-center justify-center", groupMode ? "bg-cyan-400 text-slate-950 border-cyan-400" : "text-slate-400 border-slate-700/30", targetGroupId && "opacity-35")}><FolderPlus className="size-4" /></button>
                         <button
                             type="submit"
                             disabled={isLoading}
@@ -1159,18 +1150,18 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                 urgentReminderKeys={urgentReminderKeys}
                                 onToggleUrgentReminder={toggleUrgentReminder}
                                 alarmNotificationsEnabled={alarmNotificationsEnabled}
-                                disabled={isLoading}
+                                disabled={isLoading || groupMode}
                             />
                         )}
                     </div>
                 </div>
             </div>
 
-            {deadlineError && !isDateSheetOpen && (
+            {!groupMode && deadlineError && !isDateSheetOpen && (
                 <p role="alert" className="px-1 text-xs text-red-400">{deadlineError}</p>
             )}
 
-            <Dialog open={isDateSheetOpen} onOpenChange={setIsDateSheetOpen}>
+            <Dialog open={!groupMode && isDateSheetOpen} onOpenChange={setIsDateSheetOpen}>
                 <DialogContent className="max-h-[90vh] overflow-y-auto border-slate-800 bg-slate-900 p-0 text-slate-200 shadow-2xl shadow-black/60 sm:max-w-[760px] [&>[data-slot='dialog-close']]:right-5 [&>[data-slot='dialog-close']]:top-5 [&>[data-slot='dialog-close']]:text-slate-400 [&>[data-slot='dialog-close']]:opacity-100 [&>[data-slot='dialog-close']]:hover:text-white">
                     <DialogHeader className="border-b border-slate-800 px-5 py-5 pr-14 sm:px-6 sm:py-6 sm:pr-16">
                         <DialogTitle className="text-xl font-semibold text-white">Schedule task</DialogTitle>

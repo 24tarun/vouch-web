@@ -1,20 +1,26 @@
 export const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
 export const COMPLETION_EDIT_LOCKED_ERROR = 'The task deadline has passed. Proof and completion can no longer be changed.';
 
-const COMPLETION_EDITABLE_STATUSES = new Set([
+// Single source of truth for which task statuses still have an editable
+// completion/proof state. The client (lib/tasks/task-completion-lock.ts)
+// imports this exact list so it predicts what the server will accept -- see
+// code-review/02-correctness-findings.md #1.
+export const COMPLETION_EDITABLE_STATUSES = [
   'ACTIVE',
   'POSTPONED',
   'AWAITING_VOUCHER',
   'AWAITING_AI',
   'MARKED_COMPLETE',
-]);
+] as const;
+
+const completionEditableStatusSet = new Set<string>(COMPLETION_EDITABLE_STATUSES);
 
 export function isCompletionEditingLocked(
   status: string,
   deadline: string | null | undefined,
   nowMs = Date.now(),
 ): boolean {
-  if (!COMPLETION_EDITABLE_STATUSES.has(status)) return false;
+  if (!completionEditableStatusSet.has(status)) return false;
 
   const deadlineMs = typeof deadline === 'string' ? new Date(deadline).getTime() : NaN;
   if (!Number.isFinite(deadlineMs)) return true;

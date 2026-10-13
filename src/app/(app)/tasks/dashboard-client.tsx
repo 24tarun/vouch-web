@@ -1,9 +1,18 @@
 "use client";
 
+import { useGroups } from "@/components/groups/use-groups";
+import { GroupTitleRow } from "@/components/groups/GroupTitleRow";
+import { DeleteGroupDialog } from "@/components/groups/DeleteGroupDialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { buildGroupDashboard, belongsToGroup, groupDate, isGroupActionable, type DashboardEntry, type ResolvedGroup } from "@/lib/groups/dashboard";
+import { getEffectiveTaskStatus } from "@/lib/groups/effective-status";
+import { sortDashboardTasks } from "@/lib/groups/sort";
+import { fromZonedTime } from "date-fns-tz";
+import { getGroupTaskHistory, linkTaskToGroup } from "@/actions/groups";
 import { fireCompletionConfetti } from "@/lib/confetti";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import {
     createTask,
@@ -63,6 +72,8 @@ interface ProofUploadTarget {
 }
 
 interface DashboardClientProps {
+    initialGroups?: ResolvedGroup[];
+    timezone?: string | null;
     initialTasks: Task[];
     friends: Profile[];
     defaultFailureCostEuros: string;
@@ -181,6 +192,8 @@ function buildCreateTaskFormData(payload: TaskInputCreatePayload): FormData {
 }
 
 export default function DashboardClient({
+    initialGroups = [],
+    timezone,
     initialTasks,
     friends,
     defaultFailureCostEuros,
@@ -194,13 +207,24 @@ export default function DashboardClient({
     alarmNotificationsEnabled = false,
     deadlineFinalWarningEnabled,
     userId,
-    username,
     initialHideTips,
     alwaysShowActiveTasks,
     reputationScore,
     autoSubmitAfterProofUpload,
 }: DashboardClientProps) {
     const router = useRouter();
+    const params = useSearchParams();
+    const targetGroupId = params.get('createTaskInGroup') || undefined;
+    const sourceGroupTaskId = params.get('groupTaskId') || undefined;
+    const { groups, loading: loadingGroups, error: groupError, refresh: refreshGroups, nowMs: groupNowMs } = useGroups(initialGroups, userId, timezone || undefined);
+    const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+    const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null);
+    const [olderHistory, setOlderHistory] = useState<Task[]>([]);
+    const [hasMoreHistory, setHasMoreHistory] = useState(initialTasks.filter(task => !isDashboardActiveStatus(task.status)).length >= MAX_COMPLETED_TASKS);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+    const historyCursor = useRef<{ updated_at: string; id: string } | null>(null);
+    const historyLock = useRef(false);
+    const dashboardEntriesRef = useRef<ReturnType<typeof buildGroupDashboard>>({ dueSoon: [], future: [], past: [] });
     const supabase = useMemo(() => createBrowserSupabaseClient(), []);
     const [, startRefreshTransition] = useTransition();
     const split = useMemo(() => splitTasks(initialTasks), [initialTasks]);
@@ -254,9 +278,7 @@ export default function DashboardClient({
     );
     const activeDueSoonTasks = sortedActiveTaskBuckets.activeDueSoonTasks;
     const futureTasks = sortedActiveTaskBuckets.futureTasks;
-    const visibleActiveTasks = alwaysShowActiveTasks
-        ? [...activeDueSoonTasks, ...futureTasks]
-        : activeDueSoonTasks;
+
     const trimmedTaskSearchQuery = taskSearchQuery.trim();
     const isTaskSearchActive = trimmedTaskSearchQuery.length > 0;
     const prefetchTasks = useMemo(
@@ -364,6 +386,7 @@ export default function DashboardClient({
     }, [isTaskSearchActive, supabase, trimmedTaskSearchQuery, userId]);
 
     const refreshInBackground = () => {
+        void refreshGroups();
         startRefreshTransition(() => {
             router.refresh();
         });
@@ -755,9 +778,14 @@ export default function DashboardClient({
                 setActiveTasks(snapshot.activeTasks);
                 setCompletedTasks(snapshot.completedTasks);
             },
-            onSuccess: (result) => {
+            onSuccess: async (result) => {
                 if (result && "taskId" in result && result.taskId) {
                     const realTaskId = result.taskId as string;
+                    if (targetGroupId) {
+                        const linked = await linkTaskToGroup(targetGroupId, realTaskId);
+                        if ('error' in linked) toast.error(`Task created, but not linked: ${linked.error}`);
+                        else router.push(`/commit/${targetGroupId}`);
+                    }
                     const patchTaskId = (task: Task) =>
                         task.id === tempTaskId
                             ? {
@@ -1066,6 +1094,7 @@ export default function DashboardClient({
         <TaskRow
             key={task.id}
             task={task}
+            timezone={timezone || undefined}
             onComplete={handleCompleteTaskOptimistic}
             isCompleting={completingTaskIds.has(task.id)}
             onAttachProof={openTaskProofPicker}
@@ -1130,12 +1159,56 @@ export default function DashboardClient({
         });
     };
 
+    const allHistory = [...new Map([...olderHistory, ...completedTasks].map(task => [task.id, task])).values()];
+    const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const dateAfterTomorrow = new Date(`${groupDate(new Date(groupNowMs), tz)}T00:00:00Z`);
+    dateAfterTomorrow.setUTCDate(dateAfterTomorrow.getUTCDate() + 2);
+    const groupBoundary = fromZonedTime(`${dateAfterTomorrow.toISOString().slice(0, 10)}T00:00:00`, tz).getTime();
+    const projected = buildGroupDashboard({ groups, dueSoonTasks: activeDueSoonTasks, futureTasks, pastTasks: allHistory, timezone: tz, sortMode, futureBoundaryMs: groupBoundary, nowMs: groupNowMs });
+    async function loadMoreHistory() {
+        if (historyLock.current || !hasMoreHistory) return;
+        historyLock.current = true; setLoadingHistory(true);
+        try {
+            const sorted = [...completedTasks].filter(task => !task.id.startsWith('temp-')).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id));
+            const last = sorted.at(-1);
+            const page = await getGroupTaskHistory(historyCursor.current || (last ? { updated_at: last.updated_at, id: last.id } : undefined));
+            setOlderHistory(previous => [...new Map([...previous, ...page.tasks].map(task => [task.id, task])).values()]);
+            historyCursor.current = page.cursor;
+            setHasMoreHistory(page.hasMore);
+        } catch (error) { toast.error(error instanceof Error ? error.message : 'Could not load history.'); }
+        finally { historyLock.current = false; setLoadingHistory(false); }
+    }
+    const liveEntries = alwaysShowActiveTasks ? [...projected.dueSoon, ...projected.future] : projected.dueSoon;
+    dashboardEntriesRef.current = projected;
+    function renderDashboardEntry(entry: DashboardEntry, future = false) {
+        if (entry.kind === 'task') return future && !alwaysShowActiveTasks ? <div key={entry.key} className="opacity-40">{<TaskRow task={entry.task} layoutVariant="active" />}</div> : entry.task.status === 'ACTIVE' || entry.task.status === 'POSTPONED' ? renderActiveTaskRow(entry.task) : <TaskRow key={entry.key} task={entry.task} layoutVariant="completed" />;
+        const group = groups.find(group => group.id === entry.groupId);
+        if (!group) return null;
+        const canonical = new Map([...activeTasks, ...allHistory].map(task => [task.id, task]));
+        const members = sortDashboardTasks([...new Map([...group.members.map(task => [task.id, { ...task, ...canonical.get(task.id) }] as const), ...[...canonical.values()].filter(task => belongsToGroup(task, group)).map(task => [task.id, task] as const)]).values()].filter(task => belongsToGroup(task, group)), 'deadline_asc');
+        const history = entry.kind === 'group-history';
+        const expanded = expandedGroups.has(entry.key);
+        const open = () => router.push(`/commit/${group.id}${history ? `?date=${entry.date}` : ''}`);
+        const toggle = () => setExpandedGroups(previous => { const next = new Set(previous); if (next.has(entry.key)) next.delete(entry.key); else next.add(entry.key); return next; });
+        const member = entry.kind === 'group' ? entry.representative : members[0];
+        const representativeAction = (action: (task: Task) => void) => {
+            const current = [...dashboardEntriesRef.current.dueSoon, ...dashboardEntriesRef.current.future].find(row => row.kind === 'group' && row.groupId === group.id);
+            if (entry.kind !== 'group' || current?.kind !== 'group' || current.representative.id !== entry.representative.id || !isGroupActionable(current.representative, Date.now())) { refreshInBackground(); return; }
+            action(current.representative);
+        };
+        const shown = history ? members.filter(task => groupDate(task.deadline, tz) === entry.date) : members.filter(task => isGroupActionable(task, groupNowMs) || groupDate(task.deadline, tz) === groupDate(new Date(groupNowMs), tz));
+        return <div key={entry.key}>
+            {member ? <TaskRow timezone={tz} task={member} groupPresentation={{ title: group.name, detailPath: `/commit/${group.id}`, expanded, onToggle: toggle, onOpen: open, onDelete: () => setDeleteGroupId(group.id), historyStatus: history ? entry.summary : undefined, muted: future && !alwaysShowActiveTasks }} onComplete={!history && (!future || alwaysShowActiveTasks) ? () => representativeAction(handleCompleteTaskOptimistic) : undefined} isCompleting={completingTaskIds.has(member.id)} /> : <GroupTitleRow title={group.name} expanded={expanded} onToggle={toggle} onOpen={open} onDelete={() => setDeleteGroupId(group.id)} />}
+            {expanded && shown.map(task => <div key={`${entry.key}:${task.id}`} className="ml-3">{isGroupActionable(task, groupNowMs) && (Date.parse(task.deadline) < groupBoundary || alwaysShowActiveTasks) ? renderActiveTaskRow(task) : <TaskRow task={{ ...task, status: getEffectiveTaskStatus(task, groupNowMs) as Task['status'] }} layoutVariant={isGroupActionable(task, groupNowMs) ? 'active' : 'completed'} />}</div>)}
+        </div>;
+    }
+
     return (
         <div className="max-w-4xl mx-auto space-y-4 md:space-y-6 px-4 md:px-0 pb-14">
             <TaskDetailPrefetcher tasks={prefetchTasks} />
             <div className="mb-4 md:mb-8 space-y-3">
                 <div className="flex items-center justify-between">
-                    <h1 className="text-3xl font-bold text-white">{`Hi ${username}`}</h1>
+                    <span />
                     <DashboardHeaderActions
                         tipsVisible={!tipsHidden}
                         onToggleTips={() => {
@@ -1170,6 +1243,10 @@ export default function DashboardClient({
             </div>
 
             <TaskInput
+                initialGroupMode={params.get('groups') === 'create'}
+                sourceGroupTaskId={sourceGroupTaskId}
+                targetGroupId={targetGroupId}
+                onGroupCreated={() => { router.replace('/tasks'); refreshInBackground(); }}
                 friends={friends}
                 defaultFailureCostEuros={defaultFailureCostEuros}
                 defaultCurrency={currency}
@@ -1234,31 +1311,34 @@ export default function DashboardClient({
                 <>
                     <div className="flex flex-col">
                         <div className="flex flex-col">
-                            {visibleActiveTasks.length === 0 ? (
+                            {liveEntries.length === 0 ? (
                                 <div className="text-center py-12">
                                     <p className="text-slate-500 text-base">no tasks for today or tmrw, maybe check future?</p>
                                 </div>
                             ) : (
-                                visibleActiveTasks.map((task) => renderActiveTaskRow(task))
+                                liveEntries.map(entry => renderDashboardEntry(entry))
                             )}
                         </div>
 
                         {!alwaysShowActiveTasks && (
                             <CollapsibleFutureList
-                                tasks={futureTasks}
-                                renderTask={renderActiveTaskRow}
+                                tasks={projected.future}
+                                renderTask={entry => renderDashboardEntry(entry, true)}
                             />
                         )}
 
                         <div className="flex flex-col">
-                            {completedTasks.map((task) => (
-                                <TaskRow key={task.id} task={task} layoutVariant="completed" />
-                            ))}
+                            {projected.past.map(entry => renderDashboardEntry(entry))}
+                            {hasMoreHistory && <button disabled={loadingHistory} className="p-3 text-slate-400" onClick={() => void loadMoreHistory()}>{loadingHistory ? 'Loading…' : 'Load more history'}</button>}
                         </div>
                     </div>
                 </>
             )}
 
+            {groupError && <button className="text-amber-400 text-sm" onClick={() => void refreshGroups()}>Could not refresh groups. Retry</button>}
+            {loadingGroups && <p className="text-slate-500 text-xs">Loading groups…</p>}
+            <DeleteGroupDialog groupId={deleteGroupId} onClose={() => setDeleteGroupId(null)} onDeleted={refreshInBackground} />
+            <Dialog open={params.get('groups') === 'manage'} onOpenChange={open => { if (!open) router.replace('/tasks'); }}><DialogContent><DialogTitle>Groups</DialogTitle><DialogDescription>Open a group or create one using the task creator.</DialogDescription><div className="max-h-80 overflow-auto">{groups.map(group => <Link key={group.id} href={`/commit/${group.id}`} className="block p-3">{group.name}</Link>)}</div><button onClick={() => router.replace('/tasks?groups=create')} className="p-3 text-cyan-400">Create group</button></DialogContent></Dialog>
             <input
                 ref={proofInputRef}
                 type="file"
