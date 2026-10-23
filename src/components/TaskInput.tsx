@@ -1138,7 +1138,7 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                             />
                         )}
                         <span className="flex-1" />
-                        <button type="button" disabled={!!targetGroupId || isLoading} aria-label="Create as group" aria-pressed={groupMode} onClick={() => setGroupMode(current => !current)} className={cn("h-9 px-2.5 shrink-0 rounded-lg border flex items-center justify-center gap-1.5 text-[10px]", groupMode ? "bg-cyan-400 text-slate-950 border-cyan-400" : "text-slate-400 border-slate-700/30", targetGroupId && "opacity-35")}><FolderPlus className="h-3.5 w-3.5" /><span>Groups</span></button>
+                        <button type="button" disabled={!!targetGroupId || isLoading} aria-label="Create as group" aria-pressed={groupMode} onClick={() => setGroupMode(current => !current)} className={cn("h-9 px-2.5 shrink-0 rounded-lg border flex items-center justify-center gap-1.5 text-[10px]", groupMode ? "bg-cyan-400 text-slate-950 border-cyan-400" : "text-slate-400 border-slate-700/30", targetGroupId && "opacity-35")}><FolderPlus className={cn("h-3.5 w-3.5", !groupMode && "text-cyan-400")} /><span>Groups</span></button>
                         <button
                             type="submit"
                             disabled={isLoading}
