@@ -50,6 +50,8 @@ interface ReminderLineProps {
     disabled?: boolean;
     /** Alarm-style delivery is only offered when the profile has it switched on. */
     showAlarm?: boolean;
+    /** Smaller single-line row used by the inline task creator. */
+    compact?: boolean;
 }
 
 /** One reminder as a single row: time · date · alarm · status · delete. */
@@ -61,7 +63,43 @@ export function ReminderLine({
     onDelete,
     disabled = false,
     showAlarm = true,
+    compact = false,
 }: ReminderLineProps) {
+    if (compact) {
+        return (
+            <div className="group flex h-8 items-center gap-2 rounded-md px-1.5 text-xs transition-colors hover:bg-slate-800/40">
+                <span aria-hidden="true" className={cn("h-1.5 w-1.5 shrink-0 rounded-full", status === "scheduled" ? "bg-emerald-400/70" : "bg-slate-600")} />
+                <span className="font-semibold tabular-nums text-slate-100">{format(at, "HH:mm")}</span>
+                <span className="tabular-nums text-slate-500">{format(at, "EEE d MMM")}</span>
+                <span className="flex-1" />
+                {showAlarm && (
+                    <button
+                        type="button"
+                        onClick={onToggleUrgent}
+                        disabled={disabled}
+                        aria-pressed={urgent}
+                        aria-label={`${urgent ? "Disable" : "Enable"} alarm for reminder ${format(at, "HH:mm dd/MM/yyyy")}`}
+                        title={urgent ? "Alarm-style notification on" : "Ring as an alarm on mobile"}
+                        className={cn(
+                            "shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider transition-colors disabled:opacity-40",
+                            urgent ? "bg-red-500/15 text-red-300" : "text-slate-500 hover:bg-slate-800 hover:text-slate-200"
+                        )}
+                    >
+                        Alarm
+                    </button>
+                )}
+                <button
+                    type="button"
+                    onClick={onDelete}
+                    disabled={disabled}
+                    aria-label={`Delete reminder ${format(at, "HH:mm dd/MM/yyyy")}`}
+                    className="shrink-0 rounded p-1 text-slate-500 transition-colors hover:bg-red-500/15 hover:text-red-300 disabled:opacity-40"
+                >
+                    <Trash2 className="h-3.5 w-3.5" />
+                </button>
+            </div>
+        );
+    }
     return (
         <div className="group flex items-center gap-2.5 rounded-lg px-1.5 py-1 text-sm transition-colors hover:bg-slate-800/40">
             <span className="w-[46px] shrink-0 font-semibold tabular-nums text-slate-100">

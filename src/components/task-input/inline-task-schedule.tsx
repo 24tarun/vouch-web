@@ -16,7 +16,7 @@ import {
     startOfWeek,
     subMonths,
 } from "date-fns";
-import { CalendarDays, ChevronLeft, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react";
+import { Bell, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Minus, Plus, RotateCcw } from "lucide-react";
 import { ReminderLine } from "@/components/ui/reminder-date-time-picker";
 import { combineDateAndTime, fromDateTimeLocalValue } from "@/lib/datetime-local";
 import { cn } from "@/lib/utils";
@@ -134,6 +134,7 @@ const CONTROL_CLASS =
 const ACCENTS = {
     emerald: "border-emerald-400/25 bg-emerald-400/[0.06] text-emerald-100 focus:border-emerald-400/60",
     amber: "border-amber-400/25 bg-amber-400/[0.06] text-amber-200 focus:border-amber-400/60",
+    neutral: "border-slate-700/50 bg-slate-800/40 text-slate-100 focus:border-slate-500",
 } as const;
 
 /** A typeable `HH` or `MM` cell flanked by single-step minus/plus buttons. */
@@ -249,6 +250,14 @@ export function ClockStepper({
     );
 }
 
+/** Quiet neutral control for the deadline/reminder editors. */
+const SOFT_CONTROL_CLASS =
+    "border border-slate-700/50 bg-slate-800/40 text-slate-300 transition-colors hover:border-slate-600 hover:bg-slate-700/50 hover:text-white";
+
+const POPOVER_CLASS = "rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl shadow-black/60";
+
+const SECTION_LABEL_CLASS = "text-[10px] font-semibold uppercase tracking-wider text-slate-500";
+
 export function InlineTaskSchedule({
     deadline,
     reminders,
@@ -264,10 +273,14 @@ export function InlineTaskSchedule({
     const effectiveDeadline = deadline;
     const [isCalendarOpen, setIsCalendarOpen] = useState(false);
     const [isReminderOpen, setIsReminderOpen] = useState(false);
+    const [isDeadlineChipOpen, setIsDeadlineChipOpen] = useState(false);
+    const [isRemindersChipOpen, setIsRemindersChipOpen] = useState(false);
     const [visibleMonth, setVisibleMonth] = useState(startOfMonth(effectiveDeadline));
     const [reminderDraft, setReminderDraft] = useState(() => defaultReminderDraft(effectiveDeadline, new Date()));
     const calendarRef = useRef<HTMLDivElement>(null);
     const reminderRef = useRef<HTMLDivElement>(null);
+    const deadlineChipRef = useRef<HTMLDivElement>(null);
+    const remindersChipRef = useRef<HTMLDivElement>(null);
     const currentMonth = startOfMonth(new Date());
     const canGoToPreviousMonth = visibleMonth.getTime() > currentMonth.getTime();
     const calendarDays = useMemo(() => getCalendarDays(visibleMonth), [visibleMonth]);
@@ -275,12 +288,10 @@ export function InlineTaskSchedule({
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             const target = event.target as Node;
-            if (calendarRef.current && !calendarRef.current.contains(target)) {
-                setIsCalendarOpen(false);
-            }
-            if (reminderRef.current && !reminderRef.current.contains(target)) {
-                setIsReminderOpen(false);
-            }
+            if (calendarRef.current && !calendarRef.current.contains(target)) setIsCalendarOpen(false);
+            if (reminderRef.current && !reminderRef.current.contains(target)) setIsReminderOpen(false);
+            if (deadlineChipRef.current && !deadlineChipRef.current.contains(target)) setIsDeadlineChipOpen(false);
+            if (remindersChipRef.current && !remindersChipRef.current.contains(target)) setIsRemindersChipOpen(false);
         };
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -290,33 +301,90 @@ export function InlineTaskSchedule({
         onDeadlineChange(addDays(effectiveDeadline, delta));
     };
 
-    const toggleReminderPopover = () => {
+    const openReminderForm = () => {
         setReminderDraft(defaultReminderDraft(effectiveDeadline, new Date()));
         setIsReminderOpen((open) => !open);
     };
 
     const addReminder = (reminder: Date) => {
-        if (onAddReminder(reminder)) {
-            setIsReminderOpen(false);
-        }
+        if (onAddReminder(reminder)) setIsReminderOpen(false);
     };
 
-    return (
-        <div className={cn("flex w-full min-w-0 flex-wrap items-stretch gap-2 overflow-visible pb-0.5", disabled && "pointer-events-none opacity-50")}>
-            <div
-                role="group"
-                aria-label="Deadline"
-                className="flex w-[336px] shrink-0 flex-col gap-1.5 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.03] p-2"
-            >
-                <div ref={calendarRef} className="relative flex items-center gap-1">
+    const calendar = (
+        <div className="mt-1 rounded-lg border border-slate-800 p-2">
+            <div className="mb-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-200">{format(visibleMonth, "MMMM yyyy")}</span>
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={() => setVisibleMonth((month) => subMonths(month, 1))}
+                        disabled={!canGoToPreviousMonth}
+                        aria-label="Previous month"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-30"
+                    >
+                        <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setVisibleMonth((month) => addMonths(month, 1))}
+                        aria-label="Next month"
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white"
+                    >
+                        <ChevronRight className="h-4 w-4" />
+                    </button>
+                </div>
+            </div>
+            <div className="grid grid-cols-7 text-center">
+                {WEEKDAY_HEADERS.map((day, index) => (
+                    <span key={`${day}-${index}`} className="pb-1 text-[9px] font-semibold text-slate-600">{day}</span>
+                ))}
+            </div>
+            <div className="grid grid-cols-7">
+                {calendarDays.map((day) => {
+                    const isPast = isBefore(day, startOfDay(new Date()));
+                    const isSelected = isSameDay(day, effectiveDeadline);
+                    if (!isSameMonth(day, visibleMonth)) {
+                        return <span key={day.toISOString()} className="h-8" aria-hidden="true" />;
+                    }
+                    return (
+                        <button
+                            key={day.toISOString()}
+                            type="button"
+                            disabled={isPast}
+                            onClick={() => {
+                                const next = new Date(day);
+                                next.setHours(effectiveDeadline.getHours(), effectiveDeadline.getMinutes(), 0, 0);
+                                if (onDeadlineChange(next)) setIsCalendarOpen(false);
+                            }}
+                            className="flex h-8 items-center justify-center disabled:cursor-not-allowed"
+                        >
+                            <span className={cn(
+                                "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
+                                isSelected ? "bg-slate-100 font-bold text-slate-950" : "text-slate-300 hover:bg-slate-800 hover:text-white",
+                                isToday(day) && !isSelected && "text-blue-300",
+                                isPast && "text-slate-700 hover:bg-transparent hover:text-slate-700"
+                            )}>
+                                {format(day, "d")}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    const deadlineEditor = (
+        <div className="flex flex-col gap-2">
+            <div ref={calendarRef}>
+                <div className="flex items-center gap-1">
                     <button
                         type="button"
                         onClick={() => changeDay(-1)}
                         disabled={isBefore(addDays(effectiveDeadline, -1), new Date())}
                         aria-label="Previous deadline day"
-                        className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-30", CONTROL_CLASS)}
+                        className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md disabled:opacity-30", SOFT_CONTROL_CLASS)}
                     >
-                        <Minus className="h-3.5 w-3.5" />
+                        <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
                     <button
                         type="button"
@@ -326,242 +394,204 @@ export function InlineTaskSchedule({
                         }}
                         aria-expanded={isCalendarOpen}
                         className={cn(
-                            "flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-400/25 bg-emerald-400/[0.06] px-2.5 text-[11px] font-semibold tabular-nums text-emerald-100 transition-colors hover:bg-emerald-400/[0.12]",
-                            isCalendarOpen && "border-emerald-400/60"
+                            "flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs font-medium tabular-nums",
+                            SOFT_CONTROL_CLASS,
+                            "text-slate-100",
+                            isCalendarOpen && "border-slate-500"
                         )}
                     >
-                        <CalendarDays className="h-3.5 w-3.5" />
-                        {format(effectiveDeadline, "dd MMM yyyy")}
+                        <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+                        {format(effectiveDeadline, "EEE dd MMM yyyy")}
                     </button>
                     <button
                         type="button"
                         onClick={() => changeDay(1)}
                         aria-label="Next deadline day"
-                        className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", CONTROL_CLASS)}
+                        className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", SOFT_CONTROL_CLASS)}
                     >
-                        <Plus className="h-3.5 w-3.5" />
+                        <ChevronRight className="h-3.5 w-3.5" />
                     </button>
-
-                    {isCalendarOpen && (
-                        <div className="absolute bottom-full left-0 z-50 mb-2 w-[272px] rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl shadow-black/60">
-                            <div className="mb-2 flex items-center justify-between">
-                                <span className="text-xs font-semibold text-slate-200">{format(visibleMonth, "MMMM yyyy")}</span>
-                                <div className="flex items-center gap-1">
-                                    <button
-                                        type="button"
-                                        onClick={() => setVisibleMonth((month) => subMonths(month, 1))}
-                                        disabled={!canGoToPreviousMonth}
-                                        aria-label="Previous month"
-                                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-30"
-                                    >
-                                        <ChevronLeft className="h-4 w-4" />
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setVisibleMonth((month) => addMonths(month, 1))}
-                                        aria-label="Next month"
-                                        className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 hover:text-white"
-                                    >
-                                        <ChevronRight className="h-4 w-4" />
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-7 text-center">
-                                {WEEKDAY_HEADERS.map((day, index) => (
-                                    <span key={`${day}-${index}`} className="pb-1 text-[9px] font-semibold text-slate-600">{day}</span>
-                                ))}
-                            </div>
-                            <div className="grid grid-cols-7">
-                                {calendarDays.map((day) => {
-                                    const isPast = isBefore(day, startOfDay(new Date()));
-                                    const isSelected = isSameDay(day, effectiveDeadline);
-                                    if (!isSameMonth(day, visibleMonth)) {
-                                        return <span key={day.toISOString()} className="h-8" aria-hidden="true" />;
-                                    }
-                                    return (
-                                        <button
-                                            key={day.toISOString()}
-                                            type="button"
-                                            disabled={isPast}
-                                            onClick={() => {
-                                                const next = new Date(day);
-                                                next.setHours(effectiveDeadline.getHours(), effectiveDeadline.getMinutes(), 0, 0);
-                                                if (onDeadlineChange(next)) setIsCalendarOpen(false);
-                                            }}
-                                            className="flex h-8 items-center justify-center disabled:cursor-not-allowed"
-                                        >
-                                            <span className={cn(
-                                                "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
-                                                isSelected ? "bg-emerald-400 font-bold text-slate-950" : "text-slate-300 hover:bg-slate-800 hover:text-white",
-                                                isToday(day) && !isSelected && "text-emerald-300",
-                                                isPast && "text-slate-700 hover:bg-transparent hover:text-slate-700"
-                                            )}>
-                                                {format(day, "d")}
-                                            </span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
                 </div>
-
-                <ClockStepper
-                    value={effectiveDeadline}
-                    accent="emerald"
-                    ariaPrefix="Deadline"
-                    onChange={onDeadlineChange}
-                />
-
-                <div className="flex items-center gap-1 border-t border-slate-800/60 pt-1.5">
-                    {DEADLINE_PRESETS.map((preset) => (
-                        <button
-                            key={preset.minutes}
-                            type="button"
-                            onClick={() => onDeadlineChange(dateFromNow(new Date(), preset.minutes))}
-                            aria-label={`Set deadline ${preset.label}`}
-                            className={cn("h-7 flex-1 rounded-md text-[10px] font-medium", CONTROL_CLASS)}
-                        >
-                            {preset.label}
-                        </button>
-                    ))}
-                    <button
-                        type="button"
-                        onClick={() => {
-                            const next = addDays(startOfDay(new Date()), 1);
-                            next.setHours(9, 0, 0, 0);
-                            onDeadlineChange(next);
-                        }}
-                        aria-label="Set deadline tomorrow at 9am"
-                        className={cn("h-7 flex-1 rounded-md text-[10px] font-medium", CONTROL_CLASS)}
-                    >
-                        tmrw 9am
-                    </button>
-                    {onResetDeadline && (
-                        <button
-                            type="button"
-                            onClick={onResetDeadline}
-                            aria-label="Reset deadline"
-                            title="Back to the default deadline"
-                            className={cn(
-                                "flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium",
-                                CONTROL_CLASS
-                            )}
-                        >
-                            <RotateCcw className="h-3 w-3" />
-                            Reset
-                        </button>
-                    )}
-                </div>
+                {isCalendarOpen && calendar}
             </div>
 
-            <div
-                role="group"
-                aria-label="Reminders"
-                className="flex min-w-[320px] flex-1 flex-col gap-0.5 rounded-xl border border-amber-400/15 bg-amber-400/[0.03] p-2"
-            >
-                <span className="px-0.5 pb-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400/60">
-                    Reminders
-                </span>
+            <ClockStepper value={effectiveDeadline} accent="neutral" ariaPrefix="Deadline" onChange={onDeadlineChange} />
 
-                {reminders.length === 0 && (
-                    <p className="px-0.5 py-1.5 text-[11px] text-slate-600">
-                        No reminders — add one below.
-                    </p>
-                )}
-
-                {reminders.map((reminder) => (
-                    <ReminderLine
-                        key={reminder.key}
-                        at={reminder.at}
-                        status="scheduled"
-                        urgent={urgentReminderKeys.includes(reminder.key)}
-                        showAlarm={alarmNotificationsEnabled}
-                        onToggleUrgent={() => onToggleUrgentReminder?.(reminder.key)}
-                        onDelete={() => onRemoveReminder(reminder.key)}
-                    />
+            <div className="flex flex-wrap items-center gap-1">
+                {DEADLINE_PRESETS.map((preset) => (
+                    <button
+                        key={preset.minutes}
+                        type="button"
+                        onClick={() => onDeadlineChange(dateFromNow(new Date(), preset.minutes))}
+                        aria-label={`Set deadline ${preset.label}`}
+                        className="h-6 rounded-full px-2.5 text-[10px] font-medium text-slate-400 ring-1 ring-slate-700/60 transition-colors hover:bg-slate-800 hover:text-white"
+                    >
+                        {preset.label.replace("in ", "+").replace(" hours", "h").replace(" hour", "h")}
+                    </button>
                 ))}
-
-                <div ref={reminderRef} className="relative mt-auto pt-1">
+                <button
+                    type="button"
+                    onClick={() => {
+                        const next = addDays(startOfDay(new Date()), 1);
+                        next.setHours(9, 0, 0, 0);
+                        onDeadlineChange(next);
+                    }}
+                    aria-label="Set deadline tomorrow at 9am"
+                    className="h-6 rounded-full px-2.5 text-[10px] font-medium text-slate-400 ring-1 ring-slate-700/60 transition-colors hover:bg-slate-800 hover:text-white"
+                >
+                    tmrw 9am
+                </button>
+                {onResetDeadline && (
                     <button
                         type="button"
-                        onClick={toggleReminderPopover}
-                        aria-expanded={isReminderOpen}
-                        className={cn(
-                            "flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-slate-600/70 bg-slate-700/40 text-[11px] font-medium text-slate-200 transition-colors hover:border-amber-400/50 hover:bg-amber-400/15 hover:text-amber-100",
-                            isReminderOpen && "border-amber-400/50 bg-amber-400/15 text-amber-100"
-                        )}
+                        onClick={onResetDeadline}
+                        aria-label="Reset deadline"
+                        title="Back to the default deadline"
+                        className="ml-auto flex h-6 items-center gap-1 rounded-full px-2 text-[10px] font-medium text-slate-500 transition-colors hover:bg-slate-800 hover:text-white"
                     >
-                        <Plus className="h-3.5 w-3.5" />
-                        Add reminder
+                        <RotateCcw className="h-3 w-3" />
+                        Reset
                     </button>
+                )}
+            </div>
+        </div>
+    );
 
-                    {isReminderOpen && (
-                        <div className="absolute bottom-full left-0 z-50 mb-2 w-[264px] space-y-2 rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-2xl shadow-black/60">
-                            <div className="flex items-center gap-1">
-                                <button
-                                    type="button"
-                                    onClick={() => setReminderDraft((current) => addDays(current, -1))}
-                                    aria-label="Previous reminder day"
-                                    className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", CONTROL_CLASS)}
-                                >
-                                    <Minus className="h-3.5 w-3.5" />
-                                </button>
-                                <span className="flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-amber-400/25 bg-amber-400/[0.06] px-2 text-[11px] font-semibold tabular-nums text-amber-200">
-                                    <CalendarDays className="h-3.5 w-3.5" />
-                                    {format(reminderDraft, "dd MMM yyyy")}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => setReminderDraft((current) => addDays(current, 1))}
-                                    aria-label="Next reminder day"
-                                    className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", CONTROL_CLASS)}
-                                >
-                                    <Plus className="h-3.5 w-3.5" />
-                                </button>
-                            </div>
+    const reminderList = reminders.length === 0 ? (
+        <p className="py-1 text-[11px] text-slate-600">No reminders yet</p>
+    ) : (
+        <div className="flex flex-col">
+            {reminders.map((reminder) => (
+                <ReminderLine
+                    key={reminder.key}
+                    compact
+                    at={reminder.at}
+                    status="scheduled"
+                    urgent={urgentReminderKeys.includes(reminder.key)}
+                    showAlarm={alarmNotificationsEnabled}
+                    onToggleUrgent={() => onToggleUrgentReminder?.(reminder.key)}
+                    onDelete={() => onRemoveReminder(reminder.key)}
+                />
+            ))}
+        </div>
+    );
 
-                            <ClockStepper
-                                value={reminderDraft}
-                                accent="amber"
-                                ariaPrefix="Reminder"
-                                onChange={setReminderDraft}
-                            />
+    const reminderForm = (
+        <div className="space-y-2">
+            <div className="flex items-center gap-1">
+                <button
+                    type="button"
+                    onClick={() => setReminderDraft((current) => addDays(current, -1))}
+                    aria-label="Previous reminder day"
+                    className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", SOFT_CONTROL_CLASS)}
+                >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className={cn("flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium tabular-nums text-slate-100", SOFT_CONTROL_CLASS)}>
+                    <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+                    {format(reminderDraft, "EEE dd MMM")}
+                </span>
+                <button
+                    type="button"
+                    onClick={() => setReminderDraft((current) => addDays(current, 1))}
+                    aria-label="Next reminder day"
+                    className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-md", SOFT_CONTROL_CLASS)}
+                >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+            </div>
+            <ClockStepper value={reminderDraft} accent="neutral" ariaPrefix="Reminder" onChange={setReminderDraft} />
+            <div className="flex flex-wrap items-center gap-1">
+                {REMINDER_PRESETS.map((preset) => (
+                    <button
+                        key={preset.minutes}
+                        type="button"
+                        onClick={() => setReminderDraft(offsetBeforeDeadline(effectiveDeadline, preset.minutes))}
+                        aria-label={`Reminder ${preset.label}`}
+                        className="h-6 rounded-full px-2.5 text-[10px] font-medium text-slate-400 ring-1 ring-slate-700/60 transition-colors hover:bg-slate-800 hover:text-white"
+                    >
+                        {preset.label}
+                    </button>
+                ))}
+            </div>
+            <div className="flex items-center gap-1.5 pt-1">
+                <button
+                    type="button"
+                    onClick={() => setIsReminderOpen(false)}
+                    className="h-7 flex-1 rounded-md text-[11px] font-medium text-slate-500 transition-colors hover:bg-slate-800 hover:text-white"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    onClick={() => addReminder(reminderDraft)}
+                    aria-label="Confirm reminder"
+                    className="h-7 flex-1 rounded-md bg-slate-100 text-[11px] font-semibold text-slate-950 transition-colors hover:bg-white"
+                >
+                    Add
+                </button>
+            </div>
+        </div>
+    );
 
-                            <div className="flex items-center gap-1">
-                                {REMINDER_PRESETS.map((preset) => (
-                                    <button
-                                        key={preset.minutes}
-                                        type="button"
-                                        onClick={() => setReminderDraft(offsetBeforeDeadline(effectiveDeadline, preset.minutes))}
-                                        aria-label={`Reminder ${preset.label}`}
-                                        className={cn("h-7 flex-1 rounded-md text-[10px] font-medium", CONTROL_CLASS)}
-                                    >
-                                        {preset.label}
-                                    </button>
-                                ))}
-                            </div>
+    const addReminderButton = (
+        <button
+            type="button"
+            onClick={openReminderForm}
+            aria-expanded={isReminderOpen}
+            className="flex h-7 items-center gap-1 self-start rounded-md px-1.5 text-[11px] font-medium text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+        >
+            <Plus className="h-3.5 w-3.5" />
+            Add reminder
+        </button>
+    );
 
-                            <div className="flex items-center gap-1.5 border-t border-slate-800 pt-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsReminderOpen(false)}
-                                    className="h-7 flex-1 rounded-md text-[10px] font-medium text-slate-500 transition-colors hover:bg-slate-800 hover:text-white"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => addReminder(reminderDraft)}
-                                    aria-label="Confirm reminder"
-                                    className="h-7 flex-1 rounded-md bg-amber-400/90 text-[10px] font-semibold text-slate-950 transition-colors hover:bg-amber-300"
-                                >
-                                    Add reminder
-                                </button>
-                            </div>
+    const reminderCount = reminders.length;
+    return (
+        <div className={cn("flex shrink-0 items-center gap-1.5", disabled && "pointer-events-none opacity-50")}>
+            <div ref={deadlineChipRef} className="relative">
+                <button
+                    type="button"
+                    onClick={() => setIsDeadlineChipOpen((open) => !open)}
+                    aria-expanded={isDeadlineChipOpen}
+                    aria-label="Edit deadline"
+                    className={cn("flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium tabular-nums", SOFT_CONTROL_CLASS, "text-slate-200", isDeadlineChipOpen && "border-slate-500")}
+                >
+                    <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+                    {format(effectiveDeadline, "EEE d MMM")}
+                    <span className="text-slate-600">·</span>
+                    {format(effectiveDeadline, "HH:mm")}
+                    <ChevronDown className="h-3 w-3 text-slate-500" />
+                </button>
+                {isDeadlineChipOpen && (
+                    <div className={cn("absolute left-0 top-full z-50 mt-2 w-[300px]", POPOVER_CLASS)}>
+                        <p className={cn(SECTION_LABEL_CLASS, "mb-2")}>Deadline</p>
+                        {deadlineEditor}
+                    </div>
+                )}
+            </div>
+
+            <div ref={remindersChipRef} className="relative">
+                <button
+                    type="button"
+                    onClick={() => setIsRemindersChipOpen((open) => !open)}
+                    aria-expanded={isRemindersChipOpen}
+                    aria-label="Edit reminders"
+                    className={cn("flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium", SOFT_CONTROL_CLASS, isRemindersChipOpen && "border-slate-500")}
+                >
+                    <Bell className={cn("h-3.5 w-3.5", reminderCount > 0 ? "text-amber-400" : "text-slate-400")} />
+                    {reminderCount === 0 ? "No reminders" : `${reminderCount} reminder${reminderCount === 1 ? "" : "s"}`}
+                    <ChevronDown className="h-3 w-3 text-slate-500" />
+                </button>
+                {isRemindersChipOpen && (
+                    <div ref={reminderRef} className={cn("absolute left-0 top-full z-50 mt-2 w-[320px] space-y-2", POPOVER_CLASS)}>
+                        <p className={SECTION_LABEL_CLASS}>Reminders</p>
+                        {reminderList}
+                        <div className="border-t border-slate-800 pt-2">
+                            {isReminderOpen ? reminderForm : addReminderButton}
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
         </div>
     );

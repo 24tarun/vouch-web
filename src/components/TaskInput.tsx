@@ -997,8 +997,8 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                 </div>
 
                 <div className="p-2 border-t border-slate-800/30">
-                    <div className="flex items-start gap-1.5">
-                        <fieldset disabled={groupMode || isLoading} className={cn("flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 flex-1 pr-1", groupMode && "opacity-35 pointer-events-none")} >
+                    <div className="flex flex-wrap items-center gap-1.5">
+                        <fieldset disabled={groupMode || isLoading} className={cn("flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0 max-w-full", groupMode && "opacity-35 pointer-events-none")} >
                             <div className="relative w-16 shrink-0">
                                 <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-[9px] pointer-events-none z-10">{currencySymbol}</span>
                                 <input
@@ -1123,22 +1123,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                 <span>Proof</span>
                             </button>
                         </fieldset>
-                        <button type="button" disabled={!!targetGroupId || isLoading} aria-label="Create as group" aria-pressed={groupMode} onClick={() => setGroupMode(current => !current)} className={cn("h-9 w-9 shrink-0 rounded-lg border flex items-center justify-center", groupMode ? "bg-cyan-400 text-slate-950 border-cyan-400" : "text-slate-400 border-slate-700/30", targetGroupId && "opacity-35")}><FolderPlus className="size-4" /></button>
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="h-9 shrink-0 gap-1.5 px-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 rounded-lg text-[11px] font-semibold transition-all disabled:opacity-50 flex items-center justify-center"
-                        >
-                            {isLoading ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
-                            ) : (
-                                <Check className="h-3.5 w-3.5" strokeWidth={3} />
-                            )}
-                            <span>Create</span>
-                        </button>
-                    </div>
-
-                    <div className="mt-2 border-t border-slate-800/40 pt-2">
                         {selectedDate && (
                             <InlineTaskSchedule
                                 deadline={selectedDate}
@@ -1153,7 +1137,22 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                                 disabled={isLoading || groupMode}
                             />
                         )}
+                        <span className="flex-1" />
+                        <button type="button" disabled={!!targetGroupId || isLoading} aria-label="Create as group" aria-pressed={groupMode} onClick={() => setGroupMode(current => !current)} className={cn("h-9 px-2.5 shrink-0 rounded-lg border flex items-center justify-center gap-1.5 text-[10px]", groupMode ? "bg-cyan-400 text-slate-950 border-cyan-400" : "text-slate-400 border-slate-700/30", targetGroupId && "opacity-35")}><FolderPlus className="h-3.5 w-3.5" /><span>Groups</span></button>
+                        <button
+                            type="submit"
+                            disabled={isLoading}
+                            className="h-9 shrink-0 gap-1.5 px-3 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/30 text-blue-300 rounded-lg text-[11px] font-semibold transition-all disabled:opacity-50 flex items-center justify-center"
+                        >
+                            {isLoading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                            ) : (
+                                <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                            )}
+                            <span>Create</span>
+                        </button>
                     </div>
+
                 </div>
             </div>
 
