@@ -2,6 +2,7 @@
 import { useRef, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, ExternalLink, FolderPlus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { GroupStatusBadge, type GroupHistoryStatus } from '@/design-system/statuspills';
 
 export interface GroupTitleRowProps {
     title: string;
@@ -14,7 +15,7 @@ export interface GroupTitleRowProps {
     completeControl?: ReactNode;
     deadline?: string;
     overdue?: boolean;
-    historyStatus?: 'pending' | 'failed' | 'completed';
+    historyStatus?: GroupHistoryStatus;
     muted?: boolean;
 }
 export function GroupTitleRow({ title, expanded, onToggle, onOpen, onDelete, onComplete, onPrefetch, completeControl, deadline, overdue, historyStatus, muted }: GroupTitleRowProps) {
@@ -37,7 +38,7 @@ export function GroupTitleRow({ title, expanded, onToggle, onOpen, onDelete, onC
         <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left" aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title} group`} onClick={() => { if (!skipClick.current) onToggle(); skipClick.current = false; }} onDoubleClick={onOpen}>
             <span className="min-w-0 truncate text-lg font-medium text-white">{title}</span><FolderPlus className="size-4 shrink-0 text-cyan-400" />{expanded ? <ChevronDown className="size-4 shrink-0 text-slate-400" /> : <ChevronRight className="size-4 shrink-0 text-slate-400" />}
         </button>
-        {historyStatus ? <span className={cn('shrink-0 rounded border border-current px-2 py-0.5 text-xs', historyStatus === 'pending' ? 'text-amber-400' : historyStatus === 'failed' ? 'text-red-400' : 'text-emerald-400')}>{historyStatus === 'pending' ? 'Pending' : historyStatus === 'failed' ? 'Failed' : 'Completed'}</span> : deadline && <span suppressHydrationWarning className={cn('text-xs shrink-0 whitespace-nowrap', overdue ? 'text-red-500' : 'text-slate-400')}>{deadline}</span>}
+        {historyStatus ? <GroupStatusBadge status={historyStatus} className="shrink-0" /> : deadline && <span suppressHydrationWarning className={cn('text-xs shrink-0 whitespace-nowrap', overdue ? 'text-red-500' : 'text-slate-400')}>{deadline}</span>}
         <button type="button" onClick={onDelete} aria-label={`Delete ${title} group`} className="hidden md:flex h-10 w-10 items-center justify-center text-red-400"><Trash2 className="size-4" /></button>
         <button type="button" onClick={onOpen} aria-label={`Open ${title} group details`} className="hidden md:flex h-10 w-10 items-center justify-center text-slate-400"><ExternalLink className="size-4" /></button>
     </div>;

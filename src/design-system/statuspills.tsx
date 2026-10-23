@@ -271,3 +271,20 @@ export function HistoryTaskDateBadge({ dateLabel }: HistoryTaskDateBadgeProps) {
         </CorePill>
     );
 }
+
+export type GroupHistoryStatus = "pending" | "failed" | "completed";
+
+const GROUP_STATUS_BADGE: Record<GroupHistoryStatus, { label: string; className: string }> = {
+    pending: { label: "PENDING", className: TASK_STATUS_BADGE_CLASS_BY_STATUS.AWAITING_VOUCHER },
+    failed: { label: "FAILED", className: TASK_STATUS_BADGE_CLASS_BY_STATUS.MISSED },
+    completed: { label: "COMPLETED", className: TASK_STATUS_BADGE_CLASS_BY_STATUS.ACCEPTED },
+};
+
+export function GroupStatusBadge({ status, className }: { status: GroupHistoryStatus; className?: string }) {
+    const { label, className: statusClass } = GROUP_STATUS_BADGE[status];
+    return (
+        <CorePill className={cn(TASK_STATUS_BADGE_SIZE_CLASS, statusClass, className)}>
+            {label}
+        </CorePill>
+    );
+}
