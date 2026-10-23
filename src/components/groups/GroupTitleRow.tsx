@@ -1,6 +1,6 @@
 'use client';
 import { useRef, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, ExternalLink, FolderPlus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ExternalLink, FolderPlus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GroupStatusBadge, type GroupHistoryStatus } from '@/design-system/statuspills';
 
@@ -34,7 +34,13 @@ export function GroupTitleRow({ title, expanded, onToggle, onOpen, onDelete, onC
         skipClick.current = true;
         if (dx < 0) onDelete(); else onComplete?.();
     }}>
-        {!historyStatus && completeControl}
+        {historyStatus ? (
+            <span aria-hidden="true" className="-ml-2.5 md:ml-0 flex h-10 w-10 shrink-0 items-center justify-center">
+                <span className={cn('flex h-[20px] w-[20px] items-center justify-center rounded-full border', historyStatus === 'failed' ? 'text-red-500 border-red-500' : historyStatus === 'pending' ? 'text-amber-400 border-amber-400' : 'text-emerald-400 border-emerald-400')}>
+                    <Check className="h-[12px] w-[12px]" strokeWidth={3} />
+                </span>
+            </span>
+        ) : completeControl}
         <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left" aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${title} group`} onClick={() => { if (!skipClick.current) onToggle(); skipClick.current = false; }} onDoubleClick={onOpen}>
             <span className="min-w-0 truncate text-lg font-medium text-white">{title}</span><FolderPlus className="size-4 shrink-0 text-cyan-400" />{expanded ? <ChevronDown className="size-4 shrink-0 text-slate-400" /> : <ChevronRight className="size-4 shrink-0 text-slate-400" />}
         </button>
