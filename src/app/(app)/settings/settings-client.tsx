@@ -209,6 +209,9 @@ export default function SettingsClient({
     const [alwaysShowActiveTasks, setAlwaysShowActiveTasks] = useState(
         profile.always_show_active_tasks ?? false
     );
+    const [showPastTasks, setShowPastTasks] = useState(
+        profile.show_past_tasks ?? true
+    );
     const [defaultRequiresProofForAllTasks, setDefaultRequiresProofForAllTasks] = useState(
         profile.default_requires_proof_for_all_tasks ?? false
     );
@@ -308,6 +311,7 @@ export default function SettingsClient({
                 deadlineDueWarningEnabled,
                 voucherCanViewActiveTasksEnabled,
                 alwaysShowActiveTasks,
+                showPastTasks,
                 defaultRequiresProofForAllTasks,
                 autoSubmitAfterProofUpload,
                 webNotificationsEnabled,
@@ -328,6 +332,7 @@ export default function SettingsClient({
             deadlineDueWarningEnabled,
             voucherCanViewActiveTasksEnabled,
             alwaysShowActiveTasks,
+            showPastTasks,
             defaultRequiresProofForAllTasks,
             autoSubmitAfterProofUpload,
             webNotificationsEnabled,
@@ -661,6 +666,7 @@ export default function SettingsClient({
                     deadlineDueWarningEnabled,
                     voucherCanViewActiveTasksEnabled,
                     alwaysShowActiveTasks,
+                    showPastTasks,
                     defaultRequiresProofForAllTasks,
                     autoSubmitAfterProofUpload,
                     webNotificationsEnabled,
@@ -1480,6 +1486,21 @@ export default function SettingsClient({
                                 id="alwaysShowActiveTasks"
                                 checked={alwaysShowActiveTasks}
                                 onChange={setAlwaysShowActiveTasks}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="py-4">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-1 min-w-0 space-y-1">
+                                <Label htmlFor="showPastTasks" className="text-slate-200">
+                                    Show past tasks in tasks page
+                                </Label>
+                            </div>
+                            <GlassToggle
+                                id="showPastTasks"
+                                checked={showPastTasks}
+                                onChange={setShowPastTasks}
                             />
                         </div>
                     </div>

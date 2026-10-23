@@ -88,6 +88,7 @@ function buildProfile(overrides: Partial<Profile> = {}): Profile {
         deadline_due_warning_enabled: true,
         voucher_can_view_active_tasks: true,
         always_show_active_tasks: false,
+        show_past_tasks: true,
         charity_enabled: false,
         selected_charity_id: null,
         timezone: "UTC",

@@ -45,7 +45,7 @@ export default async function DashboardPage() {
         getFriends(),
         supabase
             .from("profiles")
-            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, default_task_deadline_time, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, web_notifications_enabled, username, hide_tips, always_show_active_tasks, auto_submit_after_proof_upload, timezone")
+            .select("currency, default_failure_cost_cents, default_voucher_id, default_requires_proof_for_all_tasks, default_pomo_duration_minutes, default_event_duration_minutes, default_task_deadline_time, deadline_one_hour_warning_enabled, deadline_final_warning_enabled, web_notifications_enabled, username, hide_tips, always_show_active_tasks, show_past_tasks, auto_submit_after_proof_upload, timezone")
             .eq("id", userId || "")
             .maybeSingle()
             .then((result) => { console.log("[tasks/page] profileDefaults result:", JSON.stringify(result)); return result.data; }),
@@ -76,6 +76,7 @@ export default async function DashboardPage() {
         username: string | null;
         hide_tips: boolean | null;
         always_show_active_tasks: boolean | null;
+        show_past_tasks: boolean | null;
         auto_submit_after_proof_upload: boolean | null;
     } | null;
 
@@ -104,6 +105,7 @@ export default async function DashboardPage() {
         (user?.email?.split("@")[0] ?? "there");
     const initialHideTips = profileDefaults?.hide_tips ?? false;
     const alwaysShowActiveTasks = profileDefaults?.always_show_active_tasks ?? false;
+    const showPastTasks = profileDefaults?.show_past_tasks ?? true;
     const autoSubmitAfterProofUpload = profileDefaults?.auto_submit_after_proof_upload ?? true;
 
     const completedTasks = (completedTasksResult.data as Task[] | null) || [];
@@ -185,6 +187,7 @@ export default async function DashboardPage() {
             username={username}
             initialHideTips={initialHideTips}
             alwaysShowActiveTasks={alwaysShowActiveTasks}
+            showPastTasks={showPastTasks}
             reputationScore={reputationScore}
             autoSubmitAfterProofUpload={autoSubmitAfterProofUpload}
         /></Suspense>

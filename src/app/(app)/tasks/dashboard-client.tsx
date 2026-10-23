@@ -90,6 +90,7 @@ interface DashboardClientProps {
     username: string;
     initialHideTips: boolean;
     alwaysShowActiveTasks: boolean;
+    showPastTasks?: boolean;
     reputationScore: ReputationScoreData | null;
     autoSubmitAfterProofUpload: boolean;
 }
@@ -209,6 +210,7 @@ export default function DashboardClient({
     userId,
     initialHideTips,
     alwaysShowActiveTasks,
+    showPastTasks = true,
     reputationScore,
     autoSubmitAfterProofUpload,
 }: DashboardClientProps) {
@@ -1327,10 +1329,12 @@ export default function DashboardClient({
                             />
                         )}
 
-                        <div className="flex flex-col">
-                            {projected.past.map(entry => renderDashboardEntry(entry))}
-                            {hasMoreHistory && <button disabled={loadingHistory} className="p-3 text-slate-400" onClick={() => void loadMoreHistory()}>{loadingHistory ? 'Loading…' : 'Load more history'}</button>}
-                        </div>
+                        {showPastTasks && (
+                            <div className="flex flex-col">
+                                {projected.past.map(entry => renderDashboardEntry(entry))}
+                                {hasMoreHistory && <button disabled={loadingHistory} className="p-3 text-slate-400" onClick={() => void loadMoreHistory()}>{loadingHistory ? 'Loading…' : 'Load more history'}</button>}
+                            </div>
+                        )}
                     </div>
                 </>
             )}

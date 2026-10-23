@@ -54,6 +54,7 @@ test("buildDefaultsFormData writes expected server keys", () => {
         deadlineDueWarningEnabled: true,
         voucherCanViewActiveTasksEnabled: false,
         alwaysShowActiveTasks: true,
+        showPastTasks: false,
         defaultRequiresProofForAllTasks: false,
         autoSubmitAfterProofUpload: true,
         webNotificationsEnabled: false,
@@ -69,6 +70,7 @@ test("buildDefaultsFormData writes expected server keys", () => {
     assert.equal(form.get("currency"), "EUR");
     assert.equal(form.get("autoSubmitAfterProofUpload"), "true");
     assert.equal(form.get("alwaysShowActiveTasks"), "true");
+    assert.equal(form.get("showPastTasks"), "false");
     assert.equal(form.get("deadlineDueWarningEnabled"), "true");
     // Failing scenario: a missing contract key would return null and fail this assertion.
     assert.notEqual(form.get("defaultVoucherId"), null);

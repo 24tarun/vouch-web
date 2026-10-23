@@ -25,6 +25,7 @@ export interface BuildDefaultsFormDataInput {
     deadlineDueWarningEnabled: boolean;
     voucherCanViewActiveTasksEnabled: boolean;
     alwaysShowActiveTasks: boolean;
+    showPastTasks: boolean;
     defaultRequiresProofForAllTasks: boolean;
     autoSubmitAfterProofUpload: boolean;
     webNotificationsEnabled: boolean;
@@ -47,6 +48,7 @@ export function buildDefaultsFormData(input: BuildDefaultsFormDataInput): FormDa
     formData.append("deadlineDueWarningEnabled", String(input.deadlineDueWarningEnabled));
     formData.append("voucherCanViewActiveTasksEnabled", String(input.voucherCanViewActiveTasksEnabled));
     formData.append("alwaysShowActiveTasks", String(input.alwaysShowActiveTasks));
+    formData.append("showPastTasks", String(input.showPastTasks));
     formData.append("defaultRequiresProofForAllTasks", String(input.defaultRequiresProofForAllTasks));
     formData.append("autoSubmitAfterProofUpload", String(input.autoSubmitAfterProofUpload));
     formData.append("webNotificationsEnabled", String(input.webNotificationsEnabled));

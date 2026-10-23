@@ -464,6 +464,7 @@ export async function updateUserDefaults(formData: FormData) {
     const deadlineDueWarningEnabledRaw = formData.get("deadlineDueWarningEnabled");
     const voucherCanViewActiveTasksEnabledRaw = formData.get("voucherCanViewActiveTasksEnabled");
     const alwaysShowActiveTasksRaw = formData.get("alwaysShowActiveTasks");
+    const showPastTasksRaw = formData.get("showPastTasks");
     const defaultRequiresProofForAllTasksRaw = formData.get("defaultRequiresProofForAllTasks");
     const autoSubmitAfterProofUploadRaw = formData.get("autoSubmitAfterProofUpload");
     const webNotificationsEnabledRaw = formData.get("webNotificationsEnabled");
@@ -603,6 +604,13 @@ export async function updateUserDefaults(formData: FormData) {
             return { error: "Always-show active tasks toggle value is invalid." };
         }
         alwaysShowActiveTasks = alwaysShowActiveTasksRaw === "true";
+    }
+    let showPastTasks: boolean | undefined;
+    if (showPastTasksRaw != null && showPastTasksRaw !== "") {
+        if (showPastTasksRaw !== "true" && showPastTasksRaw !== "false") {
+            return { error: "Show past tasks toggle value is invalid." };
+        }
+        showPastTasks = showPastTasksRaw === "true";
     }
     let webNotificationsEnabled: boolean | undefined;
     if (webNotificationsEnabledRaw != null && webNotificationsEnabledRaw !== "") {
@@ -754,6 +762,9 @@ export async function updateUserDefaults(formData: FormData) {
     }
     if (alwaysShowActiveTasks !== undefined) {
         profileUpdate.always_show_active_tasks = alwaysShowActiveTasks;
+    }
+    if (showPastTasks !== undefined) {
+        profileUpdate.show_past_tasks = showPastTasks;
     }
     if (defaultRequiresProofForAllTasks !== undefined) {
         profileUpdate.default_requires_proof_for_all_tasks = defaultRequiresProofForAllTasks;
