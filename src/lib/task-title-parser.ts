@@ -783,3 +783,27 @@ export function resolveEventAnchorDate(
         error: null,
     };
 }
+
+export type TitleTextSegment =
+    | { type: "text"; value: string }
+    | { type: "link"; value: string; href: string };
+
+const TITLE_LINK_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
+const TRAILING_LINK_PUNCTUATION_REGEX = /[.,;:!?)\]]+$/;
+
+/** Splits a title into plain text and full-URL link segments for rendering. */
+export function splitTitleLinks(text: string): TitleTextSegment[] {
+    const segments: TitleTextSegment[] = [];
+    let lastIndex = 0;
+    for (const match of text.matchAll(TITLE_LINK_REGEX)) {
+        const start = match.index ?? 0;
+        // Keep sentence punctuation like a trailing "." or ")" out of the link.
+        const value = match[0].replace(TRAILING_LINK_PUNCTUATION_REGEX, "");
+        if (start > lastIndex) segments.push({ type: "text", value: text.slice(lastIndex, start) });
+        const href = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+        segments.push({ type: "link", value, href });
+        lastIndex = start + value.length;
+    }
+    if (lastIndex < text.length) segments.push({ type: "text", value: text.slice(lastIndex) });
+    return segments;
+}

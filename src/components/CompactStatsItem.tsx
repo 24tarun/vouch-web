@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { LinkifiedText } from "@/components/LinkifiedText";
 import { ExternalLink } from "lucide-react";
 import {
     StatsPomoBadge,
@@ -116,7 +117,7 @@ export function CompactStatsItem({
             <div className="flex-1 min-w-0 z-10">
                 <div className="flex items-center gap-2">
                     <p className="text-lg font-medium text-white group-hover:text-blue-400 transition-colors truncate">
-                        {task.title}
+                        <LinkifiedText text={task.title} />
                     </p>
                     <TaskStatusBadge status={statusBadge} className="font-medium tracking-normal" />
                     {task.recurrence_rule_id && (

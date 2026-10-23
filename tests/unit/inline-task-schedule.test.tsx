@@ -3,7 +3,8 @@ import "./support/jsdom-env";
 import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, type RenderResult } from "@testing-library/react";
+import { format } from "date-fns";
 
 import {
     clampClockPart,
@@ -18,6 +19,10 @@ import {
 test.afterEach(() => {
     cleanup();
 });
+
+// The editors live behind the toolbar chips, so open the right popover first.
+const openDeadline = (view: RenderResult) => fireEvent.click(view.getByRole("button", { name: "Edit deadline" }));
+const openReminders = (view: RenderResult) => fireEvent.click(view.getByRole("button", { name: "Edit reminders" }));
 
 test("relative schedule shortcuts round to the minute", () => {
     const now = new Date(2099, 7, 18, 12, 34, 45, 900);
@@ -69,12 +74,14 @@ test("inline schedule changes days and removes reminder chips", () => {
         })
     );
 
-    assert.ok(view.getByRole("group", { name: "Deadline" }));
-    assert.ok(view.getByRole("group", { name: "Reminders" }));
+    assert.ok(view.getByRole("button", { name: "Edit deadline" }).textContent?.includes("23:00"));
+    assert.ok(view.getByText("1 reminder"));
 
+    openDeadline(view);
     fireEvent.click(view.getByLabelText("Next deadline day"));
     assert.equal(deadlineChanges[0]?.getDate(), 19);
 
+    openReminders(view);
     fireEvent.click(view.getByLabelText("Delete reminder 22:00 18/08/2099"));
     assert.deepEqual(removed, ["manual-reminder"]);
 });
@@ -91,6 +98,7 @@ test("clicking the displayed day opens its calendar dropdown", () => {
         })
     );
 
+    openDeadline(view);
     fireEvent.click(view.getByRole("button", { name: /18 Aug 2099/i }));
     assert.ok(view.getByText("August 2099"));
 });
@@ -112,10 +120,12 @@ test("each reminder renders as a line with time, date and delete", () => {
         })
     );
 
+    assert.ok(view.getByText("2 reminders"));
+    openReminders(view);
+
     assert.ok(view.getByText("22:00"));
     assert.ok(view.getByText("22:50"));
-    assert.equal(view.getAllByText("18/08/2099").length, 2);
-    assert.equal(view.getAllByText("scheduled").length, 2);
+    assert.equal(view.getAllByText(format(deadline, "EEE d MMM")).length, 2);
 
     fireEvent.click(view.getByLabelText("Delete reminder 22:50 18/08/2099"));
     assert.deepEqual(removed, ["default-10m"]);
@@ -135,6 +145,7 @@ test("the alarm toggle only appears when alarm notifications are enabled", () =>
             onRemoveReminder: () => undefined,
         })
     );
+    openReminders(withoutAlarms);
     assert.equal(withoutAlarms.queryByText("Alarm"), null);
     cleanup();
 
@@ -151,6 +162,7 @@ test("the alarm toggle only appears when alarm notifications are enabled", () =>
         })
     );
 
+    openReminders(withAlarms);
     const alarmButton = withAlarms.getByText("Alarm");
     assert.equal(alarmButton.getAttribute("aria-pressed"), "false");
     fireEvent.click(alarmButton);
@@ -184,6 +196,7 @@ test("add reminder opens a popover whose clock commits the chosen time", () => {
         })
     );
 
+    openReminders(view);
     assert.equal(view.queryByLabelText("Reminder hour"), null);
 
     fireEvent.click(view.getByRole("button", { name: "Add reminder" }));
@@ -230,6 +243,7 @@ test("deadline hour and minute share one stepper line", () => {
         })
     );
 
+    openDeadline(view);
     assert.equal((view.getByLabelText("Deadline hour") as HTMLInputElement).value, "23");
     assert.equal((view.getByLabelText("Deadline minute") as HTMLInputElement).value, "00");
 
@@ -266,6 +280,7 @@ test("typing into the hour cell commits a clamped deadline", () => {
         })
     );
 
+    openDeadline(view);
     const hourInput = view.getByLabelText("Deadline hour");
     fireEvent.change(hourInput, { target: { value: "45" } });
     fireEvent.blur(hourInput);
@@ -285,6 +300,7 @@ test("reset restores the default deadline only when a handler is provided", () =
             onRemoveReminder: () => undefined,
         })
     );
+    openDeadline(withoutReset);
     assert.equal(withoutReset.queryByLabelText("Reset deadline"), null);
     cleanup();
 
@@ -302,6 +318,7 @@ test("reset restores the default deadline only when a handler is provided", () =
         })
     );
 
+    openDeadline(withReset);
     fireEvent.click(withReset.getByLabelText("Reset deadline"));
     assert.equal(resets, 1);
 });

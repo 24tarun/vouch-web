@@ -23,7 +23,15 @@ export interface ResolveTaskDeadlineResult {
     error: string | null;
 }
 
-export function hasParserDrivenDeadlineHint(text: string): boolean {
+const URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s]+/gi;
+
+/** Links can contain things like "/12/5/" that must not be read as dates. */
+function stripUrls(text: string): string {
+    return text.replace(URL_REGEX, " ");
+}
+
+export function hasParserDrivenDeadlineHint(rawText: string): boolean {
+    const text = stripUrls(rawText);
     if (!text) return false;
     if (EVENT_TOKEN_REGEX.test(text)) return true;
     if (parseTimerMinutesToken(text) !== null) return true;
@@ -34,10 +42,11 @@ export function hasParserDrivenDeadlineHint(text: string): boolean {
 }
 
 export function resolveTaskDeadline(
-    text: string,
+    rawText: string,
     now: Date,
     defaultEventDurationMinutes: number
 ): ResolveTaskDeadlineResult {
+    const text = stripUrls(rawText);
     const defaultDeadline = getDefaultDeadline(now);
     const isEventTask = EVENT_TOKEN_REGEX.test(text);
 
@@ -179,9 +188,16 @@ export function stripMetadata(text: string): string {
     return stripRepeatTokens(stripEventColorTokens(withoutStandardTokens));
 }
 
+const URL_PLACEHOLDER_REGEX = /\uE000(\d+)\uE001/g;
+
 export function parseTaskTitleAndSubtasks(text: string): { title: string, subtasks: string[] } {
-    const cleaned = stripMetadata(text);
-    const segments = cleaned.split("/").map((segment) => segment.trim());
+    // Links contain "/" too, so hide them while splitting title / subtasks.
+    const urls: string[] = [];
+    const masked = text.replace(URL_REGEX, (url) => `\uE000${urls.push(url) - 1}\uE001`);
+    const restore = (segment: string) => segment.replace(URL_PLACEHOLDER_REGEX, (_, index) => urls[Number(index)]);
+
+    const cleaned = stripMetadata(masked);
+    const segments = cleaned.split("/").map((segment) => restore(segment.trim()));
     const title = segments[0] || "";
     const subtasks = segments.slice(1).filter(Boolean);
 

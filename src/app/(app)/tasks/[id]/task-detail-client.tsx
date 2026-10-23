@@ -1,5 +1,6 @@
 "use client";
 import { TaskGroupLink } from "@/components/groups/TaskGroupLink";
+import { LinkifiedText } from "@/components/LinkifiedText";
 
 import React, { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -936,44 +937,36 @@ export default function TaskDetailClient({
                 }}
             />
 
-            {/* ① HERO HEADER */}
-            <div className="relative pt-2">
-                <div className="relative">
-                    <div className="relative">
-
-                        <div className="mx-auto max-w-2xl text-center">
-                            <div className="flex flex-wrap items-center justify-center gap-3">
-                                <h1 className="text-3xl font-bold text-white leading-tight">
-                                    {iterationNumber !== null && (
-                                        <span className="text-purple-400">{`#${iterationNumber} `}</span>
-                                    )}
-                                    {taskState.title}
-                                </h1>
-                            </div>
-                            {recurrenceSummary && (
-                                <div className="mt-2 flex items-center justify-center gap-1.5 text-purple-400">
-                                    <RecurringIndicator className="text-purple-400" paused={isRecurrencePaused} />
-                                    <p className="text-xs uppercase tracking-wider font-bold">
-                                        {recurrenceSummary}
-                                        {isRecurrencePaused ? " · Repetitions paused" : ""}
-                                    </p>
-                                </div>
-                            )}
-                            {taskState.description && (
-                                <p className="mt-3 text-slate-400 text-sm leading-relaxed">{taskState.description}</p>
-                            )}
-                            {taskState.creation_input && taskState.creation_input.length > 0 && (
-                                <div className="mt-3 text-left inline-block max-w-full">
-                                    <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Created with</p>
-                                    <p className="mt-1 rounded-md border border-slate-800/80 bg-slate-950/60 px-2.5 py-2 text-xs font-mono text-slate-300 whitespace-pre-wrap break-words">
-                                        {taskState.creation_input}
-                                    </p>
-                                </div>
-                            )}
+            {/* ① HERO HEADER — same columns as the stats/timeline grid below */}
+            <div className="pt-2 lg:grid lg:grid-cols-3 lg:gap-8 lg:items-start">
+                <div className="min-w-0 lg:col-span-2">
+                    <h1 className="text-3xl font-bold text-white leading-tight break-words">
+                        {iterationNumber !== null && (
+                            <span className="text-purple-400">{`#${iterationNumber} `}</span>
+                        )}
+                        <LinkifiedText text={taskState.title} linkClassName="break-all" />
+                    </h1>
+                    {recurrenceSummary && (
+                        <div className="mt-2 flex items-center gap-1.5 text-purple-400">
+                            <RecurringIndicator className="text-purple-400" paused={isRecurrencePaused} />
+                            <p className="text-xs uppercase tracking-wider font-bold">
+                                {recurrenceSummary}
+                                {isRecurrencePaused ? " · Repetitions paused" : ""}
+                            </p>
                         </div>
-
-                    </div>
+                    )}
+                    {taskState.description && (
+                        <p className="mt-3 text-slate-400 text-sm leading-relaxed">{taskState.description}</p>
+                    )}
                 </div>
+                {taskState.creation_input && taskState.creation_input.length > 0 && (
+                    <div className="mt-4 min-w-0 lg:mt-0 lg:col-span-1">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Created with</p>
+                        <p className="mt-1 rounded-md border border-slate-800/80 bg-slate-950/60 px-2.5 py-2 text-xs font-mono text-slate-300 whitespace-pre-wrap break-all">
+                            {taskState.creation_input}
+                        </p>
+                    </div>
+                )}
             </div>
 
             <div className="lg:grid lg:grid-cols-3 lg:gap-8 lg:items-start">
@@ -1574,7 +1567,7 @@ export default function TaskDetailClient({
                                                                     subtask.is_completed ? "text-slate-600 line-through" : "text-slate-300"
                                                                 )}
                                                             >
-                                                                <span className="truncate block">{subtask.title}</span>
+                                                                <span className="truncate block"><LinkifiedText text={subtask.title} /></span>
                                                             </span>
                                                         )}
                                                         {subtaskButtonVisibility.delete && (

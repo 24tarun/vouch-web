@@ -1,6 +1,7 @@
 "use client";
 
 import { GroupTitleRow } from "@/components/groups/GroupTitleRow";
+import { LinkifiedText } from "@/components/LinkifiedText";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -642,7 +643,7 @@ export function TaskRow({
                                         : "text-white"
                                 )}
                         >
-                            {task.title}
+                            <LinkifiedText text={task.title} />
                         </p>
                         {task.recurrence_rule_id && <RecurringIndicator paused={Boolean(task.recurrence_rule?.paused_at)} />}
                         {hasSubtasks && (
@@ -755,7 +756,7 @@ export function TaskRow({
                                 )}
                                 title={task.title}
                             >
-                                {task.title}
+                                <LinkifiedText text={task.title} />
                             </p>
                             {task.recurrence_rule_id && <RecurringIndicator paused={Boolean(task.recurrence_rule?.paused_at)} />}
                             {hasSubtasks && (
@@ -802,7 +803,7 @@ export function TaskRow({
                                     )}
                                     title={task.title}
                                 >
-                                    {task.title}
+                                    <LinkifiedText text={task.title} />
                                 </p>
                                 {task.recurrence_rule_id && <RecurringIndicator paused={Boolean(task.recurrence_rule?.paused_at)} />}
                                 {hasSubtasks && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { LinkifiedText } from "@/components/LinkifiedText";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import { authorizeRectify, getVouchHistoryPage, voucherAccept, voucherDeny, voucherRequestProof } from "@/actions/voucher";
 import { sortPendingTasks } from "@/lib/voucher-pending-sort";
@@ -739,7 +740,7 @@ export function CompactPendingItem({
                         className="block w-full text-left [direction:ltr] text-lg font-medium leading-tight text-slate-100 whitespace-normal break-words"
                         title={task.title}
                     >
-                        {task.title}
+                        <LinkifiedText text={task.title} linkClassName="break-all" />
                     </div>
                     {task.description && (
                         <p className="mt-1.5 text-sm leading-relaxed text-slate-400 whitespace-pre-wrap break-words">
@@ -908,7 +909,7 @@ export function CompactHistoryItem({
                     className="block w-full text-left [direction:ltr] text-base font-medium leading-tight text-slate-300 whitespace-normal break-words"
                     title={task.title}
                 >
-                    {task.title}
+                    <LinkifiedText text={task.title} linkClassName="break-all" />
                 </div>
 
                 <div className="mt-2 flex flex-wrap items-center gap-2">
