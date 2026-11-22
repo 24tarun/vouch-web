@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Users } from "lucide-react";
+import { CalendarDays, Users } from "lucide-react";
 
 import { haptics } from "@/lib/haptics";
 import { createClient } from "@/lib/supabase/client";
@@ -208,6 +208,7 @@ export function NavLinks({ userId, username = "User", avatarUrl = null }: NavLin
     const links = useMemo(
         () => [
             { href: "/tasks", label: "Tasks" },
+            { href: "/calendar", label: "Calendar" },
             { href: "/friends", label: "Friends", badge: friendsBadgeCount > 0 ? friendsBadgeCount : undefined },
             { href: "/ledger", label: "Ledger" },
             { href: "/settings", label: "Settings", badge: settingsBadgeCount > 0 ? settingsBadgeCount : undefined },
@@ -265,7 +266,7 @@ export function NavLinks({ userId, username = "User", avatarUrl = null }: NavLin
 
     return (
         <div className="w-full overflow-hidden">
-            <div className="grid w-full grid-cols-4 items-center justify-items-center px-1">
+            <div className="grid w-full grid-cols-5 items-center justify-items-center px-1">
                 {links.map((link) => {
                     const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
                     const ariaLabel =
@@ -312,6 +313,21 @@ export function NavLinks({ userId, username = "User", avatarUrl = null }: NavLin
                                         style={{ textShadow: "0 0 8px rgba(248, 113, 113, 0.95), 0 0 14px rgba(248, 113, 113, 0.55)" }}
                                     >
                                         {"\u20AC"}
+                                    </span>
+                                </>
+                            ) : link.href === "/calendar" ? (
+                                <>
+                                    <span className="sr-only">Calendar</span>
+                                    <span
+                                        aria-hidden
+                                        className={`inline-flex items-center transition-all ${isActive ? "text-amber-100" : "text-white"}`}
+                                        style={{
+                                            filter: isActive
+                                                ? "drop-shadow(0 0 8px rgba(252, 211, 77, 1)) drop-shadow(0 0 18px rgba(245, 158, 11, 0.95)) drop-shadow(0 0 30px rgba(217, 119, 6, 0.85))"
+                                                : "none",
+                                        }}
+                                    >
+                                        <CalendarDays className="h-5 w-5" />
                                     </span>
                                 </>
                             ) : link.href === "/friends" ? (

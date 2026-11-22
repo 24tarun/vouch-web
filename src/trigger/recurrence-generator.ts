@@ -9,7 +9,7 @@
  */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { RecurrenceRule, RecurrenceRuleConfig } from "@/lib/types";
+import type { RecurrenceRule } from "@/lib/types";
 import {
     buildDefaultDeadlineReminderRows,
     MANUAL_REMINDER_SOURCE,
@@ -18,154 +18,13 @@ import { isGoogleEventColorId } from "@/lib/task-title-event-color";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { SYSTEM_ACTOR_PROFILE_ID } from "@/lib/system-actor";
 import { isRecurrenceDateAlreadyGenerated } from "@/lib/recurrence-cursor";
-
-type DateParts = { year: number; month: number; day: number };
-
-function toDateStr(parts: DateParts): string {
-    return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
-}
-
-function addLocalDays(parts: DateParts, days: number): DateParts {
-    const date = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 12, 0, 0));
-    return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
-}
-
-function ymdToUtcMidnightMs(ymd: string): number {
-    const [y, m, d] = ymd.split("-").map(Number);
-    return Date.UTC(y, m - 1, d, 0, 0, 0, 0);
-}
-
-function localDayOfWeek(ymd: string): number {
-    const [y, m, d] = ymd.split("-").map(Number);
-    return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-}
-
-function monthDiffFrom(fromYmd: string, toYmd: string): number {
-    const [fy, fm] = fromYmd.split("-").map(Number);
-    const [ty, tm] = toYmd.split("-").map(Number);
-    return (ty - fy) * 12 + (tm - fm);
-}
-
-function yearDiffFrom(fromYmd: string, toYmd: string): number {
-    const [fy] = fromYmd.split("-").map(Number);
-    const [ty] = toYmd.split("-").map(Number);
-    return ty - fy;
-}
-
-function buildTimeZoneContext(timezone: string) {
-    const localDateFormatter = new Intl.DateTimeFormat("en-CA", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-    });
-    const localDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: timezone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-    });
-
-    const getLocalDateParts = (value: Date): DateParts => {
-        const parts = localDateFormatter.formatToParts(value);
-        const map: Record<string, string> = {};
-        for (const part of parts) {
-            if (part.type !== "literal") map[part.type] = part.value;
-        }
-        return {
-            year: Number(map.year),
-            month: Number(map.month),
-            day: Number(map.day),
-        };
-    };
-
-    const resolveUtcForLocalDateTime = (
-        dateParts: DateParts,
-        hour: number,
-        minute: number
-    ): string => {
-        const targetWall = Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, hour, minute, 0, 0);
-        let guess = targetWall;
-        for (let i = 0; i < 6; i++) {
-            const rendered = localDateTimeFormatter.formatToParts(new Date(guess));
-            const map: Record<string, string> = {};
-            for (const part of rendered) {
-                if (part.type !== "literal") map[part.type] = part.value;
-            }
-            const wallAtGuess = Date.UTC(
-                Number(map.year),
-                Number(map.month) - 1,
-                Number(map.day),
-                Number(map.hour),
-                Number(map.minute),
-                Number(map.second),
-                0
-            );
-            const diff = wallAtGuess - targetWall;
-            if (Math.abs(diff) < 1000) break;
-            guess -= diff;
-        }
-        return new Date(guess).toISOString();
-    };
-
-    return { getLocalDateParts, resolveUtcForLocalDateTime };
-}
-
-function shouldRunForLocalDate(
-    frequency: RecurrenceRuleConfig["frequency"],
-    interval: number,
-    daysOfWeek: number[] | null | undefined,
-    createdLocalDateStr: string,
-    currentLocalDateStr: string
-): boolean {
-    const anchorDayMs = ymdToUtcMidnightMs(createdLocalDateStr);
-    const currentDayMs = ymdToUtcMidnightMs(currentLocalDateStr);
-    const daysFromAnchor = Math.floor((currentDayMs - anchorDayMs) / (24 * 60 * 60 * 1000));
-    if (daysFromAnchor < 0) return false;
-
-    switch (frequency) {
-        case "DAILY":
-            return daysFromAnchor % interval === 0;
-        case "WEEKLY": {
-            const allowedDays = Array.isArray(daysOfWeek) ? daysOfWeek : [];
-            const weekday = localDayOfWeek(currentLocalDateStr);
-            if (!allowedDays.includes(weekday)) return false;
-            const anchorWeekStart = anchorDayMs - localDayOfWeek(createdLocalDateStr) * 24 * 60 * 60 * 1000;
-            const currentWeekStart = currentDayMs - weekday * 24 * 60 * 60 * 1000;
-            const weeksFromAnchor = Math.floor((currentWeekStart - anchorWeekStart) / (7 * 24 * 60 * 60 * 1000));
-            return weeksFromAnchor >= 0 && (weeksFromAnchor % interval === 0);
-        }
-        case "WEEKDAYS": {
-            const day = localDayOfWeek(currentLocalDateStr);
-            return day >= 1 && day <= 5;
-        }
-        case "MONTHLY": {
-            const [, , currentDay] = currentLocalDateStr.split("-").map(Number);
-            const [, , anchorDay] = createdLocalDateStr.split("-").map(Number);
-            const months = monthDiffFrom(createdLocalDateStr, currentLocalDateStr);
-            return currentDay === anchorDay && months >= 0 && months % interval === 0;
-        }
-        case "YEARLY": {
-            const [, currentMonth, currentDay] = currentLocalDateStr.split("-").map(Number);
-            const [, anchorMonth, anchorDay] = createdLocalDateStr.split("-").map(Number);
-            const years = yearDiffFrom(createdLocalDateStr, currentLocalDateStr);
-            return (
-                currentMonth === anchorMonth &&
-                currentDay === anchorDay &&
-                years >= 0 &&
-                years % interval === 0
-            );
-        }
-        case "CUSTOM":
-            return daysFromAnchor % interval === 0;
-        default:
-            return false;
-    }
-}
+import {
+    addLocalDays,
+    buildTimeZoneContext,
+    shouldRunForLocalDate,
+    recurrenceAnchorLocalDate,
+    toDateStr,
+} from "@/lib/recurrence-schedule";
 
 export const recurrenceGenerator = schedules.task({
     id: "recurrence-generator",
@@ -452,7 +311,7 @@ async function processRule(
     const now = new Date();
     const currentLocalParts = getLocalDateParts(now);
     const currentLocalDateStr = toDateStr(currentLocalParts);
-    const createdLocalDateStr = toDateStr(getLocalDateParts(new Date(rule.created_at)));
+    const anchorLocalDateStr = recurrenceAnchorLocalDate(rule, getLocalDateParts);
 
     // The initial task may be scheduled for a future local date. Treat that
     // future cursor as already generated too; otherwise this run creates an
@@ -465,7 +324,7 @@ async function processRule(
         frequency,
         normalizedInterval,
         days_of_week,
-        createdLocalDateStr,
+        anchorLocalDateStr,
         currentLocalDateStr
     );
     if (shouldRun) {
