@@ -12,12 +12,17 @@ interface PushInitializerProps {
 
 export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
     const hasVapidKey = VAPID_PUBLIC_KEY.length > 0;
-    const supportsPush =
-        hasVapidKey &&
-        typeof window !== "undefined" &&
-        "serviceWorker" in navigator &&
-        "PushManager" in window &&
-        "Notification" in window;
+    // Browser capabilities are only known after mount; reading them during render
+    // made the server ("unsupported") and client markup differ (hydration mismatch).
+    const [supportsPushState, setSupportsPushState] = useState<boolean | null>(null);
+    useEffect(() => {
+        setSupportsPushState(
+            "serviceWorker" in navigator &&
+            "PushManager" in window &&
+            "Notification" in window
+        );
+    }, []);
+    const supportsPush = hasVapidKey && supportsPushState === true;
 
     const [isSubscribed, setIsSubscribed] = useState<boolean | null>(null);
     const [permission, setPermission] = useState<NotificationPermission>(() => {
@@ -147,6 +152,8 @@ export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
             </div>
         );
     }
+
+    if (supportsPushState === null) return null;
 
     if (!supportsPush) {
         return (
