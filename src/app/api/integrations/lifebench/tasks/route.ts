@@ -1,12 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createIntegrationApiKeyAdminClient } from "@/lib/supabase/integration-api-keys-admin";
-import { apiLimiter, checkRateLimit } from "@/lib/rate-limit";
 import { parseLifebenchTaskRange } from "@/lib/lifebench/task-range";
-import {
-    parseIntegrationApiKey,
-    verifyIntegrationApiKeySecret,
-} from "@/lib/integration-api-key";
+import { authenticateIntegrationRequest, jsonNoStore } from "@/lib/integration-request";
 
 const DATABASE_PAGE_SIZE = 1_000;
 const MAX_TASKS_PER_RESPONSE = 10_000;
@@ -55,64 +50,17 @@ interface LifebenchTaskRow {
     is_strict: boolean;
 }
 
-function jsonNoStore(body: unknown, status = 200) {
-    return NextResponse.json(body, {
-        status,
-        headers: {
-            "Cache-Control": "private, no-store, no-cache, must-revalidate",
-            "X-Content-Type-Options": "nosniff",
-        },
-    });
-}
-
-function getRequestIdentifier(request: NextRequest): string {
-    return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-}
-
-function getBearerToken(request: NextRequest): string | null {
-    const authorization = request.headers.get("authorization");
-    if (!authorization?.startsWith("Bearer ")) return null;
-    const token = authorization.slice("Bearer ".length).trim();
-    return token || null;
-}
-
 export async function GET(request: NextRequest) {
-    const { limited } = await checkRateLimit(
-        apiLimiter,
-        `lifebench:${getRequestIdentifier(request)}`
-    );
-    if (limited) {
-        return jsonNoStore({ error: "Too many requests." }, 429);
-    }
-
     const parsedRange = parseLifebenchTaskRange(request.nextUrl.searchParams);
     if (!parsedRange.range) {
         return jsonNoStore({ error: parsedRange.error }, 400);
     }
     const range = parsedRange.range;
 
+    const auth = await authenticateIntegrationRequest(request, "lifebench");
+    if (auth.response) return auth.response;
+    const userId = auth.userId;
     const supabase = createAdminClient();
-    const apiKeyAdmin = createIntegrationApiKeyAdminClient();
-    const parsedApiKey = parseIntegrationApiKey(getBearerToken(request) ?? "");
-    if (!parsedApiKey) {
-        return jsonNoStore({ error: "Invalid API key." }, 401);
-    }
-
-    const { data: apiKeyRow, error: apiKeyError } = await apiKeyAdmin
-        .from("integration_api_keys")
-        .select("user_id, secret_hash")
-        .eq("key_prefix", parsedApiKey.keyPrefix)
-        .maybeSingle();
-
-    if (
-        apiKeyError ||
-        !apiKeyRow ||
-        !verifyIntegrationApiKeySecret(parsedApiKey.secret, apiKeyRow.secret_hash)
-    ) {
-        return jsonNoStore({ error: "Invalid API key." }, 401);
-    }
-
-    const userId = apiKeyRow.user_id;
     const tasks: LifebenchTaskRow[] = [];
 
     for (let offset = 0; offset < MAX_TASKS_PER_RESPONSE; offset += DATABASE_PAGE_SIZE) {
@@ -135,15 +83,6 @@ export async function GET(request: NextRequest) {
         tasks.push(...page);
 
         if (page.length < DATABASE_PAGE_SIZE) {
-            const { error: lastUsedError } = await apiKeyAdmin
-                .from("integration_api_keys")
-                .update({ last_used_at: new Date().toISOString() })
-                .eq("user_id", userId)
-                .eq("key_prefix", parsedApiKey.keyPrefix);
-            if (lastUsedError) {
-                console.error("Failed to update integration API key usage", lastUsedError);
-            }
-
             return jsonNoStore({
                 schema_version: 1,
                 range: {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { PointerEvent as ReactPointerEvent } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { ExternalLink, GripVertical, Lock, Repeat } from "lucide-react";
+import { ExternalLink, Lock, Repeat } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -31,6 +31,8 @@ const SLOT_PX = HOUR_PX / (60 / SLOT_MINUTES);
 const GRID_WIDTH = HOUR_PX * 24;
 const GUTTER_PX = 64;
 const INITIAL_SCROLL_HOUR = 5;
+/** Strip kept free at the bottom of a day row for its deadline chips. */
+const PIN_LANE_PX = 20;
 const DRAG_THRESHOLD_PX = 3;
 const AUTO_SCROLL_EDGE_PX = 40;
 const AUTO_SCROLL_STEP_PX = 14;
@@ -107,6 +109,21 @@ function formatRange(startMs: number, endMs: number): string {
     return `${format(startMs, "HH:mm")}–${format(endMs, "HH:mm")}`;
 }
 
+function pinX(anchorIso: string): number {
+    return (minutesIntoDay(new Date(anchorIso)) / 60) * HOUR_PX;
+}
+
+/** Late pins put the chip left of the deadline so it stays inside the day row. */
+function pinChipOnLeft(x: number): boolean {
+    return x > GRID_WIDTH - 2 * HOUR_PX;
+}
+
+/** Rough rendered width of a deadline chip; only used to tell which blocks it would cover. */
+function pinChipWidth(items: CalendarItem[]): number {
+    if (items.length > 1) return 4 + 10 + (items.length - 1) * 6;
+    return Math.min(160, 30 + items[0].title.length * 6);
+}
+
 function slotSelectionRange(selection: SlotSelection) {
     return { left: selection.startSlot * SLOT_PX, width: (selection.endSlot - selection.startSlot) * SLOT_PX };
 }
@@ -173,9 +190,13 @@ export function WeekGrid({
         setDrag(next);
     }, []);
 
+    const dragLabelRef = useRef<HTMLDivElement | null>(null);
+    const dragPointerRef = useRef("translate(-9999px, -9999px)");
     const handleMove = useCallback((event: PointerEvent) => {
         const current = dragRef.current;
         if (!current) return;
+        dragPointerRef.current = `translate(${event.clientX + 14}px, ${event.clientY + 16}px)`;
+        if (dragLabelRef.current) dragLabelRef.current.style.transform = dragPointerRef.current;
         autoScroll(event.clientX);
         const cell = getCell(event.clientX, event.clientY);
 
@@ -315,6 +336,19 @@ export function WeekGrid({
         return () => window.removeEventListener("keydown", onKey);
     }, [detachListeners, updateDrag]);
 
+    // Vertical wheel scrolls time sideways. Native listener: React's onWheel is passive and can't preventDefault.
+    useEffect(() => {
+        const scroller = scrollerRef.current;
+        if (!scroller) return;
+        const onWheel = (event: WheelEvent) => {
+            if (event.ctrlKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+            event.preventDefault();
+            scroller.scrollLeft += event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+        };
+        scroller.addEventListener("wheel", onWheel, { passive: false });
+        return () => scroller.removeEventListener("wheel", onWheel);
+    }, []);
+
     useEffect(() => {
         if (!pinPopover) return;
         const onDown = (event: PointerEvent) => {
@@ -419,6 +453,23 @@ export function WeekGrid({
         }
         : pendingSelection;
 
+    // Exact time under the pointer while creating, moving or resizing a block.
+    const dragLabel: { text: string; error: boolean } | null = (() => {
+        if (drag?.kind === "create" && drag.moved && createPreview) {
+            const day = days[createPreview.dayIndex];
+            return { text: `${format(day, "EEE")} ${formatRange(dateAtSlot(day, createPreview.startSlot).getTime(), dateAtSlot(day, createPreview.endSlot).getTime())}`, error: false };
+        }
+        if (movePreview) {
+            if (movePreview.valid) return { text: `${format(movePreview.startMs, "EEE")} ${formatRange(movePreview.startMs, movePreview.endMs)}`, error: false };
+            const afterDeadline = drag?.kind === "move" && movePreview.endMs > drag.deadlineMs;
+            return { text: afterDeadline ? "After deadline" : "Can't cross midnight", error: true };
+        }
+        if (resizePreview) {
+            return { text: `${formatRange(resizePreview.startMs, resizePreview.endMs)}${resizePreview.atLimit ? " · deadline" : ""}`, error: resizePreview.atLimit };
+        }
+        return null;
+    })();
+
     // ---------- handlers ----------
     const onRowPointerDown = (dayIndex: number) => (event: ReactPointerEvent<HTMLDivElement>) => {
         const cell = getCell(event.clientX, event.clientY);
@@ -487,7 +538,23 @@ export function WeekGrid({
             suppressPinClickRef.current = false;
             return;
         }
-        setPinPopover((current) => current?.groupKey === groupKey ? null : { groupKey, rect: element.getBoundingClientRect() });
+        openPinPopover(groupKey, element);
+    };
+
+    // Hover opens the popover; a short close delay lets the pointer cross the gap into it.
+    const popoverCloseTimerRef = useRef<number | null>(null);
+    const cancelPopoverClose = () => {
+        if (popoverCloseTimerRef.current !== null) window.clearTimeout(popoverCloseTimerRef.current);
+        popoverCloseTimerRef.current = null;
+    };
+    const schedulePopoverClose = () => {
+        cancelPopoverClose();
+        popoverCloseTimerRef.current = window.setTimeout(() => setPinPopover(null), 150);
+    };
+    const openPinPopover = (groupKey: string, element: HTMLElement) => {
+        cancelPopoverClose();
+        if (dragRef.current) return;
+        setPinPopover((current) => current?.groupKey === groupKey ? current : { groupKey, rect: element.getBoundingClientRect() });
     };
 
     const popoverGroup = pinPopover ? pinGroups.find((entry) => entry.group.key === pinPopover.groupKey) : null;
@@ -548,6 +615,17 @@ export function WeekGrid({
                                 const dayKey = localDayKey(day);
                                 const isToday = dayKey === todayKey;
                                 const dayPins = pinGroupsByDay.get(dayKey) || [];
+                                // Only blocks that a deadline chip would sit on stop short above it.
+                                const chipRanges = dayPins.filter((entry) => entry.items.length > 0).map(({ group, items }) => {
+                                    const x = pinX(group.anchorIso);
+                                    const width = pinChipWidth(items);
+                                    return pinChipOnLeft(x) ? [x - 4 - width, x - 4] : [x + 4, x + 4 + width];
+                                });
+                                const laneFor = (left: number, width: number) =>
+                                    chipRanges.some(([start, end]) => left < end && left + width > start) ? PIN_LANE_PX : 0;
+                                const laneTop = (column: number, columns: number) => `calc(${(column * 100) / columns}% + 2px)`;
+                                const laneHeight = (column: number, columns: number, left: number, width: number) =>
+                                    `calc(${100 / columns}% - ${4 + (column === columns - 1 ? laneFor(left, width) : 0)}px)`;
                                 return (
                                     <div
                                         key={dayKey}
@@ -567,7 +645,7 @@ export function WeekGrid({
                                                         {item.isGhost && <Repeat className="h-3 w-3 shrink-0 text-slate-500" />}
                                                         <span className="truncate">{item.title}</span>
                                                     </div>
-                                                    {width >= SLOT_PX * 3 && columns === 1 && item.spanStartMs !== null && (
+                                                    {width >= SLOT_PX * 3 && columns <= 2 && item.spanStartMs !== null && (
                                                         <div className="truncate font-mono text-[10px] text-slate-600">{formatRange(item.spanStartMs, item.deadlineMs)}</div>
                                                     )}
                                                 </>
@@ -575,12 +653,12 @@ export function WeekGrid({
                                             const spanStyle = {
                                                 left,
                                                 width,
-                                                top: `calc(${(column * 100) / columns}% + 2px)`,
-                                                height: `calc(${100 / columns}% - 4px)`,
+                                                top: laneTop(column, columns),
+                                                height: laneHeight(column, columns, left, width),
                                             };
                                             const className = cn(
                                                 "absolute z-0 overflow-hidden rounded-md border border-dashed border-slate-700/80 bg-slate-950 px-2 py-1",
-                                                !item.open && "opacity-40"
+                                                !item.open && "opacity-10"
                                             );
                                             return item.task ? (
                                                 <Link
@@ -603,7 +681,6 @@ export function WeekGrid({
                                         {/* Time blocks */}
                                         {blockSegmentsByDay[dayIndex].map(({ block, item, left, width, column, columns, segmentKey }) => {
                                             const isDragged = (movePreview?.blockId === block.id) || (resizePreview?.blockId === block.id);
-                                            const heightPct = 100 / columns;
                                             const isLinked = hoveredKey === item.key;
                                             const draggable = item.open && item.canHaveBlocks;
                                             const displayEndMs = resizePreview?.blockId === block.id ? resizePreview.endMs : Date.parse(block.end_at);
@@ -615,9 +692,9 @@ export function WeekGrid({
                                                     key={segmentKey}
                                                     data-block-id={block.id}
                                                     className={cn(
-                                                        "group absolute z-10 overflow-hidden rounded-md px-2 py-1 text-white transition-[box-shadow,opacity,filter] hover:brightness-110",
-                                                        item.isGhost && "border border-dashed border-white/40",
-                                                        !item.open && "opacity-40",
+                                                        "group absolute z-10 overflow-hidden rounded-md px-2 py-1 text-slate-950 transition-[box-shadow,opacity,filter] hover:brightness-110",
+                                                        item.isGhost && "border border-dashed border-slate-950/40",
+                                                        !item.open && "opacity-10",
                                                         draggable ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                                                         movePreview?.blockId === block.id && "opacity-30",
                                                         (selectedBlockId === block.id) && "ring-2 ring-white",
@@ -628,16 +705,16 @@ export function WeekGrid({
                                                         backgroundColor: statusFillColor(item.status),
                                                         left,
                                                         width: displayWidth,
-                                                        top: `calc(${column * heightPct}% + 2px)`,
-                                                        height: `calc(${heightPct}% - 4px)`,
+                                                        top: laneTop(column, columns),
+                                                        height: laneHeight(column, columns, left, displayWidth),
                                                     }}
                                                     onPointerDown={onBlockPointerDown(block, item)}
                                                     onPointerEnter={() => onHoverKey(item.key)}
                                                     onPointerLeave={() => onHoverKey(null)}
                                                 >
                                                     <div className="truncate text-xs font-medium leading-tight">{item.title}</div>
-                                                    {displayWidth >= SLOT_PX * 3 && columns === 1 && (
-                                                        <div className="mt-0.5 truncate font-mono text-[10px] leading-tight text-white/75">
+                                                    {displayWidth >= SLOT_PX * 3 && columns <= 2 && (
+                                                        <div className="mt-0.5 truncate font-mono text-[10px] leading-tight text-slate-950/70">
                                                             {formatRange(Date.parse(block.start_at), displayEndMs)}
                                                         </div>
                                                     )}
@@ -646,7 +723,7 @@ export function WeekGrid({
                                                             className="absolute inset-y-0 right-0 flex w-2 cursor-ew-resize items-center opacity-0 group-hover:opacity-100"
                                                             onPointerDown={onResizePointerDown(block, item)}
                                                         >
-                                                            <div className="h-6 w-0.5 rounded-full bg-white/70" />
+                                                            <div className="h-6 w-0.5 rounded-full bg-slate-950/50" />
                                                         </div>
                                                     )}
                                                 </div>
@@ -660,20 +737,23 @@ export function WeekGrid({
                                             if (!block || !item) return null;
                                             const segment = splitIntoDaySegments(movePreview.startMs, movePreview.endMs, weekStart).find((entry) => entry.dayIndex === dayIndex);
                                             if (!segment) return null;
+                                            const previewLeft = (segment.startMinutes / 60) * HOUR_PX;
+                                            const previewWidth = Math.max(SLOT_PX, ((segment.endMinutes - segment.startMinutes) / 60) * HOUR_PX);
                                             return (
                                                 <div
                                                     className={cn(
-                                                        "pointer-events-none absolute inset-y-0.5 z-30 overflow-hidden rounded-md px-2 py-1 text-white shadow-lg shadow-black/60",
-                                                        !movePreview.valid && "ring-2 ring-red-400"
+                                                        "pointer-events-none absolute top-0.5 z-30 overflow-hidden rounded-md px-2 py-1 shadow-lg shadow-black/60",
+                                                        movePreview.valid ? "text-slate-950" : "text-white ring-2 ring-red-400"
                                                     )}
                                                     style={{
                                                         backgroundColor: movePreview.valid ? statusFillColor(item.status) : "#7f1d1d",
-                                                        left: (segment.startMinutes / 60) * HOUR_PX,
-                                                        width: Math.max(SLOT_PX, ((segment.endMinutes - segment.startMinutes) / 60) * HOUR_PX),
+                                                        left: previewLeft,
+                                                        width: previewWidth,
+                                                        bottom: laneFor(previewLeft, previewWidth) + 2,
                                                     }}
                                                 >
                                                     <div className="truncate text-xs font-medium leading-tight">{item.title}</div>
-                                                    <div className={cn("mt-0.5 truncate font-mono text-[10px] leading-tight", movePreview.valid ? "text-white/75" : "text-red-200")}>
+                                                    <div className={cn("mt-0.5 truncate font-mono text-[10px] leading-tight", movePreview.valid ? "text-slate-950/70" : "text-red-200")}>
                                                         {movePreview.valid ? formatRange(movePreview.startMs, movePreview.endMs) : "After deadline"}
                                                     </div>
                                                 </div>
@@ -683,8 +763,8 @@ export function WeekGrid({
                                         {/* New block selection (15-minute cells) */}
                                         {createPreview && createPreview.dayIndex === dayIndex && (
                                             <div
-                                                className="pointer-events-none absolute inset-y-0.5 z-30 overflow-hidden rounded-md bg-white/10 px-2 py-1 ring-1 ring-white/15"
-                                                style={{ ...slotSelectionRange(createPreview), boxShadow: "0 0 18px rgba(255, 255, 255, 0.10)" }}
+                                                className="pointer-events-none absolute top-0.5 z-30 overflow-hidden rounded-md bg-white/10 px-2 py-1 ring-1 ring-white/15"
+                                                style={{ ...slotSelectionRange(createPreview), bottom: laneFor(slotSelectionRange(createPreview).left, slotSelectionRange(createPreview).width) + 2, boxShadow: "0 0 18px rgba(255, 255, 255, 0.10)" }}
                                             >
                                                 <div className="truncate font-mono text-[10px] leading-tight text-slate-200">
                                                     {formatRange(dateAtSlot(day, createPreview.startSlot).getTime(), dateAtSlot(day, createPreview.endSlot).getTime())}
@@ -695,8 +775,9 @@ export function WeekGrid({
                                         {/* Deadline pins */}
                                         {dayPins.map(({ group, items }) => {
                                             if (items.length === 0) return null;
-                                            const left = (minutesIntoDay(new Date(group.anchorIso)) / 60) * HOUR_PX;
+                                            const left = pinX(group.anchorIso);
                                             const single = items.length === 1 ? items[0] : null;
+                                            const chipOnLeft = pinChipOnLeft(left);
                                             const allClosed = items.every((item) => !item.open);
                                             const allGhost = items.every((item) => item.isGhost);
                                             const isLinked = items.some((item) => item.key === hoveredKey);
@@ -704,46 +785,46 @@ export function WeekGrid({
                                             return (
                                                 <div
                                                     key={group.key}
-                                                    className={cn("pointer-events-none absolute inset-y-0 z-20", allClosed && "opacity-40", isDraggingThis && "opacity-30")}
+                                                    className={cn("pointer-events-none absolute inset-y-0 z-20", allClosed && "opacity-30", isDraggingThis && "opacity-30")}
                                                     style={{ left }}
                                                 >
-                                                    <div
-                                                        className={cn(
-                                                            "absolute inset-y-0 -translate-x-1/2",
-                                                            allGhost ? "w-0 border-l border-dashed border-slate-600" : "w-px bg-slate-500/70",
-                                                            isLinked && !allGhost && "bg-white/80 shadow-[0_0_8px_rgba(255,255,255,0.6)]"
-                                                        )}
-                                                    />
                                                     <button
                                                         type="button"
                                                         data-pin-chip
                                                         className={cn(
-                                                            "pointer-events-auto absolute bottom-1 left-1 flex max-w-40 items-center gap-1.5 rounded bg-slate-950 px-1.5 py-0.5 text-[11px] leading-tight transition-colors hover:text-white",
+                                                            "pointer-events-auto absolute bottom-1 flex max-w-40 items-center gap-1.5 rounded py-0.5 text-[11px] leading-tight transition-colors hover:text-white",
+                                                            // Dots-only chips float without a box so they don't punch a dark hole in blocks.
+                                                            single ? "bg-slate-950 px-1.5" : "px-0.5",
+                                                            chipOnLeft ? "right-1" : "left-1",
                                                             allGhost ? "text-slate-500" : "text-slate-300",
                                                             single && single.lockReason === null ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                                                             isLinked && "text-white"
                                                         )}
-                                                        title={single ? `${single.title} — due ${format(single.deadlineMs, "HH:mm")}${single.lockReason ? ` (${single.lockReason})` : " · drag to postpone"}` : `${items.length} tasks due`}
+                                                        title={single ? `${single.title} — due ${format(single.deadlineMs, "HH:mm")}${single.lockReason ? ` (${single.lockReason})` : " · drag to postpone"}` : `${items.length} tasks`}
                                                         onPointerDown={onPinChipPointerDown(group, items)}
                                                         onClick={(event) => togglePinPopover(group.key, event.currentTarget)}
-                                                        onPointerEnter={() => single && onHoverKey(single.key)}
-                                                        onPointerLeave={() => single && onHoverKey(null)}
+                                                        onPointerEnter={(event) => {
+                                                            if (single) onHoverKey(single.key);
+                                                            openPinPopover(group.key, event.currentTarget);
+                                                        }}
+                                                        onPointerLeave={() => {
+                                                            if (single) onHoverKey(null);
+                                                            schedulePopoverClose();
+                                                        }}
                                                     >
                                                         {single ? (
                                                             <>
                                                                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDotClass(single.status))} />
                                                                 {single.isGhost && <Repeat className="h-2.5 w-2.5 shrink-0" />}
                                                                 <span className="truncate">{single.title}</span>
-                                                                {single.lockReason !== null && !single.isGhost && <Lock className="h-2.5 w-2.5 shrink-0 text-slate-500" />}
                                                             </>
                                                         ) : (
                                                             <>
-                                                                <span className="flex shrink-0 -space-x-0.5">
-                                                                    {items.slice(0, 3).map((item) => (
-                                                                        <span key={item.key} className={cn("h-1.5 w-1.5 rounded-full ring-1 ring-slate-950", statusDotClass(item.status))} />
+                                                                <span className="flex shrink-0 -space-x-1">
+                                                                    {items.map((item) => (
+                                                                        <span key={item.key} className={cn("h-2.5 w-2.5 rounded-full ring-1 ring-black/40 shadow-sm shadow-black/50", statusDotClass(item.status))} />
                                                                     ))}
                                                                 </span>
-                                                                <span className="truncate">{items.length} due</span>
                                                             </>
                                                         )}
                                                     </button>
@@ -791,9 +872,26 @@ export function WeekGrid({
             </div>
 
             {/* Pin popover: lists every task due in that 15-minute cell */}
+            {dragLabel && (
+                <div
+                    ref={(element) => {
+                        dragLabelRef.current = element;
+                        if (element) element.style.transform = dragPointerRef.current;
+                    }}
+                    className={cn(
+                        "pointer-events-none fixed left-0 top-0 z-[70] whitespace-nowrap rounded-md border px-2 py-1 font-mono text-xs shadow-lg shadow-black/60",
+                        dragLabel.error ? "border-red-500/50 bg-red-950 text-red-200" : "border-slate-700 bg-slate-900 text-slate-100"
+                    )}
+                >
+                    {dragLabel.text}
+                </div>
+            )}
+
             {pinPopover && popoverGroup && (
                 <div
                     ref={popoverRef}
+                    onPointerEnter={cancelPopoverClose}
+                    onPointerLeave={schedulePopoverClose}
                     className="fixed z-[60] w-72 rounded-lg border border-slate-800 bg-slate-900 p-1.5 shadow-xl shadow-black/60"
                     style={{
                         top: Math.min(pinPopover.rect.bottom + 6, window.innerHeight - 260),
@@ -803,37 +901,31 @@ export function WeekGrid({
                     <div className="px-2 pb-1 pt-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-500">
                         Due {format(new Date(popoverGroup.group.anchorIso), "EEE dd/MM HH:mm")}
                     </div>
-                    <div className="flex max-h-60 flex-col overflow-y-auto">
+                    <div className="flex max-h-60 flex-col gap-1 overflow-y-auto">
                         {popoverGroup.items.map((item) => (
                             <div
                                 key={item.key}
-                                className={cn("group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-slate-800/70", !item.open && "opacity-50")}
+                                className={cn(
+                                    "group flex items-center gap-2 rounded-md px-2 py-1.5 text-slate-950 hover:brightness-110",
+                                    item.isGhost && "border border-dashed border-slate-950/40",
+                                    item.lockReason === null && "cursor-grab active:cursor-grabbing",
+                                    !item.open && "opacity-40"
+                                )}
+                                style={{ backgroundColor: statusFillColor(item.status) }}
+                                title={item.lockReason ?? "Drag to postpone"}
+                                onPointerDown={(event) => {
+                                    if (item.lockReason !== null || (event.target as HTMLElement).closest("a")) return;
+                                    startPinDrag(item, event);
+                                }}
                                 onPointerEnter={() => onHoverKey(item.key)}
                                 onPointerLeave={() => onHoverKey(null)}
                             >
-                                {item.lockReason === null ? (
-                                    <span
-                                        className="cursor-grab text-slate-500 hover:text-slate-200 active:cursor-grabbing"
-                                        title="Drag to postpone"
-                                        onPointerDown={(event) => startPinDrag(item, event)}
-                                    >
-                                        <GripVertical className="h-3.5 w-3.5" />
-                                    </span>
-                                ) : (
-                                    <span className="text-slate-600" title={item.lockReason}>
-                                        {item.isGhost ? <Repeat className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-                                    </span>
-                                )}
-                                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", statusDotClass(item.status))} />
                                 <div className="min-w-0 flex-1">
-                                    <div className="truncate text-sm text-slate-100">{item.title}</div>
-                                    <div className="truncate font-mono text-[10px] text-slate-500">
-                                        {format(item.deadlineMs, "HH:mm")} · {item.isGhost ? "upcoming repeat" : item.status.replace(/_/g, " ").toLowerCase()}
-                                        {item.lockReason && !item.isGhost ? ` · ${item.lockReason.toLowerCase()}` : ""}
-                                    </div>
+                                    <div className="truncate text-sm font-medium">{item.title}</div>
+                                    <div className="truncate font-mono text-[10px] text-slate-950/70">{format(item.deadlineMs, "HH:mm")}</div>
                                 </div>
                                 {item.task && (
-                                    <Link href={`/tasks/${item.key}`} className="shrink-0 text-slate-500 hover:text-white" aria-label={`Open ${item.title}`}>
+                                    <Link href={`/tasks/${item.key}`} className="shrink-0 text-slate-950/60 hover:text-slate-950" aria-label={`Open ${item.title}`}>
                                         <ExternalLink className="h-3.5 w-3.5" />
                                     </Link>
                                 )}

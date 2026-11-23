@@ -3,8 +3,17 @@ import { cookies } from "next/headers";
 import { type Database } from "../types";
 
 import { SupabaseClient } from "@supabase/supabase-js";
+import { getIntegrationContext } from "@/lib/integration-context";
+import { createSessionClient } from "@/lib/integration-session";
 
 export async function createClient(): Promise<SupabaseClient<Database>> {
+    // API-key requests act as the key's owner; one client per request.
+    const integration = getIntegrationContext();
+    if (integration) {
+        integration.client ??= createSessionClient(integration.session) as Promise<SupabaseClient<Database>>;
+        return integration.client;
+    }
+
     const cookieStore = await cookies();
 
     return createServerClient<Database>(

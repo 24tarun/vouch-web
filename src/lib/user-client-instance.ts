@@ -1,5 +1,6 @@
 import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { getIntegrationContext } from "@/lib/integration-context";
 
 const CLIENT_NAME = "vouch-web";
 const INSTANCE_COOKIE = "vouch_web_client_instance_key";
@@ -11,6 +12,8 @@ function randomKey(): string {
 }
 
 async function getOrCreateInstanceKey(): Promise<string> {
+  const integration = getIntegrationContext();
+  if (integration) return integration.instanceKey;
   const cookieStore = await cookies();
   const existing = cookieStore.get(INSTANCE_COOKIE)?.value?.trim();
   if (existing) return existing;

@@ -42,37 +42,37 @@ export const TODAY_GLOW_STYLE = {
     textShadow: "0 0 10px rgba(147, 197, 253, 0.95), 0 0 22px rgba(59, 130, 246, 0.85)",
 } as const;
 
-/** Solid block fill per status (same hues as the status pills, at full strength). */
+/** Solid block fill per status: exactly the status dot colours above. */
 export function statusFillColor(status: CalendarStatus): string {
     switch (status) {
         case "ACTIVE":
         case "ESCALATED":
-            return "#2563eb"; // blue-600
+            return "#60a5fa"; // blue-400
         case "POSTPONED":
-            return "#0066FF";
+            return "#66A3FF";
         case "MARKED_COMPLETE":
         case "ACCEPTED":
         case "AUTO_ACCEPTED":
         case "AI_ACCEPTED":
-            return "#059669"; // emerald-600
+            return "#34d399"; // emerald-400
         case "AWAITING_VOUCHER":
         case "AWAITING_AI":
-            return "#d97706"; // amber-600
+            return "#fbbf24"; // amber-400
         case "AWAITING_USER":
         case "RECTIFIED":
-            return "#ea580c"; // orange-600
+            return "#fb923c"; // orange-400
         case "AWAITING_RECTIFICATION":
-            return "#7c3aed"; // violet-600
+            return "#a78bfa"; // violet-400
         case "SETTLED":
-            return "#a21caf"; // fuchsia-700
+            return "#e879f9"; // fuchsia-400
         case "AI_DENIED":
         case "DENIED":
         case "MISSED":
         case "SURRENDERED":
-            return "#dc2626"; // red-600
+            return "#ef4444"; // red-500
         case "GHOST":
-            return "#334155"; // slate-700
+            return "#64748b"; // slate-500
         default:
-            return "#475569"; // slate-600
+            return "#94a3b8"; // slate-400
     }
 }
