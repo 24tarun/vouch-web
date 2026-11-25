@@ -1,6 +1,6 @@
 'use client';
 import { useRef, type ReactNode } from 'react';
-import { Check, ChevronDown, ChevronRight, ExternalLink, FolderPlus, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, FolderPlus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GroupStatusBadge, type GroupHistoryStatus } from '@/design-system/statuspills';
 
@@ -46,6 +46,5 @@ export function GroupTitleRow({ title, expanded, onToggle, onOpen, onDelete, onC
         </button>
         {historyStatus ? <GroupStatusBadge status={historyStatus} className="shrink-0" /> : deadline && <span suppressHydrationWarning className={cn('text-xs shrink-0 whitespace-nowrap', overdue ? 'text-red-500' : 'text-slate-400')}>{deadline}</span>}
         <button type="button" onClick={onDelete} aria-label={`Delete ${title} group`} className="hidden md:flex h-10 w-10 items-center justify-center text-red-400"><Trash2 className="size-4" /></button>
-        <button type="button" onClick={onOpen} aria-label={`Open ${title} group details`} className="hidden md:flex h-10 w-10 items-center justify-center text-slate-400"><ExternalLink className="size-4" /></button>
     </div>;
 }

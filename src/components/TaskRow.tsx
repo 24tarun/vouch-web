@@ -3,11 +3,10 @@
 import { GroupTitleRow } from "@/components/groups/GroupTitleRow";
 import { LinkifiedText } from "@/components/LinkifiedText";
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { addTaskSubtask, deleteTaskSubtask, renameTaskSubtask, toggleTaskSubtask } from "@/actions/tasks";
 import type { Task } from "@/lib/types";
-import { Camera, Check, ChevronDown, ChevronRight, CircleX, ExternalLink, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Camera, Check, ChevronDown, ChevronRight, CircleX, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { Button } from "./ui/button";
 import { PomoButton } from "./ui/PomoButton";
 import { usePomodoro } from "@/components/PomodoroProvider";
@@ -571,23 +570,6 @@ export function TaskRow({
                 </Button>
             )}
 
-            <Button
-                asChild={!task.id.startsWith("temp-")}
-                variant="ghost"
-                className="h-10 w-10 p-0 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-default"
-                aria-label="Open task"
-                title="Open task"
-                disabled={task.id.startsWith("temp-")}
-                onClick={(e) => {
-                    if (task.id.startsWith("temp-")) {
-                        e.preventDefault();
-                    }
-                }}
-            >
-                <Link href={detailPath} prefetch>
-                    <ExternalLink className="h-[18px] w-[18px]" />
-                </Link>
-            </Button>
         </>
     );
 
@@ -709,23 +691,6 @@ export function TaskRow({
                             </Button>
                         )}
 
-                        <Button
-                            asChild={!task.id.startsWith("temp-")}
-                            variant="ghost"
-                            className="h-9 w-9 p-0 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-50 disabled:cursor-default"
-                            aria-label="Open task"
-                            title="Open task"
-                            disabled={task.id.startsWith("temp-")}
-                            onClick={(e) => {
-                                if (task.id.startsWith("temp-")) {
-                                    e.preventDefault();
-                                }
-                            }}
-                        >
-                            <Link href={detailPath} prefetch>
-                                <ExternalLink className="h-[18px] w-[18px]" />
-                            </Link>
-                        </Button>
                     </div>
                 </div>
             ) : (
@@ -881,21 +846,6 @@ export function TaskRow({
                                     }
                                 </button>
 
-                                <Link
-                                    href={detailPath}
-                                    prefetch
-                                    className={cn("h-10 w-10 flex items-center justify-center text-slate-400", task.id.startsWith("temp-") && "opacity-50 pointer-events-none cursor-default")}
-                                    aria-label="Open task"
-                                    title="Open task"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        if (task.id.startsWith("temp-")) {
-                                            e.preventDefault();
-                                        }
-                                    }}
-                                >
-                                    <ExternalLink className="h-[18px] w-[18px]" />
-                                </Link>
                             </div>
                         </div>
                     </div>
