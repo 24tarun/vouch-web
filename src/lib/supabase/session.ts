@@ -25,7 +25,7 @@ export async function updateSession(request: NextRequest) {
                         const { maxAge: _unused, ...rest } = options;
                         supabaseResponse.cookies.set(name, value, {
                             ...rest,
-                            maxAge: 60 * 60 * 24 * 365, // 1 year
+                            maxAge: 60 * 60 * 24 * 365,
                             path: "/",
                             sameSite: "lax",
                             secure: process.env.NODE_ENV === "production",
@@ -34,7 +34,7 @@ export async function updateSession(request: NextRequest) {
                 },
             },
             cookieOptions: {
-                maxAge: 60 * 60 * 24 * 365, // 1 year
+                maxAge: 60 * 60 * 24 * 365,
                 path: "/",
                 sameSite: "lax",
                 secure: process.env.NODE_ENV === "production",
@@ -42,13 +42,10 @@ export async function updateSession(request: NextRequest) {
         }
     );
 
-    // Refresh session if expired
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const user = claimsData?.claims ?? null;
 
-    // Protect authenticated routes
-    const PROTECTED_PREFIXES = ["/tasks", "/friends", "/commit", "/ledger", "/settings", "/voucher"];
+    const PROTECTED_PREFIXES = ["/tasks", "/friends", "/commit", "/ledger", "/settings", "/voucher", "/calendar"];
     const isProtected = PROTECTED_PREFIXES.some((p) => request.nextUrl.pathname.startsWith(p));
     if (!user && isProtected) {
         const url = request.nextUrl.clone();
@@ -56,7 +53,6 @@ export async function updateSession(request: NextRequest) {
         return NextResponse.redirect(url);
     }
 
-    // Redirect to dashboard if logged in and visiting landing or login
     if (
         user &&
         (request.nextUrl.pathname === "/" || request.nextUrl.pathname === "/login")

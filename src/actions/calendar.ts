@@ -12,8 +12,9 @@ import type { BlockTarget, CalendarBlock, CalendarWeekData } from "@/lib/calenda
 
 async function getAuthedClient() {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    // task_time_blocks is newer than the generated Database types, so use the untyped client.
+    const { data: claimsData } = await supabase.auth.getClaims();
+    const userId = claimsData?.claims.sub;
+    const user = userId ? { id: userId } : null;
     return { supabase: supabase as unknown as SupabaseClient, user };
 }
 

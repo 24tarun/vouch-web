@@ -62,8 +62,7 @@ function formatWeekRange(weekStart: Date): string {
 
 let tempBlockCounter = 0;
 
-export function CalendarClient({ userId }: { userId: string }) {
-    // Week boundaries depend on the viewer's timezone, so they are computed after mount.
+export function CalendarClient({ userId, initial }: { userId: string; initial?: { weekStartIso: string; data: CalendarWeekData } }) {
     const [weekStart, setWeekStart] = useState<Date | null>(null);
     const [now, setNow] = useState<Date | null>(null);
     const [data, setData] = useState<CalendarWeekData | null>(null);
@@ -83,6 +82,7 @@ export function CalendarClient({ userId }: { userId: string }) {
     const blockPopoverRef = useRef<HTMLDivElement>(null);
     const weekStartRef = useRef<Date | null>(null);
     weekStartRef.current = weekStart;
+    const initialRef = useRef(initial);
 
     useEffect(() => {
         const current = new Date();
@@ -99,7 +99,6 @@ export function CalendarClient({ userId }: { userId: string }) {
         if (!options.silent) setLoading(true);
         const result = await getCalendarWeek(start.toISOString(), addLocalDays(start, 7).toISOString());
         if (requestId !== requestIdRef.current) return;
-        // Don't clobber optimistic edits; reload again once they settle.
         if (pendingMutationsRef.current > 0 || dragActiveRef.current) {
             reloadQueuedRef.current = true;
             setLoading(false);
@@ -125,7 +124,7 @@ export function CalendarClient({ userId }: { userId: string }) {
             }
             void load({ silent: true });
         }, RELOAD_DEBOUNCE_MS);
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);
 
     const flushQueuedReload = useCallback(() => {
         if (reloadQueuedRef.current && !dragActiveRef.current && pendingMutationsRef.current === 0) {
@@ -136,13 +135,18 @@ export function CalendarClient({ userId }: { userId: string }) {
 
     useEffect(() => {
         if (!weekStart) return;
-        setData(null);
         setPicker(null);
         setBlockPopover(null);
+        const seed = initialRef.current;
+        initialRef.current = undefined;
+        if (seed && seed.weekStartIso === weekStart.toISOString()) {
+            setData(seed.data);
+            return;
+        }
+        setData(null);
         void load();
     }, [load, weekStart]);
 
-    // Live updates: task changes arrive via the app-wide RealtimeListener; blocks via our own channel.
     useEffect(() => subscribeRealtimeTaskChanges(() => scheduleReload()), [scheduleReload]);
     useEffect(() => {
         if (!userId) return;
@@ -184,7 +188,6 @@ export function CalendarClient({ userId }: { userId: string }) {
         setData((current) => (current ? { ...current, blocks: updater(current.blocks) } : current));
     }, []);
 
-    // ---------- create ----------
     const handleCreateSelection = useCallback((selection: SlotSelection, anchor: DOMRect) => {
         const start = weekStartRef.current;
         if (!start) return;
@@ -225,7 +228,6 @@ export function CalendarClient({ userId }: { userId: string }) {
         replaceBlocks((blocks) => blocks.map((block) => (block.id === tempId ? saved : block)));
     }, [picker, replaceBlocks, runMutation]);
 
-    // ---------- move / resize ----------
     const handleBlockCommit = useCallback(async (blockId: string, startMs: number, endMs: number) => {
         if (blockId.startsWith("temp-")) return;
         let previous: CalendarBlock | undefined;
@@ -244,7 +246,6 @@ export function CalendarClient({ userId }: { userId: string }) {
         }
     }, [replaceBlocks, runMutation]);
 
-    // ---------- delete ----------
     const handleDeleteBlock = useCallback(async (blockId: string) => {
         setBlockPopover(null);
         if (blockId.startsWith("temp-")) return;
@@ -284,7 +285,6 @@ export function CalendarClient({ userId }: { userId: string }) {
         };
     }, [blockPopover, handleDeleteBlock]);
 
-    // ---------- postpone ----------
     const handlePinDrop = useCallback((itemKey: string, newDeadlineMs: number) => {
         const item = model?.itemsByKey.get(itemKey);
         if (!item?.task || !model) return;
@@ -326,7 +326,6 @@ export function CalendarClient({ userId }: { userId: string }) {
 
     const handleInvalidDrop = useCallback((message: string) => toast.error(message), []);
 
-    // Week navigation with arrow keys (when not typing).
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
             const target = event.target as HTMLElement | null;
