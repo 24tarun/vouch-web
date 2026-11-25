@@ -7,7 +7,8 @@ import { postponeTask } from "@/actions/tasks/manage";
 import { markTaskComplete } from "@/actions/tasks/complete";
 import { addTaskSubtask, replaceTaskReminders, toggleTaskSubtask } from "@/actions/tasks/subtasks";
 import { createBlockForUser, deleteBlockForUser, loadCalendarRange, updateBlockForUser } from "@/lib/calendar/service";
-import { createBlockSchema, serializeCalendar, toBlockTarget } from "@/lib/calendar/integration";
+import { serializeCalendar } from "@/lib/calendar/integration";
+import type { BlockTarget } from "@/lib/calendar/types";
 import { INTEGRATION_ACTIONS, decodeActionArgs } from "@/lib/integration-actions";
 
 /** Runs inside the integration context: createClient() is signed in as the key's owner. */
@@ -139,8 +140,23 @@ export const MCP_TOOLS: McpTool[] = [
 
     tool("create_time_block",
         "Plan time for a task. Pass task_id, or rule_id + occurrence_deadline for a repeat not created yet (copy from get_calendar 'plannable'). Times on 15-minute steps, ending by the deadline.",
-        createBlockSchema,
-        async (input, userId) => createBlockForUser(await db(), userId, toBlockTarget(input), input.start_at, input.end_at)),
+        // MCP requires an object input schema, so the HTTP union schema is flattened here.
+        z.object({
+            task_id: z.uuid().optional(),
+            rule_id: z.uuid().optional(),
+            occurrence_deadline: iso.optional(),
+            start_at: iso,
+            end_at: iso,
+        }).refine(
+            (input) => input.task_id ? !input.rule_id && !input.occurrence_deadline : Boolean(input.rule_id && input.occurrence_deadline),
+            { message: "Pass task_id, or rule_id + occurrence_deadline." }
+        ),
+        async (input, userId) => {
+            const target: BlockTarget = input.task_id
+                ? { kind: "task", taskId: input.task_id }
+                : { kind: "ghost", ruleId: input.rule_id!, occurrenceDeadlineIso: input.occurrence_deadline! };
+            return createBlockForUser(await db(), userId, target, input.start_at, input.end_at);
+        }),
 
     tool("move_time_block", "Move or resize a time block.",
         z.object({ block_id: z.uuid(), start_at: iso, end_at: iso }),
