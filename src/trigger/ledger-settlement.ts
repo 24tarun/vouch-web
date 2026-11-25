@@ -1,12 +1,3 @@
-/**
- * Trigger: monthly-settlement
- * Runs: every 15 minutes.
- * What it does when it runs:
- * 1) Loads users and checks whether each user is at local day 3 / local hour 00.
- * 2) Computes the previous month period in that user's saved profile timezone.
- * 3) Loads that user's monthly ledger entries and composes settlement email content.
- * 4) Claims idempotency row (`monthly_settlement_runs`) before sending.
- */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";

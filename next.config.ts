@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   experimental: {
     staleTimes: {
-      dynamic: 60, // cache dynamic routes for 60s — prevents reload on swipe-back
+      dynamic: 60,
     },
   },
   async headers() {

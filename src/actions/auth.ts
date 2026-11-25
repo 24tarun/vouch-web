@@ -181,7 +181,6 @@ export async function signIn(formData: FormData) {
 
         const matchedEmail = (matchedProfile as { email?: string | null } | null)?.email?.trim();
         if (!matchedEmail) {
-            // Keep auth response generic to avoid username enumeration.
             return { error: "Authentication failed" };
         }
         emailToUse = matchedEmail;
@@ -203,7 +202,6 @@ export async function signIn(formData: FormData) {
         return { error: "Authentication failed" };
     }
 
-    // Strict Profile Check
     const { data: profile } = await supabase
         .from("profiles")
         .select("id")
@@ -352,8 +350,6 @@ export async function signOut() {
 
     if (user) {
         await autoEndLingeringPomoSession(supabase, user.id, "sign_out_auto_end");
-        // Reset dashboard tip visibility for the next signed-in session.
-        // @ts-ignore
         const { error: resetTipsError } = await (supabase.from("profiles" as any) as any)
             .update({ hide_tips: false } as any)
             .eq("id", user.id as any);
@@ -789,7 +785,6 @@ export async function updateUserDefaults(formData: FormData) {
         profileUpdate.selected_charity_id = selectedCharityId;
     }
 
-    // @ts-ignore
     const { error } = await (supabase.from("profiles" as any) as any)
         .update(profileUpdate as any)
         .eq("id", user.id);
@@ -798,7 +793,6 @@ export async function updateUserDefaults(formData: FormData) {
         return { error: error.message };
     }
 
-    // Invalidate voucher pending caches so owner currency updates are reflected quickly.
     const { data: ownerTaskRows } = await (supabase.from("tasks") as any)
         .select("voucher_id")
         .eq("user_id", user.id as any)
@@ -830,7 +824,6 @@ export async function setDashboardTipsHidden(hidden: boolean) {
         return { error: "Not authenticated" };
     }
 
-    // @ts-ignore
     const { error } = await (supabase.from("profiles" as any) as any)
         .update({ hide_tips: hidden } as any)
         .eq("id", user.id as any);
@@ -861,7 +854,6 @@ export async function updateUsername(formData: FormData) {
         return { error: "Not authenticated" };
     }
 
-    // Check if username is taken
     const { data: existing } = await supabase
         .from("profiles")
         .select("id")
@@ -873,7 +865,6 @@ export async function updateUsername(formData: FormData) {
         return { error: "Username already taken" };
     }
 
-    // @ts-ignore
     const { error } = await (supabase.from("profiles" as any) as any)
         .update({ username } as any)
         .eq("id", user.id as any);

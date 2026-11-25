@@ -22,7 +22,6 @@ export default async function LedgerPage() {
     const now = new Date();
     const currentPeriod = now.toISOString().slice(0, 7);
 
-    // @ts-ignore
     const { data: entries } = await supabase
         .from("ledger_entries")
         .select(`
@@ -33,7 +32,6 @@ export default async function LedgerPage() {
         .eq("period", currentPeriod)
         .order("created_at", { ascending: false });
 
-    // @ts-ignore
     const { count: rectifyCount } = await supabase
         .from("rectify_passes")
         .select("*", { count: "exact", head: true })
@@ -43,7 +41,6 @@ export default async function LedgerPage() {
     const periodStart = `${currentPeriod}-01`;
     const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10);
 
-    // @ts-ignore
     const { data: completedTasks } = await supabase
         .from("tasks")
         .select("failure_cost_cents")
@@ -96,7 +93,6 @@ export default async function LedgerPage() {
                 <HardRefreshButton />
             </div>
 
-            {/* High-Contrast Summary Grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
                 <div className="space-y-1">
                     <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Projected Donation</p>
@@ -116,7 +112,6 @@ export default async function LedgerPage() {
                 </div>
             </div>
 
-            {/* Ledger List */}
             <section className="space-y-4">
                 <div className="flex min-w-0 items-center justify-between gap-2 border-b border-slate-900 pb-2">
                     <h2 className="min-w-0 flex-1 whitespace-nowrap text-[clamp(0.85rem,3.5vw,1.375rem)] font-semibold text-slate-500">

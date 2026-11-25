@@ -51,7 +51,6 @@ Deno.serve(async (request) => {
   const userId = await resolveUserId(request.headers.get("Authorization"));
   if (!userId) return json({ error: "Not authenticated." }, 401);
 
-  // Rate limit: check last export
   const { data: lastExport } = await adminSupabase
     .from("data_exports")
     .select("created_at")
@@ -72,7 +71,6 @@ Deno.serve(async (request) => {
     }
   }
 
-  // Fetch user email
   const { data: profile, error: profileError } = await adminSupabase
     .from("profiles")
     .select("email, username, currency, created_at")
@@ -83,7 +81,6 @@ Deno.serve(async (request) => {
     return json({ error: "Could not resolve user email." }, 400);
   }
 
-  // Fetch all user data
   const [
     tasksRes,
     subtasksRes,
@@ -153,7 +150,6 @@ Deno.serve(async (request) => {
     return json({ error: `Data fetch failed: ${queryError}` }, 500);
   }
 
-  // Assemble payload
   const subtasksByTask: Record<string, unknown[]> = {};
   const remindersByTask: Record<string, unknown[]> = {};
   for (const s of (subtasksRes.data ?? []) as any[]) {
@@ -195,7 +191,6 @@ Deno.serve(async (request) => {
   const dateStr = new Date().toISOString().slice(0, 10);
   const filename = `vouch-export-${dateStr}.json`;
 
-  // Send email with attachment
   try {
     const result = await resend.emails.send({
       from: "Vouch <noreply@vouch.tarunh.com>",

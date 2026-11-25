@@ -13,9 +13,6 @@ const pushSubscriptionSchema = z.object({
 });
 type PushSubscriptionPayload = z.infer<typeof pushSubscriptionSchema>;
 
-/**
- * Saves a web push subscription for the current user.
- */
 export async function saveSubscription(subscription: unknown) {
     const parsedSubscription = pushSubscriptionSchema.safeParse(subscription);
     if (!parsedSubscription.success) {
@@ -37,8 +34,6 @@ export async function saveSubscription(subscription: unknown) {
         },
         {
             onConflict: "user_id, subscription",
-            // RLS allows INSERT/SELECT/DELETE on this table (no UPDATE policy), so avoid
-            // ON CONFLICT DO UPDATE behavior that can fail under RLS in production.
             ignoreDuplicates: true,
         }
     );
@@ -51,9 +46,6 @@ export async function saveSubscription(subscription: unknown) {
     return { success: true };
 }
 
-/**
- * Deletes a web push subscription.
- */
 export async function deleteSubscription(subscription: unknown) {
     const parsedSubscription = pushSubscriptionSchema.safeParse(subscription);
     if (!parsedSubscription.success) return;
@@ -76,9 +68,6 @@ export async function deleteSubscription(subscription: unknown) {
     }
 }
 
-/**
- * Sends a one-off test web push notification to the authenticated user.
- */
 export async function sendTestPushNotification() {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();

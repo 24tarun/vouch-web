@@ -1,5 +1,3 @@
--- Fix AI rectification approval failures caused by PL/pgSQL output-column
--- ambiguity, and make proof deadline validation atomic with finalization.
 
 CREATE OR REPLACE FUNCTION public.check_rectify_pass_limit()
 RETURNS trigger
@@ -135,8 +133,6 @@ DECLARE
   v_proof_timestamp_source text;
   v_proof_timezone text;
 BEGIN
-  -- Lock the task first so completion, timeout, and proof finalization use a
-  -- consistent lock order and cannot race on a stale status/deadline snapshot.
   SELECT t.status, t.deadline
   INTO v_task_status, v_task_deadline
   FROM public.tasks AS t
@@ -189,8 +185,6 @@ BEGIN
     RETURN;
   END IF;
 
-  -- The displayed deadline minute is inclusive. Appeal and rectification
-  -- proof follow their review workflows and are intentionally exempt here.
   IF v_task_status IN (
        'ACTIVE','POSTPONED','AWAITING_VOUCHER','AWAITING_AI','MARKED_COMPLETE'
      )

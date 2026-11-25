@@ -20,7 +20,6 @@ test.afterEach(() => {
     cleanup();
 });
 
-// The editors live behind the toolbar chips, so open the right popover first.
 const openDeadline = (view: RenderResult) => fireEvent.click(view.getByRole("button", { name: "Edit deadline" }));
 const openReminders = (view: RenderResult) => fireEvent.click(view.getByRole("button", { name: "Edit reminders" }));
 
@@ -247,7 +246,6 @@ test("deadline hour and minute share one stepper line", () => {
     assert.equal((view.getByLabelText("Deadline hour") as HTMLInputElement).value, "23");
     assert.equal((view.getByLabelText("Deadline minute") as HTMLInputElement).value, "00");
 
-    // The coarse -10/+10 steppers are gone; only single steps remain.
     assert.equal(view.queryByLabelText("Deadline hour minus 10"), null);
     assert.equal(view.queryByLabelText("Deadline minute plus 10"), null);
 

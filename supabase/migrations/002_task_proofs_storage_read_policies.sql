@@ -1,6 +1,3 @@
--- Allow authenticated users to read proof objects via signed URLs.
--- Object path format is enforced by edge function:
---   <owner_id>/<task_id>/<random>.<ext>
 
 DROP POLICY IF EXISTS "Task proof owners can read objects" ON storage.objects;
 CREATE POLICY "Task proof owners can read objects"

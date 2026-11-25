@@ -6,9 +6,6 @@ import {
     GOOGLE_EVENT_COLOR_OPTIONS,
 } from "@/lib/task-title-event-color";
 
-// ---------------------------------------------------------------------------
-// Weekday (merged from task-title-weekday.ts)
-// ---------------------------------------------------------------------------
 
 const WEEKDAY_TOKEN_PATTERN =
     "\\b(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:r(?:s(?:day)?)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)\\b";
@@ -55,9 +52,6 @@ export function resolveUpcomingWeekdayDate(targetWeekday: number, now: Date): Da
     return resolved;
 }
 
-// ---------------------------------------------------------------------------
-// Overlay gate (merged from task-title-overlay.ts)
-// ---------------------------------------------------------------------------
 
 export interface TaskTitleOverlaySegment {
     className: string;
@@ -77,10 +71,6 @@ export function shouldRenderTaskTitleOverlay(
     return segments.some((segment) => segment.className !== "text-white" || Boolean(segment.style?.color));
 }
 
-// ---------------------------------------------------------------------------
-// Clock / time token parsing (unified — replaces both parseClockToken and
-// parseTaskInputTimeToken which were duplicates with different allowHourOnly defaults)
-// ---------------------------------------------------------------------------
 
 export interface ParsedClockToken {
     hours: number;
@@ -135,14 +125,10 @@ export function parseTaskInputTimeToken(token: string, allowHourOnly: boolean): 
     return { hours, minutes };
 }
 
-/** Alias used by task-title-event-time.ts — always allows hour-only input. */
 export function parseClockToken(raw: string): ParsedClockToken | null {
     return parseTaskInputTimeToken(raw, true);
 }
 
-// ---------------------------------------------------------------------------
-// Highlight segments + keyword completion (merged from task-input-editor.ts)
-// ---------------------------------------------------------------------------
 
 export const EVENT_TOKEN_REGEX = /(^|\s)-event(?=\s|$)/i;
 const HIGHLIGHT_EVENT_TOKEN_REGEX = /(^|\s)(-event)(?=\s|$)/gi;
@@ -578,9 +564,6 @@ export function buildTaskTitleOverlayModel(
     };
 }
 
-// ---------------------------------------------------------------------------
-// Date helpers (extracted from TaskInput.tsx)
-// ---------------------------------------------------------------------------
 
 export const TOMORROW_KEYWORD_REGEX = /(^|\s)@?(?:tmr|tmrw|tomorrow)(?=\s|$)/i;
 export const ORDINAL_DATE_TOKEN_REGEX = /\b([12]?\d|3[01])(st|nd|rd|th)\b/gi;
@@ -692,10 +675,6 @@ export interface ParsedTaskDescription {
     description: string | null;
 }
 
-/**
- * Removes an inline -d(...) command from parser input and returns its content as
- * verification context. Parser metadata can appear before or after the command.
- */
 export function parseTaskDescription(text: string): ParsedTaskDescription {
     if (!text) {
         return { taskInput: "", description: null };
@@ -791,13 +770,11 @@ export type TitleTextSegment =
 const TITLE_LINK_REGEX = /\b(?:https?:\/\/|www\.)[^\s<>"']+/gi;
 const TRAILING_LINK_PUNCTUATION_REGEX = /[.,;:!?)\]]+$/;
 
-/** Splits a title into plain text and full-URL link segments for rendering. */
 export function splitTitleLinks(text: string): TitleTextSegment[] {
     const segments: TitleTextSegment[] = [];
     let lastIndex = 0;
     for (const match of text.matchAll(TITLE_LINK_REGEX)) {
         const start = match.index ?? 0;
-        // Keep sentence punctuation like a trailing "." or ")" out of the link.
         const value = match[0].replace(TRAILING_LINK_PUNCTUATION_REGEX, "");
         if (start > lastIndex) segments.push({ type: "text", value: text.slice(lastIndex, start) });
         const href = /^https?:\/\//i.test(value) ? value : `https://${value}`;

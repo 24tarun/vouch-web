@@ -108,7 +108,6 @@ Deno.serve(async (request) => {
     return json({ error: "Missing taskId or recipientUserId." }, 400);
   }
 
-  // Verify caller is the task's voucher and recipient is the task owner
   const { data: task, error: taskError } = await adminSupabase
     .from("tasks")
     .select("id, title, user_id, voucher_id, status, proof_request_open, has_proof")
@@ -163,7 +162,6 @@ Deno.serve(async (request) => {
     webPush: Record<string, unknown> | null;
   } = { expo: null, webPush: null };
 
-  // --- Expo Push ---
   const { data: tokenRows } = await adminSupabase
     .from("expo_push_tokens")
     .select("token, user_client_instance_id")
@@ -244,7 +242,6 @@ Deno.serve(async (request) => {
     }
   }
 
-  // --- Web Push ---
   if (!vapidReady) {
     results.webPush = { success: false, skipped: true, reason: "vapid_not_configured" };
   } else {

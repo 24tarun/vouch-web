@@ -11,12 +11,10 @@ export interface CalendarTask {
     google_sync_for_task: boolean;
     google_event_start_at: string | null;
     recurrence_rule_id: string | null;
-    /** Set when the task repeats daily: postponing must stay on the same day in this timezone. */
     daily_rule_timezone: string | null;
 }
 
 export interface CalendarGhost {
-    /** `${ruleId}|${deadlineIso}` */
     key: string;
     ruleId: string;
     title: string;
@@ -39,7 +37,6 @@ export interface CalendarWeekData {
     tasks: CalendarTask[];
     ghosts: CalendarGhost[];
     blocks: CalendarBlock[];
-    /** Tasks you can plan a block for (active, not events), any week. */
     pickerTasks: CalendarTask[];
     showPastTasks: boolean;
 }

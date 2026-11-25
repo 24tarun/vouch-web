@@ -45,7 +45,6 @@ export default async function TaskPage({ params }: TaskPageProps) {
     ]);
     const hasUsedOverrideThisMonth = (overrideUsage.count || 0) >= 1;
 
-    // @ts-ignore
     const { data: profile } = await supabase
         .from("profiles")
         .select("*")

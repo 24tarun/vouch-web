@@ -1,6 +1,3 @@
--- A Pomodoro may be observed by every client on the account so concurrent
--- starts can be rejected, but only the client that created it may control its
--- timer.  Historical sessions remain nullable because they predate ownership.
 ALTER TABLE public.pomo_sessions
   ADD COLUMN owner_user_client_instance_id uuid;
 

@@ -35,7 +35,6 @@ function playDefaultNotificationSound() {
             void ctx.close();
         }, 600);
     } catch {
-        // Best-effort sound playback. Ignore unsupported/browser-blocked playback.
     }
 }
 
@@ -50,7 +49,6 @@ export function PWARegistration() {
                 const registration = await navigator.serviceWorker.register('/sw.js');
                 if (cancelled) return;
 
-                // Ask the browser to check for updates early instead of waiting for a full page lifecycle.
                 void registration.update();
                 console.log('SW registered:', registration);
             } catch (err) {

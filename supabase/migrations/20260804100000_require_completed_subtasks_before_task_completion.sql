@@ -1,4 +1,3 @@
--- Keep the completion invariant enforced even when a client has stale subtask data.
 create or replace function public.prevent_completion_with_incomplete_subtasks()
 returns trigger
 language plpgsql

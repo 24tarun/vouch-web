@@ -1,24 +1,9 @@
--- ============================================================
--- VOUCH — Consolidated Schema Snapshot
--- Generated: 2026-04-19
--- This file is the authoritative source of truth for the DB schema.
--- ============================================================
-
-
--- ============================================================
--- EXTENSIONS
--- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "pg_graphql";
 CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 CREATE EXTENSION IF NOT EXISTS "supabase_vault";
-
-
--- ============================================================
--- UTILITY FUNCTIONS
--- ============================================================
 
 CREATE OR REPLACE FUNCTION public.update_updated_at()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -90,11 +75,6 @@ BEGIN
   WHERE id = p_user_id;
 END;
 $$;
-
-
--- ============================================================
--- TRIGGER FUNCTIONS
--- ============================================================
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -228,7 +208,6 @@ $$;
 CREATE OR REPLACE FUNCTION public.increment_abandoned_commitments_count()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  -- Only count deletions of ACTIVE commitments as abandonment
   IF OLD.status = 'ACTIVE' THEN
     UPDATE public.profiles
     SET abandoned_commitments_count = COALESCE(abandoned_commitments_count, 0) + 1
@@ -237,11 +216,6 @@ BEGIN
   RETURN OLD;
 END;
 $$;
-
-
--- ============================================================
--- SOCIAL / SECURITY DEFINER FUNCTIONS
--- ============================================================
 
 CREATE OR REPLACE FUNCTION public.search_users_for_friendship(p_query text, p_limit integer DEFAULT 20)
 RETURNS TABLE(
@@ -503,11 +477,6 @@ BEGIN
 END;
 $$;
 
-
--- ============================================================
--- TABLES (in dependency order)
--- ============================================================
-
 CREATE TABLE public.profiles (
   id                                uuid        NOT NULL,
   email                             text        NOT NULL,
@@ -545,7 +514,6 @@ CREATE TABLE public.profiles (
     CHECK (abandoned_commitments_count >= 0)
 );
 
--- Self-referencing FK added after table creation
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_default_voucher_id_fkey
     FOREIGN KEY (default_voucher_id) REFERENCES public.profiles (id) ON DELETE SET NULL;
@@ -612,7 +580,6 @@ CREATE TABLE public.tasks (
   description                       text,
   failure_cost_cents                integer     NOT NULL,
   deadline                          timestamptz NOT NULL,
-  -- Default 'CREATED' is the initial value; the status check constraint enforces valid transitions
   status                            text        NOT NULL DEFAULT 'CREATED',
   postponed_at                      timestamptz,
   marked_completed_at               timestamptz,
@@ -1061,11 +1028,6 @@ CREATE TABLE public.google_calendar_sync_outbox (
     CHECK (status = ANY (ARRAY['PENDING','PROCESSING','DONE','FAILED']))
 );
 
-
--- ============================================================
--- INDEXES
--- ============================================================
-
 CREATE INDEX ai_vouches_task_id_idx
   ON public.ai_vouches USING btree (task_id);
 
@@ -1200,11 +1162,6 @@ CREATE INDEX user_client_instances_user_id_idx
 CREATE INDEX idx_voucher_reminder_logs_voucher_date
   ON public.voucher_reminder_logs USING btree (voucher_id, reminder_date);
 
-
--- ============================================================
--- TRIGGERS
--- ============================================================
-
 CREATE TRIGGER commitments_increment_abandoned_count
   AFTER DELETE ON public.commitments
   FOR EACH ROW EXECUTE FUNCTION public.increment_abandoned_commitments_count();
@@ -1277,15 +1234,9 @@ CREATE TRIGGER user_client_instances_updated_at
   BEFORE UPDATE ON public.user_client_instances
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
 
--- Trigger on auth.users to auto-create profile on signup
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
-
--- ============================================================
--- ROW LEVEL SECURITY
--- ============================================================
 
 ALTER TABLE public.ai_vouches              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.commitment_task_links   ENABLE ROW LEVEL SECURITY;
@@ -1312,12 +1263,10 @@ ALTER TABLE public.user_client_instances   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.voucher_reminder_logs   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.web_push_subscriptions  ENABLE ROW LEVEL SECURITY;
 
--- ai_vouches
 CREATE POLICY "Owner can read own ai_vouches"
   ON public.ai_vouches FOR SELECT
   USING (task_id IN (SELECT id FROM tasks WHERE user_id = auth.uid()));
 
--- commitment_task_links
 CREATE POLICY "Users can view own commitment links"
   ON public.commitment_task_links FOR SELECT
   USING (EXISTS (SELECT 1 FROM commitments WHERE id = commitment_id AND user_id = auth.uid()));
@@ -1332,7 +1281,6 @@ CREATE POLICY "Users can delete own commitment links"
   ON public.commitment_task_links FOR DELETE
   USING (EXISTS (SELECT 1 FROM commitments WHERE id = commitment_id AND user_id = auth.uid()));
 
--- commitments
 CREATE POLICY "Users can view own commitments"
   ON public.commitments FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own commitments"
@@ -1342,18 +1290,15 @@ CREATE POLICY "Users can update own commitments"
 CREATE POLICY "Users can delete own commitments"
   ON public.commitments FOR DELETE USING (auth.uid() = user_id);
 
--- expo_push_tokens
 CREATE POLICY "Users can manage their own push tokens"
   ON public.expo_push_tokens FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
--- friend_requests
 CREATE POLICY "Users can view own friend requests"
   ON public.friend_requests FOR SELECT
   USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
 
--- friendships
 CREATE POLICY "Users can view own friendships"
   ON public.friendships FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can create friendships"
@@ -1361,7 +1306,6 @@ CREATE POLICY "Users can create friendships"
 CREATE POLICY "Users can delete own friendships"
   ON public.friendships FOR DELETE USING (auth.uid() = user_id);
 
--- google_calendar_connections
 CREATE POLICY "Users can view own Google Calendar connection"
   ON public.google_calendar_connections FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own Google Calendar connection"
@@ -1371,15 +1315,12 @@ CREATE POLICY "Users can update own Google Calendar connection"
 CREATE POLICY "Users can delete own Google Calendar connection"
   ON public.google_calendar_connections FOR DELETE USING (auth.uid() = user_id);
 
--- google_calendar_sync_outbox
 CREATE POLICY "Users can view own Google Calendar outbox"
   ON public.google_calendar_sync_outbox FOR SELECT USING (auth.uid() = user_id);
 
--- google_calendar_task_links
 CREATE POLICY "Users can view own Google Calendar links"
   ON public.google_calendar_task_links FOR SELECT USING (auth.uid() = user_id);
 
--- ledger_entries
 CREATE POLICY "Users can view own ledger"
   ON public.ledger_entries FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own ledger entries"
@@ -1388,13 +1329,11 @@ CREATE POLICY "Voucher can insert ledger entry for their task"
   ON public.ledger_entries FOR INSERT
   WITH CHECK (auth.uid() = (SELECT voucher_id FROM tasks WHERE id = task_id));
 
--- overrides
 CREATE POLICY "Users can view own overrides"
   ON public.overrides FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own overrides"
   ON public.overrides FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- pomo_sessions
 CREATE POLICY "Users can manage own pomo sessions"
   ON public.pomo_sessions FOR ALL USING (auth.uid() = user_id);
 CREATE POLICY "Friends can view active or paused pomo sessions"
@@ -1407,13 +1346,11 @@ CREATE POLICY "Friends can view active or paused pomo sessions"
     )
   );
 
--- profiles
 CREATE POLICY "Users can view all profiles"
   ON public.profiles FOR SELECT USING (true);
 CREATE POLICY "Users can update own profile"
   ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
--- rectify_passes
 CREATE POLICY "Users can view own rectify passes"
   ON public.rectify_passes FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Vouchers can view authorized passes"
@@ -1421,7 +1358,6 @@ CREATE POLICY "Vouchers can view authorized passes"
 CREATE POLICY "System can insert rectify passes"
   ON public.rectify_passes FOR INSERT WITH CHECK (true);
 
--- recurrence_rules
 CREATE POLICY "Users can view own recurrence rules"
   ON public.recurrence_rules FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own recurrence rules"
@@ -1431,7 +1367,6 @@ CREATE POLICY "Users can update own recurrence rules"
 CREATE POLICY "Users can delete own recurrence rules"
   ON public.recurrence_rules FOR DELETE USING (auth.uid() = user_id);
 
--- task_completion_proofs
 CREATE POLICY "Owners can view own task proofs"
   ON public.task_completion_proofs FOR SELECT USING (auth.uid() = owner_id);
 CREATE POLICY "Vouchers can view assigned task proofs"
@@ -1447,7 +1382,6 @@ CREATE POLICY "Owners can update own task proofs"
 CREATE POLICY "Owners can delete own task proofs"
   ON public.task_completion_proofs FOR DELETE USING (auth.uid() = owner_id);
 
--- task_events
 CREATE POLICY "Users can view events for own tasks"
   ON public.task_events FOR SELECT
   USING (EXISTS (
@@ -1457,7 +1391,6 @@ CREATE POLICY "Users can view events for own tasks"
 CREATE POLICY "System can insert events"
   ON public.task_events FOR INSERT WITH CHECK (true);
 
--- task_reminders
 CREATE POLICY "Users can view own task reminders"
   ON public.task_reminders FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own task reminders"
@@ -1467,7 +1400,6 @@ CREATE POLICY "Users can update own task reminders"
 CREATE POLICY "Users can delete own task reminders"
   ON public.task_reminders FOR DELETE USING (auth.uid() = user_id);
 
--- task_subtasks
 CREATE POLICY "Users can view own task subtasks"
   ON public.task_subtasks FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own task subtasks"
@@ -1477,7 +1409,6 @@ CREATE POLICY "Users can update own task subtasks"
 CREATE POLICY "Users can delete own task subtasks"
   ON public.task_subtasks FOR DELETE USING (auth.uid() = user_id);
 
--- tasks
 CREATE POLICY "Users can view own tasks"
   ON public.tasks FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Vouchers can view assigned tasks"
@@ -1491,11 +1422,9 @@ CREATE POLICY "Vouchers can update assigned tasks"
   USING (auth.uid() = voucher_id)
   WITH CHECK (auth.uid() = voucher_id AND status <> 'DELETED');
 
--- user_blocks
 CREATE POLICY "Users can view own blocks"
   ON public.user_blocks FOR SELECT USING (auth.uid() = blocker_id);
 
--- user_client_instances
 CREATE POLICY "Users can view own client instances"
   ON public.user_client_instances FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own client instances"
@@ -1507,13 +1436,11 @@ CREATE POLICY "Users can update own client instances"
 CREATE POLICY "Users can delete own client instances"
   ON public.user_client_instances FOR DELETE USING (auth.uid() = user_id);
 
--- voucher_reminder_logs
 CREATE POLICY "Users can view own voucher reminder logs"
   ON public.voucher_reminder_logs FOR SELECT USING (auth.uid() = voucher_id);
 CREATE POLICY "Users can insert own voucher reminder logs"
   ON public.voucher_reminder_logs FOR INSERT WITH CHECK (auth.uid() = voucher_id);
 
--- web_push_subscriptions
 CREATE POLICY "Users can view their own subscriptions"
   ON public.web_push_subscriptions FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert their own subscriptions"
@@ -1521,9 +1448,6 @@ CREATE POLICY "Users can insert their own subscriptions"
 CREATE POLICY "Users can delete their own subscriptions"
   ON public.web_push_subscriptions FOR DELETE USING (auth.uid() = user_id);
 
--- ============================================================
--- REALTIME PUBLICATIONS
--- ============================================================
 
 ALTER PUBLICATION supabase_realtime ADD TABLE public.commitment_task_links;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.commitments;

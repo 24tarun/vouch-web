@@ -46,7 +46,6 @@ export async function runOrchestratedTaskCommand(
             try {
                 payload = await response.json() as Record<string, unknown>;
             } catch {
-                // Preserve the transport message when the response is not JSON.
             }
         }
         return {

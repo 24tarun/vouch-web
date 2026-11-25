@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteTaskProof } from "@/lib/task-proof";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";

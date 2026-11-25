@@ -24,7 +24,6 @@ export function ReputationBar({ data, className }: ReputationBarProps) {
 
     return (
         <div className={`w-full ${className ?? ""}`}>
-            {/* Labels row above the bar */}
             <div className="flex items-baseline justify-between mb-1 px-0.5">
                 <span
                     className="font-mono text-white tabular-nums"
@@ -39,7 +38,6 @@ export function ReputationBar({ data, className }: ReputationBarProps) {
                 )}
             </div>
 
-            {/* Bar — 1/3 of original h-7 (~9px) */}
             <div
                 className="relative w-full rounded-full overflow-hidden"
                 style={{

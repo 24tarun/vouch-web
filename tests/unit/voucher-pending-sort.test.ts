@@ -40,17 +40,6 @@ test("pending tasks sort by updated_at descending as the primary order", () => {
 
     const sorted = sortPendingTasks(tasks);
 
-    /*
-     * What and why this test checks:
-     * This verifies the requested ordering change where recency (`updated_at`) controls the list first,
-     * so newly changed pending tasks surface at the top.
-     *
-     * Passing scenario:
-     * The task with newer updated_at is placed before the older one regardless of deadline values.
-     *
-     * Failing scenario:
-     * If deadline still dominates ordering, recently updated tasks can be buried below older rows.
-     */
     assert.deepEqual(sorted.map((task) => task.id), ["newer", "older"]);
 });
 
@@ -63,17 +52,6 @@ test("pending_deadline_at is used as tie-breaker when updated_at is equal", () =
 
     const sorted = sortPendingTasks(tasks);
 
-    /*
-     * What and why this test checks:
-     * This validates the tie-break rule for equal updated_at values: earliest pending deadline first,
-     * and null deadlines pushed after valid ones.
-     *
-     * Passing scenario:
-     * Rows with equal updated_at are ordered by deadline ascending, with null deadline at the end.
-     *
-     * Failing scenario:
-     * If tie-break logic is wrong, equal-updated rows can appear in unstable or unintuitive order.
-     */
     assert.deepEqual(sorted.map((task) => task.id), [
         "earlier-deadline",
         "later-deadline",

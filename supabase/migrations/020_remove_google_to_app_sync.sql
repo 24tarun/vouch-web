@@ -1,5 +1,3 @@
--- Remove all Google→Vouch sync infrastructure.
--- The sync direction is now App→Google only.
 
 DROP TABLE IF EXISTS public.google_calendar_sync_inbox;
 DROP TABLE IF EXISTS public.google_calendar_event_tombstones;

@@ -41,7 +41,6 @@ export function splitDashboardActiveTaskBuckets(
     for (const task of activeTasks) {
         const deadlineMs = Date.parse(task.deadline);
 
-        // Invalid deadlines should remain visible in Active fallback.
         if (Number.isNaN(deadlineMs) || deadlineMs < futureBoundaryMs) {
             activeDueSoonTasks.push(task);
             continue;

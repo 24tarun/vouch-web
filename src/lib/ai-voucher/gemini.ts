@@ -1,9 +1,3 @@
-/**
- * Gemini AI Integration for Proof Evaluation
- *
- * This module is SERVER-ONLY. Never import from client components.
- * Handles image and video proof evaluation using Google's Gemini 2.5 Flash-Lite API.
- */
 
 import {
   GoogleGenerativeAI,
@@ -20,7 +14,6 @@ import {
   type ProofEvaluationTimingContext,
 } from "@/lib/ai-voucher/proof-evaluation-context";
 
-// wait is only available inside a Trigger.dev task context — imported lazily
 let _triggerWait: ((opts: { seconds: number }) => Promise<void>) | null = null;
 async function waitSeconds(seconds: number) {
   if (_triggerWait) {
@@ -40,7 +33,6 @@ if (!process.env.GEMINI_API_KEY) {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 
-// Structured output schema — forces Gemini to return exactly this shape
 const EVALUATION_SCHEMA: Schema = {
   type: SchemaType.OBJECT,
   properties: {
@@ -72,12 +64,6 @@ export interface EvaluateProofParams {
   mediaKind: "image" | "video";
 }
 
-/**
- * Evaluate proof using Gemini 2.5 Flash-Lite with structured output.
- *
- * For images: base64 inline
- * For videos: upload via File API, poll for processing, then inference
- */
 export async function evaluateProofWithGemini(
   params: EvaluateProofParams
 ): Promise<ProofEvaluationResult> {
@@ -104,10 +90,6 @@ export async function evaluateProofWithGemini(
   }
 }
 
-/**
- * Evaluate image proof via base64 inline.
- * Timeout: 30 seconds.
- */
 async function evaluateImageProof(
   model: ReturnType<typeof genAI.getGenerativeModel>,
   buffer: Buffer,
@@ -149,11 +131,6 @@ async function evaluateImageProof(
   }
 }
 
-/**
- * Evaluate video proof via Google File API.
- * Upload → poll for processing → inference
- * Timeout: 120 seconds (including upload + processing + inference).
- */
 async function evaluateVideoProof(
   model: ReturnType<typeof genAI.getGenerativeModel>,
   buffer: Buffer,
@@ -168,15 +145,13 @@ async function evaluateVideoProof(
   const uploadExt = inferExtensionFromMime(uploadMimeType);
 
   const startTime = Date.now();
-  const timeout = 120000; // 120 seconds
+  const timeout = 120000;
 
   try {
-    // Write buffer to temp file
     const tempDir = os.tmpdir();
     tempFilePath = path.join(tempDir, `proof-${Date.now()}.${uploadExt}`);
     fs.writeFileSync(tempFilePath, buffer);
 
-    // Upload to Gemini File API
     console.log("Uploading video to Gemini File API...");
     const uploadResult = await fileManager.uploadFile(tempFilePath, {
       mimeType: uploadMimeType,
@@ -185,7 +160,6 @@ async function evaluateVideoProof(
 
     console.log("Video uploaded, URI:", uploadResult.file.uri);
 
-    // Poll for processing completion
     console.log("Polling for processing...");
     let file = await fileManager.getFile(uploadResult.file.name);
 
@@ -204,7 +178,6 @@ async function evaluateVideoProof(
 
     console.log("Video processed, state:", file.state);
 
-    // Evaluate the processed video
     const result = await model.generateContent([
       {
         fileData: {
@@ -220,7 +193,6 @@ async function evaluateVideoProof(
     const responseText = result.response.text();
     return JSON.parse(responseText) as ProofEvaluationResult;
   } finally {
-    // Clean up temp file
     if (tempFilePath) {
       try {
         fs.unlinkSync(tempFilePath);
@@ -229,7 +201,5 @@ async function evaluateVideoProof(
       }
     }
 
-    // Note: Gemini File API automatically deletes files after 48 hours
-    // We don't explicitly delete here since Google handles it
   }
 }

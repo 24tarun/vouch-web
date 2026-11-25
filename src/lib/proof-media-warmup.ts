@@ -120,7 +120,6 @@ export async function purgeLocalProofMedia(taskId: string): Promise<void> {
             }));
         }));
     } catch {
-        // Best-effort purge only.
     }
 }
 

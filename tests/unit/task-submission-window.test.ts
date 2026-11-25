@@ -18,16 +18,6 @@ function buildIso(
 }
 
 test("submission is allowed when no start is provided and deadline is still in future", () => {
-    /*
-     * What and why this test checks:
-     * This verifies start-time enforcement stays optional and does not block tasks that only have a deadline.
-     *
-     * Passing scenario:
-     * Without a start timestamp and with a future deadline, canSubmitNow is true and beforeStart is false.
-     *
-     * Failing scenario:
-     * If this becomes blocked, non-event and legacy tasks could become impossible to submit before deadline.
-     */
     const now = new Date("2026-03-23T09:00:00.000Z");
     const state = getTaskSubmissionWindowState({
         startAtIso: null,
@@ -42,16 +32,6 @@ test("submission is allowed when no start is provided and deadline is still in f
 });
 
 test("submission is blocked before start when start is in the future", () => {
-    /*
-     * What and why this test checks:
-     * This validates the new gate that prevents submission before the configured start boundary.
-     *
-     * Passing scenario:
-     * With now earlier than start and deadline still future, beforeStart is true and canSubmitNow is false.
-     *
-     * Failing scenario:
-     * If beforeStart is false here, users could submit tasks earlier than the allowed interval.
-     */
     const state = getTaskSubmissionWindowState({
         startAtIso: "2026-03-23T10:00:00.000Z",
         deadlineIso: "2026-03-23T12:00:00.000Z",
@@ -66,16 +46,6 @@ test("submission is blocked before start when start is in the future", () => {
 });
 
 test("submission is allowed exactly at start time", () => {
-    /*
-     * What and why this test checks:
-     * This checks the inclusive boundary contract where submission opens at the exact start timestamp.
-     *
-     * Passing scenario:
-     * When now equals start and deadline is later, beforeStart is false and canSubmitNow is true.
-     *
-     * Failing scenario:
-     * If equality is treated as blocked, users would be forced to wait past the configured start instant.
-     */
     const atStartIso = "2026-03-23T10:00:00.000Z";
     const state = getTaskSubmissionWindowState({
         startAtIso: atStartIso,
@@ -90,16 +60,6 @@ test("submission is allowed exactly at start time", () => {
 });
 
 test("submission is allowed when start time is already in the past", () => {
-    /*
-     * What and why this test checks:
-     * This ensures start gating only blocks early submissions and stops blocking after start has passed.
-     *
-     * Passing scenario:
-     * With now after start and before deadline, beforeStart is false and canSubmitNow is true.
-     *
-     * Failing scenario:
-     * If this still blocks, tasks would remain permanently un-submittable after reaching their start window.
-     */
     const state = getTaskSubmissionWindowState({
         startAtIso: buildIso(2026, 2, 23, 8, 0),
         deadlineIso: buildIso(2026, 2, 23, 12, 0),
@@ -113,16 +73,6 @@ test("submission is allowed when start time is already in the past", () => {
 });
 
 test("invalid start timestamp is treated as absent and does not block submission", () => {
-    /*
-     * What and why this test checks:
-     * This guards robustness for malformed start values so invalid data does not accidentally lock submission.
-     *
-     * Passing scenario:
-     * A malformed start value yields startDate=null and does not set beforeStart when deadline is still in future.
-     *
-     * Failing scenario:
-     * If invalid start values block submission, bad imported rows could become impossible to complete.
-     */
     const state = getTaskSubmissionWindowState({
         startAtIso: "not-a-real-date",
         deadlineIso: "2026-03-23T12:00:00.000Z",
@@ -136,16 +86,6 @@ test("invalid start timestamp is treated as absent and does not block submission
 });
 
 test("submission remains allowed through the displayed deadline minute", () => {
-    /*
-     * What and why this test checks:
-     * This preserves the user-facing minute boundary where a 10:00 deadline is still completable until 10:00:59.
-     *
-     * Passing scenario:
-     * When now is within the displayed deadline minute, pastDeadline is false and canSubmitNow is true.
-     *
-     * Failing scenario:
-     * If the inclusive displayed deadline minute regresses, users could miss tasks even though the displayed deadline minute has not ended.
-     */
     const deadlineIso = "2026-03-23T10:00:00.000Z";
     const state = getTaskSubmissionWindowState({
         startAtIso: "2026-03-23T09:00:00.000Z",
@@ -160,16 +100,6 @@ test("submission remains allowed through the displayed deadline minute", () => {
 });
 
 test("submission is blocked after the displayed deadline minute ends", () => {
-    /*
-     * What and why this test checks:
-     * This pins missed processing to the first instant after the displayed deadline minute has elapsed.
-     *
-     * Passing scenario:
-     * When now is exactly 60 seconds after deadline, pastDeadline is true and canSubmitNow is false.
-     *
-     * Failing scenario:
-     * If the comparison drifts later, users could submit after the intended deadline minute.
-     */
     const deadlineIso = "2026-03-23T10:00:00.000Z";
     const state = getTaskSubmissionWindowState({
         startAtIso: "2026-03-23T09:00:00.000Z",

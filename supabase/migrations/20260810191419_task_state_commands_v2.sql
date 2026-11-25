@@ -1,5 +1,3 @@
--- Additive, authoritative task-state commands for mobile/web clients.
--- Existing functions remain available for already-installed clients.
 
 CREATE OR REPLACE FUNCTION private.task_command_error(p_code text, p_message text)
 RETURNS jsonb
@@ -59,10 +57,6 @@ GRANT EXECUTE ON FUNCTION private.task_command_error(text, text) TO authenticate
 GRANT EXECUTE ON FUNCTION private.task_command_success(public.tasks, text, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION private.task_command_valid_instance(uuid, uuid) TO authenticated;
 
--- State commands enqueue Google Calendar persistence in the same transaction.
--- Dispatch remains an asynchronous, post-commit concern handled by the outbox
--- worker. This helper is owner-aware so voucher commands can enqueue for the
--- task owner without exposing the owner's calendar connection through RLS.
 CREATE OR REPLACE FUNCTION private.enqueue_task_calendar_upsert(p_task public.tasks)
 RETURNS void
 LANGUAGE plpgsql
@@ -196,9 +190,6 @@ REVOKE ALL ON FUNCTION private.enqueue_task_calendar_delete(public.tasks) FROM P
 GRANT EXECUTE ON FUNCTION private.enqueue_task_calendar_upsert(public.tasks) TO authenticated;
 GRANT EXECUTE ON FUNCTION private.enqueue_task_calendar_delete(public.tasks) TO authenticated;
 
--- Queue compensation is one database transaction: release any reservation and
--- restore the authoritative task state together. The Edge orchestration calls
--- this only after Trigger.dev dispatch fails or quota cannot be reserved.
 CREATE OR REPLACE FUNCTION public.rollback_ai_voucher_submission(
   p_user_id uuid,
   p_task_id uuid,

@@ -8,7 +8,6 @@ export function describeAiEvaluationError(error: unknown): string {
         try {
             return JSON.stringify(error);
         } catch {
-            // Fall through to the best available string representation.
         }
     }
 

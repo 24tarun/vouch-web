@@ -10,17 +10,6 @@ import {
 } from "../../src/lib/task-deadline-sheet.ts";
 
 test("date-sheet submit includes the unsaved reminder draft when applying", () => {
-    /*
-     * WHAT + WHY:
-     * This checks the dialog behavior behind the new popup tick button: a reminder typed into the draft field
-     * must be committed even if the user skips the separate Add button and goes straight to apply/create.
-     *
-     * PASSING SCENARIO:
-     * The resolver returns the parsed deadline plus the pending reminder draft in the final reminders array.
-     *
-     * FAILING SCENARIO:
-     * If the pending reminder is dropped, clicking the popup tick creates the task without the reminder the user just entered.
-     */
     const now = new Date(2026, 2, 8, 12, 0, 0, 0);
     const deadline = new Date(2026, 2, 8, 18, 0, 0, 0);
     const reminder = new Date(2026, 2, 8, 17, 30, 0, 0);
@@ -39,17 +28,6 @@ test("date-sheet submit includes the unsaved reminder draft when applying", () =
 });
 
 test("date-sheet submit rejects reminders after the chosen deadline", () => {
-    /*
-     * WHAT + WHY:
-     * This protects the shared validation path used by both Apply and the new popup tick action.
-     * The create shortcut must not bypass the rule that reminders cannot be scheduled after the task deadline.
-     *
-     * PASSING SCENARIO:
-     * A reminder later than the selected deadline returns the same blocking validation error as the regular dialog flow.
-     *
-     * FAILING SCENARIO:
-     * If this resolves successfully, the popup tick could create tasks with impossible reminder timing.
-     */
     const now = new Date(2026, 2, 8, 12, 0, 0, 0);
     const deadline = new Date(2026, 2, 8, 18, 0, 0, 0);
     const invalidReminder = new Date(2026, 2, 8, 18, 30, 0, 0);
@@ -67,17 +45,6 @@ test("date-sheet submit rejects reminders after the chosen deadline", () => {
 });
 
 test("date-sheet submit resolves selected date and end time as the deadline", () => {
-    /*
-     * WHAT + WHY:
-     * This checks the redesigned picker contract: calendar date plus End time is still the single canonical
-     * deadline value used by existing task creation.
-     *
-     * PASSING SCENARIO:
-     * A future end datetime resolves as the submitted deadline without requiring a start time.
-     *
-     * FAILING SCENARIO:
-     * If this rejects or changes the timestamp, the calendar picker would no longer feed the old deadline path.
-     */
     const now = new Date(2026, 4, 5, 9, 0, 0, 0);
     const end = new Date(2026, 4, 6, 18, 45, 0, 0);
 
@@ -94,17 +61,6 @@ test("date-sheet submit resolves selected date and end time as the deadline", ()
 });
 
 test("date-sheet submit keeps optional start time separate from non-event deadline", () => {
-    /*
-     * WHAT + WHY:
-     * This protects the planned non-event behavior where Start time can be drafted without changing the
-     * canonical deadline, which always comes from End time.
-     *
-     * PASSING SCENARIO:
-     * The resolver returns both the end-time deadline and the optional start timestamp as separate values.
-     *
-     * FAILING SCENARIO:
-     * If the deadline is replaced by the start time, ordinary tasks would be due too early.
-     */
     const now = new Date(2026, 4, 5, 9, 0, 0, 0);
     const start = new Date(2026, 4, 6, 9, 30, 0, 0);
     const end = new Date(2026, 4, 6, 18, 0, 0, 0);
@@ -123,17 +79,6 @@ test("date-sheet submit keeps optional start time separate from non-event deadli
 });
 
 test("date-sheet submit returns event boundaries for a picker start and end window", () => {
-    /*
-     * WHAT + WHY:
-     * This covers the data shape used by `-event` tasks when the new picker supplies both start and end
-     * instead of relying on typed `-start` and `-end` tokens.
-     *
-     * PASSING SCENARIO:
-     * A valid start/end window resolves into distinct start and deadline/end dates.
-     *
-     * FAILING SCENARIO:
-     * If start is dropped, event task submission falls back to token parsing and rejects picker-only windows.
-     */
     const now = new Date(2026, 4, 5, 9, 0, 0, 0);
     const start = new Date(2026, 4, 7, 14, 0, 0, 0);
     const end = new Date(2026, 4, 7, 15, 30, 0, 0);
@@ -152,17 +97,6 @@ test("date-sheet submit returns event boundaries for a picker start and end wind
 });
 
 test("date-sheet submit rejects an end time before a start time", () => {
-    /*
-     * WHAT + WHY:
-     * This guards the picker validation rule that a drafted start/end window must be chronological before it can
-     * be used by event submission.
-     *
-     * PASSING SCENARIO:
-     * End before start returns a blocking validation error.
-     *
-     * FAILING SCENARIO:
-     * If this resolves successfully, event tasks could be created with inverted calendar bounds.
-     */
     const now = new Date(2026, 4, 5, 9, 0, 0, 0);
     const start = new Date(2026, 4, 7, 15, 30, 0, 0);
     const end = new Date(2026, 4, 7, 14, 0, 0, 0);
@@ -181,18 +115,6 @@ test("date-sheet submit rejects an end time before a start time", () => {
 });
 
 test("urgent reminder keys resolve against the deadline that is actually submitted", () => {
-    /*
-     * WHAT + WHY:
-     * Urgency is stored per reminder identity, not per instant, so marking the default 1H reminder
-     * urgent and then moving the deadline must still flag the reminder at the new deadline minus 1H.
-     *
-     * PASSING SCENARIO:
-     * Default keys resolve relative to the passed deadline; manual keys keep their own instant.
-     *
-     * FAILING SCENARIO:
-     * If defaults resolved against the old deadline, the created task would carry an alarm flag on a
-     * reminder row that no longer exists, and the reminder the user marked would fire silently.
-     */
     const deadline = new Date(2026, 7, 17, 23, 0, 0, 0);
     const manualReminder = new Date(2026, 7, 17, 9, 0, 0, 0);
 
@@ -209,16 +131,6 @@ test("urgent reminder keys resolve against the deadline that is actually submitt
 });
 
 test("unknown urgency keys are ignored instead of poisoning the alarm list", () => {
-    /*
-     * WHAT + WHY:
-     * Keys survive in state across deadline edits, so the resolver must tolerate junk.
-     *
-     * PASSING SCENARIO:
-     * Garbage keys drop out and the valid ones still resolve.
-     *
-     * FAILING SCENARIO:
-     * An Invalid Date ISO would throw or be sent to the server as an unparseable reminder instant.
-     */
     const deadline = new Date(2026, 7, 17, 23, 0, 0, 0);
 
     assert.deepEqual(resolveUrgentReminderIsos(["nonsense", "manual-not-a-date"], deadline), []);

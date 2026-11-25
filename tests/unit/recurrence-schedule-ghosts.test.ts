@@ -17,7 +17,7 @@ const baseRule: RecurrenceScheduleRule = {
 };
 
 const now = new Date("2026-11-22T10:00:00Z");
-const weekStart = Date.parse("2026-11-22T23:00:00Z"); // Mon 23 Nov 00:00 Berlin
+const weekStart = Date.parse("2026-11-22T23:00:00Z");
 const weekEnd = Date.parse("2026-11-29T23:00:00Z");
 
 test("daily ghosts cover each ungenerated day in the week", () => {
@@ -49,7 +49,6 @@ test("midnight occurrences are due the following midnight, like the generator", 
     const rule = { ...baseRule, rule_config: { ...baseRule.rule_config, time_of_day: "00:00" } };
     assert.equal(computeOccurrenceTimes(rule, "2026-11-23").deadlineIso, "2026-11-23T23:00:00.000Z");
     const ghosts = listUpcomingOccurrences(rule, weekStart, weekEnd, now);
-    // Generated Sun 22 is already done; Mon 23's instance is due Tue 00:00, ... Sun 29's is due after the week.
     assert.equal(ghosts[0].localDate, "2026-11-23");
     assert.equal(ghosts.length, 6);
 });

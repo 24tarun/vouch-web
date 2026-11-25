@@ -540,7 +540,6 @@ export async function disconnectGoogleCalendarForUser(userId: string): Promise<v
             throw new Error("Google token revocation failed: missing stored token.");
         }
 
-        // Strict policy: revocation must succeed before any local integration data is purged.
         await revokeGoogleTokenStrict(tokenForRevocation);
 
     }
@@ -718,7 +717,6 @@ export async function enqueueGoogleCalendarOutbox(
         });
     } catch (triggerError) {
         console.error("Could not trigger google-calendar-dispatch task:", triggerError);
-        // Fallback for environments where Trigger dispatch is unavailable.
         try {
             await processGoogleCalendarOutboxItem(outboxId);
         } catch (fallbackError) {

@@ -1,12 +1,3 @@
-/**
- * Trigger: deadline-fail
- * Runs: Every 5 minutes (configured with a 5-minute cron interval).
- * What it does when it runs:
- * 1) Finds tasks in ACTIVE or POSTPONED whose displayed deadline minute has ended.
- * 2) Marks each matched task as MISSED.
- * 3) Writes a positive failure ledger entry for the task owner.
- * 4) Logs a DEADLINE_MISSED system event in task_events.
- */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
@@ -17,7 +8,7 @@ import { getDeadlineMissCutoffIso, isDeadlineMissEligible } from "@/lib/deadline
 
 export const deadlineFail = schedules.task({
     id: "deadline-fail",
-    cron: "*/5 * * * *", // Run every 5 minutes
+    cron: "*/5 * * * *",
     run: async (payload, { ctx }) => {
         const supabase = createAdminClient();
         const now = new Date();
@@ -25,8 +16,6 @@ export const deadlineFail = schedules.task({
         const missCutoffIso = getDeadlineMissCutoffIso(now);
         const currentPeriod = nowIso.slice(0, 7);
 
-        // Find candidates first, then claim by status group to avoid duplicate processing
-        // across overlapping runs.
         const { data, error } = await supabase
             .from("tasks")
             .select("id, user_id, title, status, failure_cost_cents, deadline, recurrence_rule_id")

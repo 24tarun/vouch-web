@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { authenticateIntegrationRequest, jsonNoStore } from "@/lib/integration-request";
 import { INTEGRATION_ACTIONS } from "@/lib/integration-actions";
 
-/** GET /api/integrations/actions — names and parameter lists of every callable action. */
 export async function GET(request: NextRequest) {
     const auth = await authenticateIntegrationRequest(request, "actions");
     if (auth.response) return auth.response;

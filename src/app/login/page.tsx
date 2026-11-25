@@ -171,7 +171,6 @@ function LoginContent() {
                 .cyan-glow { filter: drop-shadow(0 0 10px var(--cyan-glow)); }
 
 
-                /* Form inputs */
                 .auth-label {
                     font-family: 'DM Mono', monospace;
                     font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
@@ -255,10 +254,8 @@ function LoginContent() {
                     background-size: 200px 200px;
                 }
 
-                /* ── Kill body background so no white flash during slide ── */
                 html, body { background: #020617 !important; }
 
-                /* ── Page slide transitions ── */
                 @keyframes slideInRight {
                     from { transform: translateX(100%); opacity: 0; }
                     to   { transform: translateX(0);    opacity: 1; }
@@ -274,7 +271,6 @@ function LoginContent() {
                     animation: slideOutRight 0.32s cubic-bezier(0.5, 0, 0.75, 0) both;
                 }
 
-                /* ── Responsive layout ── */
                 .auth-shell {
                     display: flex;
                     min-height: 100dvh;
@@ -314,9 +310,7 @@ function LoginContent() {
                 style={{ background: "var(--bg)" }}
             >
 
-                {/* ── Left panel — editorial headline ── */}
                 <div className="auth-left">
-                    {/* Radial glow */}
                     <div style={{
                         position: "absolute",
                         top: "-100px", left: "-100px",
@@ -338,7 +332,6 @@ function LoginContent() {
                         </em>
                     </div>
 
-                    {/* Bottom branding */}
                     <div className="rise d2 fm" style={{
                         position: "absolute", bottom: "40px", left: "64px",
                         fontSize: "10px", letterSpacing: "0.16em", textTransform: "uppercase",
@@ -348,10 +341,8 @@ function LoginContent() {
                     </div>
                 </div>
 
-                {/* ── Right panel — form ── */}
                 <div className="auth-right">
 
-                    {/* Back caret */}
                     <button
                         onClick={navigateBack}
                         style={{
@@ -565,7 +556,6 @@ function LoginContent() {
                         </button>
                     </form>
 
-                    {/* Mode switcher */}
                     <div className="fm" style={{ marginTop: "32px", fontSize: "11px", letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--fg-muted)" }}>
                         {mode === "signin" ? (
                             <>

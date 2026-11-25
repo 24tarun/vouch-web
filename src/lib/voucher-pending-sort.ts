@@ -13,10 +13,8 @@ export function sortPendingTasks(tasks: VoucherPendingTask[]): VoucherPendingTas
         const aUpdatedTs = parseTimestamp(a.updated_at) || 0;
         const bUpdatedTs = parseTimestamp(b.updated_at) || 0;
 
-        // Primary sort: most recently updated first.
         if (aUpdatedTs !== bUpdatedTs) return bUpdatedTs - aUpdatedTs;
 
-        // Tie-breaker: earliest pending deadline first.
         if (aDeadlineTs === null && bDeadlineTs === null) return 0;
         if (aDeadlineTs === null) return 1;
         if (bDeadlineTs === null) return -1;

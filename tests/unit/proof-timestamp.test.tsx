@@ -122,17 +122,6 @@ function buildQuickTimeVideoBuffer(date: Date): ArrayBuffer {
 }
 
 test("proof timestamp formatting zero-pads valid values and rejects invalid text", () => {
-    /*
-     * What and why this test checks:
-     * This checks the shared formatter and normalizer that every proof overlay path now relies on.
-     * If these helpers drift, extracted timestamps and stored overlay text can render inconsistently.
-     *
-     * Passing scenario:
-     * Valid numeric parts render exactly as HH:MM DD/MM/YY with leading zeroes, while malformed text falls back.
-     *
-     * Failing scenario:
-     * If zero-padding breaks or invalid strings are allowed through, users and vouchers could see mismatched or malformed overlays.
-     */
     assert.equal(
         formatProofTimestampParts({
             year: 2026,
@@ -148,32 +137,12 @@ test("proof timestamp formatting zero-pads valid values and rejects invalid text
 });
 
 test("JPEG EXIF extraction reads the original capture timestamp from metadata", () => {
-    /*
-     * What and why this test checks:
-     * This verifies the client-side image metadata path that should surface the original EXIF capture time on proof previews.
-     *
-     * Passing scenario:
-     * A JPEG buffer with a valid EXIF DateTime entry returns the exact formatted overlay string.
-     *
-     * Failing scenario:
-     * If EXIF parsing regresses, real photos would lose their source timestamp and fall back to the placeholder.
-     */
     const buffer = buildExifJpegBuffer("2026:03:07 08:14:59");
 
     assert.equal(extractProofTimestampTextFromJpegBuffer(buffer), "08:14 07/03/26");
 });
 
 test("missing or unreadable image metadata normalizes to the placeholder overlay", () => {
-    /*
-     * What and why this test checks:
-     * This covers the fallback path for files that do not expose a usable embedded timestamp.
-     *
-     * Passing scenario:
-     * A non-EXIF buffer yields no extracted timestamp and normalizes to the exact placeholder text.
-     *
-     * Failing scenario:
-     * If unsupported files produce garbage text or throw unexpectedly, proof previews become unreliable instead of predictable.
-     */
     const invalidBuffer = new Uint8Array([0x00, 0x11, 0x22, 0x33]).buffer;
 
     assert.equal(
@@ -183,16 +152,6 @@ test("missing or unreadable image metadata normalizes to the placeholder overlay
 });
 
 test("native EXIF-like metadata objects yield the same overlay text as embedded EXIF", () => {
-    /*
-     * What and why this test checks:
-     * This verifies the EXIF-object fallback path for mobile capture flows where the picker exposes timestamp data separately from the file bytes.
-     *
-     * Passing scenario:
-     * A native-style metadata object with DateTimeOriginal returns the exact overlay text the UI should store and render.
-     *
-     * Failing scenario:
-     * If EXIF-object parsing regresses, direct camera captures can still fall back to question marks even when native metadata is available.
-     */
     assert.equal(
         extractProofTimestampTextFromExifLike({
             DateTimeOriginal: "2026:03:07 08:14:59",
@@ -203,16 +162,6 @@ test("native EXIF-like metadata objects yield the same overlay text as embedded 
 });
 
 test("HEIC files fall back to the file timestamp when embedded metadata is unavailable", async () => {
-    /*
-     * What and why this test checks:
-     * This covers the unsupported HEIC path where browsers often cannot expose EXIF directly but still provide a reliable file timestamp.
-     *
-     * Passing scenario:
-     * A HEIC file with no parseable media metadata uses lastModified and renders a deterministic overlay instead of the placeholder.
-     *
-     * Failing scenario:
-     * If the fallback is missing, direct mobile HEIC captures will continue to show question marks even though the file timestamp is known.
-     */
     const localCaptureDate = new Date(2026, 2, 7, 8, 14, 0, 0);
     const file = new File([new Uint8Array([0x00, 0x11, 0x22, 0x33])], "proof.heic", {
         type: "image/heic",
@@ -232,16 +181,6 @@ test("HEIC files fall back to the file timestamp when embedded metadata is unava
 });
 
 test("metadata-less direct videos fall back to the file timestamp instead of the placeholder", async () => {
-    /*
-     * What and why this test checks:
-     * This verifies the direct-capture fallback for videos whose container metadata is missing or unreadable after mobile camera handoff.
-     *
-     * Passing scenario:
-     * A video file without parseable atoms still returns a formatted overlay based on lastModified.
-     *
-     * Failing scenario:
-     * If the fallback breaks, direct video captures will still surface question marks even though the file timestamp is available.
-     */
     const localCaptureDate = new Date(2026, 2, 7, 9, 27, 0, 0);
     const file = new File([new Uint8Array([0x01, 0x02, 0x03, 0x04])], "proof.mp4", {
         type: "video/mp4",
@@ -261,16 +200,6 @@ test("metadata-less direct videos fall back to the file timestamp instead of the
 });
 
 test("QuickTime video extraction formats mvhd creation time in the uploader timezone fallback", () => {
-    /*
-     * What and why this test checks:
-     * This verifies the lightweight video metadata parser and the timezone fallback rule the app uses when no explicit media timezone is available.
-     *
-     * Passing scenario:
-     * A QuickTime-style mvhd creation timestamp is converted into the uploader timezone and rendered in the exact overlay format.
-     *
-     * Failing scenario:
-     * If atom parsing or timezone formatting breaks, videos will show the wrong local capture time or lose the overlay entirely.
-     */
     const buffer = buildQuickTimeVideoBuffer(new Date("2026-03-07T09:14:00.000Z"));
 
     assert.equal(
@@ -280,16 +209,6 @@ test("QuickTime video extraction formats mvhd creation time in the uploader time
 });
 
 test("ProofMedia renders the stored overlay text on image previews", () => {
-    /*
-     * What and why this test checks:
-     * This validates the shared proof viewer wrapper that owner and voucher image previews now both use.
-     *
-     * Passing scenario:
-     * Rendering an image proof shows the media element and the stored overlay text in the DOM together.
-     *
-     * Failing scenario:
-     * If the wrapper drops the overlay or hides it from the shared view layer, one side of the app could stop showing proof timestamps.
-     */
     const view = render(
         <ProofMedia
             mediaKind="image"
@@ -305,16 +224,6 @@ test("ProofMedia renders the stored overlay text on image previews", () => {
 });
 
 test("ProofMedia normalizes invalid overlay text to the placeholder on video previews", () => {
-    /*
-     * What and why this test checks:
-     * This covers the shared fallback rendering path so malformed proof rows still display a deterministic timestamp string.
-     *
-     * Passing scenario:
-     * Rendering a video proof with invalid overlay text shows the video element and the placeholder overlay.
-     *
-     * Failing scenario:
-     * If invalid values leak through unchanged, users and vouchers could see broken or inconsistent timestamp text across previews.
-     */
     const view = render(
         <ProofMedia
             mediaKind="video"

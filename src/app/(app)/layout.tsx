@@ -54,7 +54,6 @@ export default async function DashboardLayout({
             <div className="min-h-screen bg-slate-950 text-slate-200">
                 <RealtimeListener userId={user.id} />
                 <PushInitializer autoPrompt={clientInstanceStatus.isNew} />
-                {/* Navigation */}
                 <nav aria-label="Primary" className="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 pt-safe">
                     <div className="max-w-4xl mx-auto px-4 md:px-0">
                         <div className="h-14 flex items-center">
@@ -69,7 +68,6 @@ export default async function DashboardLayout({
                     </div>
                 </nav>
 
-                {/* Main Content */}
                 <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pl-safe pr-safe pb-safe">
                     {children}
                 </main>

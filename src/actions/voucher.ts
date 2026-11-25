@@ -81,7 +81,6 @@ export async function voucherAccept(taskId: string) {
         return { error: "Not authenticated" };
     }
 
-    // @ts-ignore
     const { data: task } = await (supabase.from("tasks") as any)
         .select("*, user:profiles!tasks_user_id_fkey(id, email, username)")
         .eq("id", (taskId as any))
@@ -106,9 +105,6 @@ export async function voucherAccept(taskId: string) {
     const cleanup = await deleteTaskProof(taskId, "voucher_accept_post_commit");
     if (!cleanup.success) console.error(`Post-commit proof cleanup failed for task ${taskId}:`, cleanup.error);
 
-    // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
-    // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
-    // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
     refreshVoucherDecisionSurfaces(taskId, typedTask.user_id, user.id);
     return { success: true };
 }
@@ -123,7 +119,6 @@ export async function voucherDeny(taskId: string) {
         return { error: "Not authenticated" };
     }
 
-    // @ts-ignore
     const { data: task } = await (supabase.from("tasks") as any)
         .select("*, user:profiles!tasks_user_id_fkey(id, email, username)")
         .eq("id", (taskId as any))
@@ -163,9 +158,6 @@ export async function voucherDeny(taskId: string) {
 
     await notifyCommitmentFailureIfNeeded(taskId, typedTask.recurrence_rule_id ?? null);
 
-    // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
-    // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
-    // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
     refreshVoucherDecisionSurfaces(taskId, typedTask.user_id, user.id);
     return { success: true };
 }
@@ -248,9 +240,6 @@ export async function voucherRequestProof(taskId: string) {
         });
     }
 
-    // Owner dashboard active tasks are cached via getCachedActiveTasksForUser(activeTasksTag).
-    // Voucher decisions mutate owner-visible task state, so invalidate owner tags in addition
-    // to path revalidation and realtime-triggered refresh to avoid stale server payloads.
     revalidateTaskAndSocialSurfaces(taskId, (task as any).user_id, user.id);
     return { success: true };
 }
@@ -303,7 +292,6 @@ export async function getPendingVouchRequestsForVoucher(voucherId: string): Prom
     if (!voucherId) return [];
 
     const supabaseAdmin = createAdminClient();
-    // @ts-ignore
     const { data: tasks } = await (supabaseAdmin.from("tasks") as any)
         .select(`
             id,
@@ -348,18 +336,15 @@ export async function getPendingVouchRequestsForVoucher(voucherId: string): Prom
     const ownerIds = [...new Set(pendingTasks.map((task) => task.user_id))];
 
     const [{ data: sessions }, { data: proofs }, { data: proofEvents }] = await Promise.all([
-        // @ts-ignore
         (supabaseAdmin.from("pomo_sessions") as any)
             .select("task_id, elapsed_seconds")
             .in("task_id", taskIds as any)
             .in("user_id", ownerIds as any)
             .neq("status", "DELETED"),
-        // @ts-ignore
         (supabaseAdmin.from("task_completion_proofs") as any)
             .select("task_id, media_kind, mime_type, size_bytes, duration_ms, overlay_timestamp_text, upload_state, updated_at")
             .in("task_id", taskIds as any)
             .eq("upload_state", "UPLOADED"),
-        // @ts-ignore
         (supabaseAdmin.from("task_events") as any)
             .select("task_id")
             .in("task_id", taskIds as any)
@@ -424,11 +409,9 @@ export async function getVouchHistoryPage(offsetInput: number, limitInput: numbe
     const normalizedLimitRaw = Number.isFinite(limitInput) ? Math.floor(limitInput) : 10;
     const limit = Math.min(50, Math.max(1, normalizedLimitRaw));
 
-    // Fetch one extra row to determine if there is another page.
     const rangeFrom = offset;
     const rangeTo = offset + limit;
 
-    // @ts-ignore
     const { data: rawTasks, error } = await (supabase.from("tasks") as any)
         .select(`
             *,
@@ -503,12 +486,6 @@ export async function getVouchHistoryPage(offsetInput: number, limitInput: numbe
     };
 }
 
-/**
- * Escalate an AI-denied task to a human voucher for a second opinion.
- * The task must be in AWAITING_USER status and originally AI-vouched.
- * No penalty is charged at AI denial stage; penalty is charged only on ACCEPT_DENIAL.
- * Sets ai_escalated_from = true so the 0.5× weight applies even if human approves.
- */
 export async function escalateToHumanVoucher(
     taskId: string,
     newVoucherId: string
@@ -522,8 +499,6 @@ export async function escalateToHumanVoucher(
         return { error: "Not authenticated" };
     }
 
-    // Fetch the task
-    // @ts-ignore
     const { data: task } = await (supabase.from("tasks") as any)
         .select("*, user:profiles!tasks_user_id_fkey(id, email, username)")
         .eq("id", (taskId as any))
@@ -534,18 +509,15 @@ export async function escalateToHumanVoucher(
         return { error: "Task not found" };
     }
 
-    // Verify preconditions — escalation only from AWAITING_USER
     if ((task as any).status !== "AWAITING_USER") {
         return { error: `Cannot escalate task in ${(task as any).status} status` };
     }
 
-    // Check that the task is currently AI-vouched and has not already been escalated.
     const { AI_PROFILE_ID } = await import("@/lib/ai-voucher/constants");
     if ((task as any).voucher_id !== AI_PROFILE_ID || Boolean((task as any).ai_escalated_from)) {
         return { error: "This task was not AI-vouched and cannot be escalated" };
     }
 
-    // Escalation is friend-only; AI is disabled in the picker
     if (newVoucherId === AI_PROFILE_ID) {
         return { error: "Cannot escalate to AI. Choose a friend." };
     }
@@ -554,7 +526,6 @@ export async function escalateToHumanVoucher(
         return { error: "Cannot escalate to yourself. Choose a friend." };
     }
 
-    // Validate new voucher is a friend.
     const { data: friendship } = await (supabase.from("friendships") as any)
         .select("friend_id")
         .eq("user_id", (user as any).id)
@@ -571,7 +542,6 @@ export async function escalateToHumanVoucher(
     });
     if (!command.success) return { error: command.message };
 
-    // Notify the new voucher
     if (newVoucherId) {
         await sendNotification({
             userId: (newVoucherId as any),
@@ -585,7 +555,6 @@ export async function escalateToHumanVoucher(
         });
     }
 
-    // Invalidate caches
     invalidateActiveTasksCache((task as any).user_id);
     invalidatePendingVoucherRequestsCache((newVoucherId as any));
     revalidatePath("/tasks");

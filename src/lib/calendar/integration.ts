@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isEventTask, isOpenTaskStatus, type BlockTarget, type CalendarWeekData } from "@/lib/calendar/types";
 
-/** Service-role client; every calendar service call filters by the API key's user id. */
 export function integrationDb(): SupabaseClient {
     return createAdminClient() as unknown as SupabaseClient;
 }
@@ -23,7 +22,6 @@ export function toBlockTarget(body: z.infer<typeof createBlockSchema>): BlockTar
         : { kind: "ghost", ruleId: body.rule_id, occurrenceDeadlineIso: body.occurrence_deadline };
 }
 
-/** Agent-friendly view: titles inlined, one flat list per concept. */
 export function serializeCalendar(data: CalendarWeekData, range: { from: string; to: string }, timezone: string | null) {
     const tasksById = new Map([...data.tasks, ...data.pickerTasks].map((task) => [task.id, task]));
     const ghostsByKey = new Map(data.ghosts.map((ghost) => [ghost.key, ghost]));
@@ -65,7 +63,6 @@ export function serializeCalendar(data: CalendarWeekData, range: { from: string;
                 occurrence_deadline: block.occurrence_deadline,
             };
         }),
-        // What a new block can be attached to (open, non-event, due in the future).
         plannable: [
             ...data.pickerTasks
                 .filter((task) => !isEventTask(task) && Date.parse(task.deadline) > now)

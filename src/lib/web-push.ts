@@ -156,7 +156,6 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
         })
     );
 
-    // Avoid unused warning for settled when running stricter lint variants.
     void settled;
 
     let cleaned = 0;

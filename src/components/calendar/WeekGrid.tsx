@@ -25,13 +25,11 @@ import type { CalendarBlock } from "@/lib/calendar/types";
 import { blockItemKey, splitIntoDaySegments, type CalendarItem, type WeekModel } from "./model";
 import { TODAY_GLOW_STYLE, statusDotClass, statusFillColor } from "./tints";
 
-// Days are rows, time runs left→right; the grid scrolls horizontally.
 export const HOUR_PX = 96;
 const SLOT_PX = HOUR_PX / (60 / SLOT_MINUTES);
 const GRID_WIDTH = HOUR_PX * 24;
 const GUTTER_PX = 64;
 const INITIAL_SCROLL_HOUR = 5;
-/** Strip kept free at the bottom of a day row for its deadline chips. */
 const PIN_LANE_PX = 20;
 const DRAG_THRESHOLD_PX = 3;
 const AUTO_SCROLL_EDGE_PX = 40;
@@ -98,7 +96,6 @@ function isSameLocalDay(aMs: number, bMs: number): boolean {
     return localDayKey(new Date(aMs)) === localDayKey(new Date(bMs));
 }
 
-/** New deadline under the pointer, keeping the original minutes within its 15-minute cell (e.g. :59). */
 function pinTargetMs(current: Extract<Drag, { kind: "pin" }>, weekStart: Date): number {
     const offsetWithinSlot = current.origDeadlineMs - floorToSlot(current.origDeadlineMs);
     const day = addLocalDays(startOfLocalDay(weekStart), current.dayIndex);
@@ -113,12 +110,10 @@ function pinX(anchorIso: string): number {
     return (minutesIntoDay(new Date(anchorIso)) / 60) * HOUR_PX;
 }
 
-/** Late pins put the chip left of the deadline so it stays inside the day row. */
 function pinChipOnLeft(x: number): boolean {
     return x > GRID_WIDTH - 2 * HOUR_PX;
 }
 
-/** Rough rendered width of a deadline chip; only used to tell which blocks it would cover. */
 function pinChipWidth(items: CalendarItem[]): number {
     if (items.length > 1) return 4 + 10 + (items.length - 1) * 6;
     return Math.min(160, 30 + items[0].title.length * 6);
@@ -150,7 +145,6 @@ export function WeekGrid({
     const [pinPopover, setPinPopover] = useState<PinPopoverState | null>(null);
     const popoverRef = useRef<HTMLDivElement>(null);
     const suppressPinClickRef = useRef(false);
-    // Latest callbacks/values, so window listeners registered at drag start stay valid across re-renders.
     const latestRef = useRef({ onCreateSelection, onBlockCommit, onBlockClick, onPinDrop, onDragActiveChange, onInvalidDrop, weekStart });
     useLayoutEffect(() => {
         latestRef.current = { onCreateSelection, onBlockCommit, onBlockClick, onPinDrop, onDragActiveChange, onInvalidDrop, weekStart };
@@ -166,7 +160,6 @@ export function WeekGrid({
         if (scrollerRef.current) scrollerRef.current.scrollLeft = INITIAL_SCROLL_HOUR * HOUR_PX - 12;
     }, []);
 
-    // ---------- geometry ----------
     const getCell = useCallback((clientX: number, clientY: number) => {
         const rect = rowsRef.current?.getBoundingClientRect();
         if (!rect) return { dayIndex: 0, slotFloat: 0 };
@@ -184,7 +177,6 @@ export function WeekGrid({
         else if (clientX > rect.right - AUTO_SCROLL_EDGE_PX) scroller.scrollLeft += AUTO_SCROLL_STEP_PX;
     }, []);
 
-    // ---------- drag lifecycle ----------
     const updateDrag = useCallback((next: Drag | null) => {
         dragRef.current = next;
         setDrag(next);
@@ -213,7 +205,6 @@ export function WeekGrid({
                 if (moved !== current.moved) updateDrag({ ...current, moved });
                 return;
             }
-            // Measured in grid slots (not pointer px) so auto-scroll during the drag is accounted for.
             const deltaSlots = Math.round(cell.slotFloat - current.startSlotFloat);
             const deltaDays = cell.dayIndex - current.startDay;
             if (moved !== current.moved || deltaSlots !== current.deltaSlots || deltaDays !== current.deltaDays) {
@@ -319,7 +310,6 @@ export function WeekGrid({
         window.addEventListener("pointercancel", handleUpRef.current);
     }, [detachListeners, handleMove, updateDrag]);
 
-    // Detach on unmount only (handlers are stable; see latestRef).
     useEffect(() => () => detachListeners(), [detachListeners]);
 
     useEffect(() => {
@@ -336,7 +326,6 @@ export function WeekGrid({
         return () => window.removeEventListener("keydown", onKey);
     }, [detachListeners, updateDrag]);
 
-    // Vertical wheel scrolls time sideways. Native listener: React's onWheel is passive and can't preventDefault.
     useEffect(() => {
         const scroller = scrollerRef.current;
         if (!scroller) return;
@@ -360,8 +349,6 @@ export function WeekGrid({
         return () => window.removeEventListener("pointerdown", onDown);
     }, [pinPopover]);
 
-    // ---------- derived layout ----------
-    // Blocks and event windows share one side-by-side layout so neither hides the other.
     const { blockSegmentsByDay, spanSegmentsByDay } = useMemo(() => {
         type Placed = { left: number; width: number; column: number; columns: number };
         type BlockEntry = { block: CalendarBlock; item: CalendarItem; segmentKey: string };
@@ -422,7 +409,6 @@ export function WeekGrid({
         return byDay;
     }, [pinGroups]);
 
-    // ---------- drag previews ----------
     const movePreview = useMemo(() => {
         if (!drag || drag.kind !== "move" || !drag.moved || !drag.draggable) return null;
         const startMs = shiftMs(drag.origStartMs, drag.deltaDays, drag.deltaSlots);
@@ -453,7 +439,6 @@ export function WeekGrid({
         }
         : pendingSelection;
 
-    // Exact time under the pointer while creating, moving or resizing a block.
     const dragLabel: { text: string; error: boolean } | null = (() => {
         if (drag?.kind === "create" && drag.moved && createPreview) {
             const day = days[createPreview.dayIndex];
@@ -470,7 +455,6 @@ export function WeekGrid({
         return null;
     })();
 
-    // ---------- handlers ----------
     const onRowPointerDown = (dayIndex: number) => (event: ReactPointerEvent<HTMLDivElement>) => {
         const cell = getCell(event.clientX, event.clientY);
         const slot = Math.floor(cell.slotFloat);
@@ -529,7 +513,6 @@ export function WeekGrid({
             suppressPinClickRef.current = false;
             if (items.length === 1 && items[0].lockReason === null) {
                 startPinDrag(items[0], event);
-                // A click without movement opens the popover (see onClick).
             }
         };
 
@@ -541,7 +524,6 @@ export function WeekGrid({
         openPinPopover(groupKey, element);
     };
 
-    // Hover opens the popover; a short close delay lets the pointer cross the gap into it.
     const popoverCloseTimerRef = useRef<number | null>(null);
     const cancelPopoverClose = () => {
         if (popoverCloseTimerRef.current !== null) window.clearTimeout(popoverCloseTimerRef.current);
@@ -559,7 +541,6 @@ export function WeekGrid({
 
     const popoverGroup = pinPopover ? pinGroups.find((entry) => entry.group.key === pinPopover.groupKey) : null;
 
-    // ---------- render ----------
     return (
         <div className="relative">
             <div
@@ -570,7 +551,6 @@ export function WeekGrid({
                 )}
             >
                 <div className="flex h-full flex-col" style={{ width: GUTTER_PX + GRID_WIDTH }}>
-                    {/* Hour header */}
                     <div className="flex h-7 shrink-0 border-b border-slate-900/60">
                         <div className="sticky left-0 z-40 shrink-0 bg-slate-950" style={{ width: GUTTER_PX }} />
                         <div className="relative" style={{ width: GRID_WIDTH }}>
@@ -587,7 +567,6 @@ export function WeekGrid({
                     </div>
 
                     <div className="flex min-h-0 flex-1">
-                        {/* Day gutter */}
                         <div
                             className="sticky left-0 z-40 grid shrink-0 grid-rows-7 bg-slate-950/90 backdrop-blur-md"
                             style={{ width: GUTTER_PX }}
@@ -615,7 +594,6 @@ export function WeekGrid({
                                 const dayKey = localDayKey(day);
                                 const isToday = dayKey === todayKey;
                                 const dayPins = pinGroupsByDay.get(dayKey) || [];
-                                // Only blocks that a deadline chip would sit on stop short above it.
                                 const chipRanges = dayPins.filter((entry) => entry.items.length > 0).map(({ group, items }) => {
                                     const x = pinX(group.anchorIso);
                                     const width = pinChipWidth(items);
@@ -636,7 +614,6 @@ export function WeekGrid({
                                         )}
                                         onPointerDown={onRowPointerDown(dayIndex)}
                                     >
-                                        {/* Event / strict windows */}
                                         {spanSegmentsByDay[dayIndex].map(({ item, key, left, width, column, columns }) => {
                                             const body = (
                                                 <>
@@ -678,7 +655,6 @@ export function WeekGrid({
                                             );
                                         })}
 
-                                        {/* Time blocks */}
                                         {blockSegmentsByDay[dayIndex].map(({ block, item, left, width, column, columns, segmentKey }) => {
                                             const isDragged = (movePreview?.blockId === block.id) || (resizePreview?.blockId === block.id);
                                             const isLinked = hoveredKey === item.key;
@@ -730,7 +706,6 @@ export function WeekGrid({
                                             );
                                         })}
 
-                                        {/* Moving block preview */}
                                         {movePreview && (() => {
                                             const block = model.blocks.find((entry) => entry.id === movePreview.blockId);
                                             const item = block ? model.itemsByKey.get(blockItemKey(block)) : null;
@@ -760,7 +735,6 @@ export function WeekGrid({
                                             );
                                         })()}
 
-                                        {/* New block selection (15-minute cells) */}
                                         {createPreview && createPreview.dayIndex === dayIndex && (
                                             <div
                                                 className="pointer-events-none absolute top-0.5 z-30 overflow-hidden rounded-md bg-white/10 px-2 py-1 ring-1 ring-white/15"
@@ -772,7 +746,6 @@ export function WeekGrid({
                                             </div>
                                         )}
 
-                                        {/* Deadline pins */}
                                         {dayPins.map(({ group, items }) => {
                                             if (items.length === 0) return null;
                                             const left = pinX(group.anchorIso);
@@ -793,7 +766,6 @@ export function WeekGrid({
                                                         data-pin-chip
                                                         className={cn(
                                                             "pointer-events-auto absolute bottom-1 flex max-w-40 items-center gap-1.5 rounded py-0.5 text-[11px] leading-tight transition-colors hover:text-white",
-                                                            // Dots-only chips float without a box so they don't punch a dark hole in blocks.
                                                             single ? "bg-slate-950 px-1.5" : "px-0.5",
                                                             chipOnLeft ? "right-1" : "left-1",
                                                             allGhost ? "text-slate-500" : "text-slate-300",
@@ -832,7 +804,6 @@ export function WeekGrid({
                                             );
                                         })}
 
-                                        {/* Pin drag preview */}
                                         {pinPreview && drag?.kind === "pin" && drag.dayIndex === dayIndex && pinPreview.item && (
                                             <div
                                                 className="pointer-events-none absolute inset-y-0 z-30"
@@ -853,7 +824,6 @@ export function WeekGrid({
                                             </div>
                                         )}
 
-                                        {/* Now line */}
                                         {isToday && (
                                             <div
                                                 className="pointer-events-none absolute inset-y-0 z-30"
@@ -871,7 +841,6 @@ export function WeekGrid({
                 </div>
             </div>
 
-            {/* Pin popover: lists every task due in that 15-minute cell */}
             {dragLabel && (
                 <div
                     ref={(element) => {

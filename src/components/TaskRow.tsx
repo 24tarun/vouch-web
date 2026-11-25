@@ -191,7 +191,6 @@ export function TaskRow({
                 window.localStorage.removeItem(subtaskExpandStorageKey);
             }
         } catch {
-            // Ignore localStorage access failures.
         }
     };
 
@@ -267,7 +266,6 @@ export function TaskRow({
                 setSubtasks(snapshot.subtasks);
             },
             onSuccess: () => {
-                // Local optimistic state is already updated.
             },
         });
 
@@ -293,7 +291,6 @@ export function TaskRow({
                 setSubtasks(snapshot.subtasks);
             },
             onSuccess: () => {
-                // Local optimistic state is already updated.
             },
         });
 
@@ -336,7 +333,6 @@ export function TaskRow({
                 const cursorPos = input.value.length;
                 input.setSelectionRange(cursorPos, cursorPos);
             } catch {
-                // Some environments do not support selection ranges on this input.
             }
         });
 
@@ -774,7 +770,6 @@ export function TaskRow({
                     </div>
 
                     <div className="md:hidden">
-                        {/* Single tappable row: circle + title + deadline */}
                         <div
                             className="flex items-center gap-2 cursor-pointer select-none"
                             onClick={(e) => {
@@ -817,7 +812,6 @@ export function TaskRow({
                             </span>
                         </div>
 
-                        {/* Animated action tray */}
                         <div className={cn(
                             "overflow-hidden transition-[max-height] duration-200 ease-in-out",
                             isMobileTrayOpen ? "max-h-[56px]" : "max-h-0"
@@ -926,11 +920,9 @@ export function TaskRow({
                 <div
                     className="ml-8 mr-3 border-l border-slate-800/70 pl-3 space-y-1"
                     onBlur={(e) => {
-                        // If focus is still within this specific task's subtask section, don't close
                         if (e.relatedTarget && (e.currentTarget.contains(e.relatedTarget as Node) || (e.relatedTarget as HTMLElement).closest?.(".js-subtask-toggle"))) {
                             return;
                         }
-                        // Only auto-close if the list is empty and user isn't actively adding one with text
                         if (subtasks.length === 0 && !newSubtaskTitle.trim()) {
                             setIsExpanded(false);
                             persistSubtaskExpandedState(false);

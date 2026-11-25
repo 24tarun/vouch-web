@@ -11,7 +11,6 @@ import { serializeCalendar } from "@/lib/calendar/integration";
 import type { BlockTarget } from "@/lib/calendar/types";
 import { INTEGRATION_ACTIONS, decodeActionArgs } from "@/lib/integration-actions";
 
-/** Runs inside the integration context: createClient() is signed in as the key's owner. */
 export interface McpTool {
     name: string;
     description: string;
@@ -140,7 +139,6 @@ export const MCP_TOOLS: McpTool[] = [
 
     tool("create_time_block",
         "Plan time for a task. Pass task_id, or rule_id + occurrence_deadline for a repeat not created yet (copy from get_calendar 'plannable'). Times on 15-minute steps, ending by the deadline.",
-        // MCP requires an object input schema, so the HTTP union schema is flattened here.
         z.object({
             task_id: z.uuid().optional(),
             rule_id: z.uuid().optional(),

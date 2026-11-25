@@ -23,6 +23,5 @@ export async function invalidateClientCachesAndReload(): Promise<void> {
 
     await Promise.allSettled([clearBrowserCaches(), updateServiceWorkers()]);
 
-    // Full document reload clears in-memory route/prefetch caches.
     window.location.reload();
 }

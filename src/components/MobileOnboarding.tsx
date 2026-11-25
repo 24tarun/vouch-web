@@ -323,7 +323,6 @@ export function MobileOnboarding() {
                 onTouchStart={onTouchStart}
                 onTouchEnd={onTouchEnd}
             >
-                {/* Ambient radial glow */}
                 <div style={{
                     position: "absolute",
                     top: "-120px",
@@ -336,7 +335,6 @@ export function MobileOnboarding() {
                     zIndex: 0,
                 }} />
 
-                {/* Skip button */}
                 {!isLast && (
                     <button
                         onClick={complete}
@@ -350,7 +348,6 @@ export function MobileOnboarding() {
                     </button>
                 )}
 
-                {/* Slides track */}
                 <div
                     style={{
                         display: "flex",
@@ -375,7 +372,6 @@ export function MobileOnboarding() {
                                 overflowY: "auto",
                             }}
                         >
-                            {/* Decorative slide number watermark */}
                             <div className="ob-fc" style={{
                                 position: "absolute",
                                 bottom: "140px",
@@ -392,7 +388,6 @@ export function MobileOnboarding() {
                                 {String(i + 1).padStart(2, "0")}
                             </div>
 
-                            {/* Slide content */}
                             <div style={{ position: "relative", zIndex: 1 }}>
                                 <div className="ob-eyebrow" style={{ marginBottom: "32px" }}>
                                     {slide.eyebrow}
@@ -435,7 +430,6 @@ export function MobileOnboarding() {
                     ))}
                 </div>
 
-                {/* Bottom bar — dots + button */}
                 <div style={{
                     position: "absolute",
                     bottom: 0,
@@ -446,7 +440,6 @@ export function MobileOnboarding() {
                     background: "linear-gradient(to top, rgba(2,6,23,1) 0%, rgba(2,6,23,0.95) 50%, transparent 100%)",
                     zIndex: 5,
                 }}>
-                    {/* Progress dots */}
                     <div style={{
                         display: "flex",
                         justifyContent: "center",
@@ -468,7 +461,6 @@ export function MobileOnboarding() {
                         ))}
                     </div>
 
-                    {/* CTA button */}
                     <button onClick={goNext} className="ob-btn">
                         {isLast ? "Get Started" : "Next →"}
                     </button>

@@ -30,12 +30,6 @@ export interface NotificationParams {
     pushChannels?: PushChannel[];
     ttlSeconds?: number;
     pushPayload?: PushPayload;
-    /**
-     * Expo-only. Devices that already have this notification armed on their own
-     * OS scheduler, and so must not also be pushed to. Web push is unaffected:
-     * browsers have no usable local scheduling API, so a web subscriber always
-     * receives.
-     */
     excludeClientInstanceIds?: string[];
 }
 
@@ -63,10 +57,6 @@ function resolvePushPayload(params: NotificationParams): PushPayload {
     };
 }
 
-/**
- * Unified Notification Bridge.
- * Sends email and push in tandem unless channel flags disable one side.
- */
 export async function sendNotification(params: NotificationParams) {
     const shouldSendEmail = params.email !== false;
     const shouldSendPush = params.push !== false;

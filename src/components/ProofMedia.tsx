@@ -38,7 +38,6 @@ export function ProofMedia({
     return (
         <div className={cn("relative inline-block overflow-hidden", wrapperClassName)}>
             {mediaKind === "image" ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                     src={src}
                     alt={alt}

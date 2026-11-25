@@ -11,9 +11,6 @@ ALTER TABLE public.recurrence_rules
   ADD CONSTRAINT recurrence_rules_alarm_reminder_offsets_ms_is_array
   CHECK (jsonb_typeof(alarm_reminder_offsets_ms) = 'array');
 
--- Keep the original implementation available to the compatibility wrapper.
--- The wrapper remains the only create_task_atomic overload, so PostgREST does
--- not need to disambiguate old payloads from alarm-aware payloads.
 ALTER FUNCTION public.create_task_atomic(
   uuid,
   text,

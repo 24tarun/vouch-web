@@ -48,13 +48,10 @@ interface ReminderLineProps {
     onToggleUrgent: () => void;
     onDelete: () => void;
     disabled?: boolean;
-    /** Alarm-style delivery is only offered when the profile has it switched on. */
     showAlarm?: boolean;
-    /** Smaller single-line row used by the inline task creator. */
     compact?: boolean;
 }
 
-/** One reminder as a single row: time · date · alarm · status · delete. */
 export function ReminderLine({
     at,
     status,

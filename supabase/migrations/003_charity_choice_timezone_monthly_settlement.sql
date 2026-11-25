@@ -1,4 +1,3 @@
--- Charity Choice + profile timezone support + monthly settlement idempotency
 
 CREATE TABLE IF NOT EXISTS public.charities (
   id         uuid        NOT NULL DEFAULT gen_random_uuid(),

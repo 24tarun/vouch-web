@@ -1,7 +1,3 @@
-/**
- * Pure helpers for the calendar week grid. All positioning uses the viewer's
- * local wall clock, matching how the tasks page buckets deadlines.
- */
 
 export const SLOT_MINUTES = 15;
 export const SLOT_MS = SLOT_MINUTES * 60 * 1000;
@@ -20,7 +16,6 @@ export function addLocalDays(date: Date, days: number): Date {
     return result;
 }
 
-/** Monday 00:00 local of the week containing `date`. */
 export function startOfWeekMonday(date: Date): Date {
     const day = startOfLocalDay(date);
     const offsetFromMonday = (day.getDay() + 6) % 7;
@@ -34,12 +29,10 @@ export function localDayKey(date: Date): string {
     return `${y}-${m}-${d}`;
 }
 
-/** Minutes since local midnight (wall clock, DST-safe for display). */
 export function minutesIntoDay(date: Date): number {
     return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
 }
 
-/** Local Date for the start of `slot` (0..SLOTS_PER_DAY) on `day`. */
 export function dateAtSlot(day: Date, slot: number): Date {
     const minutes = slot * SLOT_MINUTES;
     const result = startOfLocalDay(day);
@@ -67,12 +60,10 @@ export interface DeadlinePinGroup<T extends DeadlinePinItem> {
     key: string;
     dayKey: string;
     slot: number;
-    /** Earliest deadline in the group, used for positioning. */
     anchorIso: string;
     items: T[];
 }
 
-/** One pin per 15-minute cell per day; items sorted by deadline then id. */
 export function groupDeadlinePins<T extends DeadlinePinItem>(items: T[]): DeadlinePinGroup<T>[] {
     const groups = new Map<string, DeadlinePinGroup<T>>();
     for (const item of items) {
@@ -107,10 +98,6 @@ export interface LayoutSlot {
     columns: number;
 }
 
-/**
- * Side-by-side layout for overlapping intervals: each cluster of transitively
- * overlapping items shares a column count; items take the first free column.
- */
 export function layoutOverlaps(items: LayoutInput[]): Map<string, LayoutSlot> {
     const sorted = [...items].sort((a, b) => a.startMs - b.startMs || b.endMs - a.endMs || a.id.localeCompare(b.id));
     const result = new Map<string, LayoutSlot>();
@@ -155,7 +142,6 @@ export function validateBlockRange(startMs: number, endMs: number, deadlineMs: n
     return null;
 }
 
-/** Latest slot end (exclusive, in slots on `day`) a block may reach before `deadlineMs`. */
 export function maxEndSlotBeforeDeadline(day: Date, deadlineMs: number): number {
     const dayStartMs = startOfLocalDay(day).getTime();
     const nextDayMs = addLocalDays(startOfLocalDay(day), 1).getTime();

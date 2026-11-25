@@ -224,7 +224,6 @@ export function RealtimeListener({ userId }: { userId: string }) {
             }
             seenGoogleOutboxStateRef.current.add(dedupeKey);
             if (seenGoogleOutboxStateRef.current.size > 500) {
-                // Keep memory bounded for long-lived dashboard sessions.
                 const [first] = seenGoogleOutboxStateRef.current;
                 if (first) {
                     seenGoogleOutboxStateRef.current.delete(first);
@@ -248,7 +247,6 @@ export function RealtimeListener({ userId }: { userId: string }) {
             }
         };
 
-        // Subscribe to tasks relevant to the current user as owner or voucher.
         const tasksChannel = supabase
             .channel('realtime:tasks')
             .on(
@@ -293,10 +291,8 @@ export function RealtimeListener({ userId }: { userId: string }) {
                 }
             });
 
-        // Keep local friend IDs in sync so we only refresh for relevant friend pomo updates.
         void syncFriendIds();
 
-        // Subscribe to friendships
         const friendsChannel = supabase
             .channel('realtime:friendships')
             .on(
@@ -329,7 +325,6 @@ export function RealtimeListener({ userId }: { userId: string }) {
                 }
             });
 
-        // Subscribe to commitments for the current user.
         const commitmentsChannel = supabase
             .channel("realtime:commitments")
             .on(
@@ -356,7 +351,6 @@ export function RealtimeListener({ userId }: { userId: string }) {
                 }
             });
 
-        // Subscribe to friend pomodoro sessions; refresh only when impacted friend rows change.
         const pomoChannel = supabase
             .channel('realtime:pomo_sessions')
             .on(
@@ -392,7 +386,6 @@ export function RealtimeListener({ userId }: { userId: string }) {
                 }
             });
 
-        // Subscribe to Google Calendar outbox updates and emit sync toasts.
         const googleCalendarOutboxChannel = supabase
             .channel("realtime:google_calendar_sync_outbox")
             .on(

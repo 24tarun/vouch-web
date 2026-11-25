@@ -1,5 +1,3 @@
--- When a user enables "all tasks require proof", apply that default to
--- existing recurring series and any still-actionable recurring task instances.
 
 CREATE OR REPLACE FUNCTION public.sync_profile_proof_default_to_recurring_series()
 RETURNS trigger
@@ -36,7 +34,6 @@ AFTER INSERT OR UPDATE OF default_requires_proof_for_all_tasks ON public.profile
 FOR EACH ROW
 EXECUTE FUNCTION public.sync_profile_proof_default_to_recurring_series();
 
--- Backfill users who already have the profile default enabled.
 UPDATE public.recurrence_rules rr
 SET requires_proof = true
 FROM public.profiles p

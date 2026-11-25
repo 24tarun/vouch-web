@@ -13,11 +13,6 @@ import * as pomodoro from "@/actions/tasks/pomodoro";
 import * as recurrence from "@/actions/tasks/recurrence";
 import * as voucher from "@/actions/voucher";
 
-/**
- * Never callable with an API key: sign-in/out and account deletion, key management
- * (a key must not mint or keep itself alive), browser-only flows, and the one action
- * that takes an arbitrary user id.
- */
 const BLOCKED = new Set([
     "signIn", "signUp", "requestPasswordReset", "completePasswordReset", "signOut", "deleteAccount",
     "startGoogleCalendarConnect",
@@ -33,7 +28,6 @@ export const INTEGRATION_ACTIONS: Record<string, Action> = Object.fromEntries(
     }).filter(([name, value]) => typeof value === "function" && !BLOCKED.has(name))
 ) as Record<string, Action>;
 
-/** JSON can't carry FormData, so `{ "$formData": { key: value | value[] } }` becomes one. */
 export function decodeActionArgs(args: unknown[]): unknown[] {
     return args.map((arg) => {
         if (!arg || typeof arg !== "object" || !("$formData" in arg)) return arg;

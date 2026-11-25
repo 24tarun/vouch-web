@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/types";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -34,7 +33,6 @@ export async function deleteAccountByUserId(
         "DELETED",
     ];
 
-    // Block deletion if this user is still voucher for other users' open/in-flight work.
     const [blockingTaskCountResult, blockingRuleCountResult, blockingRectificationCountResult] = await Promise.all([
         (supabaseAdmin.from("tasks") as any)
             .select("id", { count: "exact", head: true })
@@ -77,8 +75,6 @@ export async function deleteAccountByUserId(
         };
     }
 
-    // Preserve other users' history: reassign voucher to owner for finalized tasks
-    // that currently reference the deleting user as voucher.
     const { data: historicalTasksToReassign, error: historicalTasksToReassignError } = await (supabaseAdmin.from("tasks") as any)
         .select("id, user_id")
         .eq("voucher_id", userId as any)

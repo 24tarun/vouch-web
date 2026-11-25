@@ -12,7 +12,6 @@ export const googleCalendarDispatch = task({
     },
 });
 
-// Hourly sweep to retry any failed or stuck outbox items.
 export const googleCalendarOutboxSweeper = schedules.task({
     id: "google-calendar-outbox-sweeper",
     cron: "0 * * * *",

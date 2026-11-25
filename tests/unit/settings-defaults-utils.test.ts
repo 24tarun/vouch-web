@@ -32,17 +32,13 @@ test("failure-cost bounds use the requested currency-specific minimums and incre
 });
 
 test("clampFailureCostToCurrencyBounds clamps out-of-range values", () => {
-    // What/why: keeps client-side defaults clamped to server-aligned currency bounds.
-    // Passing scenario: value above USD max is clamped to max.
     assert.equal(clampFailureCostToCurrencyBounds("999999", "USD"), "100.00");
-    // Failing scenario: non-numeric values are coerced safely, not propagated as invalid strings.
     assert.equal(clampFailureCostToCurrencyBounds("abc", "USD"), "0.25");
     assert.equal(clampFailureCostToCurrencyBounds("0.30", "EUR"), "0.25");
     assert.equal(clampFailureCostToCurrencyBounds("15", "INR"), "20");
 });
 
 test("buildDefaultsFormData writes expected server keys", () => {
-    // What/why: verifies extracted payload builder preserves server action contract keys.
     const form = buildDefaultsFormData({
         defaultPomoDurationMinutes: "25",
         defaultEventDurationMinutes: "60",
@@ -64,7 +60,6 @@ test("buildDefaultsFormData writes expected server keys", () => {
         charityEnabled: false,
         selectedCharityId: "",
     });
-    // Passing scenario: required fields are present with expected values.
     assert.equal(form.get("defaultPomoDurationMinutes"), "25");
     assert.equal(form.get("defaultTaskDeadlineTime"), "23:00");
     assert.equal(form.get("currency"), "EUR");
@@ -72,13 +67,10 @@ test("buildDefaultsFormData writes expected server keys", () => {
     assert.equal(form.get("alwaysShowActiveTasks"), "true");
     assert.equal(form.get("showPastTasks"), "false");
     assert.equal(form.get("deadlineDueWarningEnabled"), "true");
-    // Failing scenario: a missing contract key would return null and fail this assertion.
     assert.notEqual(form.get("defaultVoucherId"), null);
 });
 
 test("validateDefaultsState blocks invalid timezone and accepts valid payload", () => {
-    // What/why: protects autosave from sending invalid intermediate settings.
-    // Passing scenario: valid inputs return no error.
     assert.equal(
         validateDefaultsState({
             defaultPomoDurationMinutes: "25",
@@ -95,7 +87,6 @@ test("validateDefaultsState blocks invalid timezone and accepts valid payload", 
         }),
         null
     );
-    // Failing scenario: invalid timezone should return a blocking validation message.
     assert.equal(
         validateDefaultsState({
             defaultPomoDurationMinutes: "25",

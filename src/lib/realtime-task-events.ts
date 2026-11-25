@@ -50,7 +50,6 @@ export function subscribeRealtimeTaskChanges(
 ): () => void {
     if (typeof window === "undefined") {
         return () => {
-            // Server-side no-op.
         };
     }
 
@@ -102,7 +101,6 @@ export function subscribeRealtimeCommitmentChanges(
 ): () => void {
     if (typeof window === "undefined") {
         return () => {
-            // Server-side no-op.
         };
     }
 

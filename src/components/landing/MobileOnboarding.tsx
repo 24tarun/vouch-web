@@ -83,7 +83,6 @@ export function MobileOnboarding() {
     const dx = e.touches[0].clientX - touchStartX.current;
     const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
 
-    // Determine intent once per gesture
     if (isDragIntent.current === null) {
       if (Math.abs(dx) > 6 || dy > 6) {
         isDragIntent.current = Math.abs(dx) > dy;
@@ -91,11 +90,10 @@ export function MobileOnboarding() {
       return;
     }
 
-    if (!isDragIntent.current) return; // vertical scroll — don't intercept
+    if (!isDragIntent.current) return;
 
     e.preventDefault();
     const raw = e.touches[0].clientX - dragStartX.current;
-    // Resist at edges
     const atStart = index === 0 && raw > 0;
     const atEnd = index === slides.length - 1 && raw < 0;
     const resistance = atStart || atEnd ? 0.25 : 1;
@@ -207,7 +205,6 @@ export function MobileOnboarding() {
         .ob-skip:hover { color: #94a3b8; }
       `}</style>
 
-      {/* Full-screen overlay */}
       <div
         style={{
           position: "fixed",
@@ -225,7 +222,6 @@ export function MobileOnboarding() {
         onTouchEnd={onTouchEnd}
       >
 
-        {/* Radial glow — anchored to slide, not UI chrome */}
         <div style={{
           position: "absolute",
           top: "-60px", left: "50%", transform: "translateX(-50%)",
@@ -234,14 +230,12 @@ export function MobileOnboarding() {
           pointerEvents: "none",
         }} />
 
-        {/* Noise grain */}
         <div style={{
           position: "absolute", inset: 0, pointerEvents: "none", zIndex: 10, opacity: 0.02,
           backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
           backgroundSize: "200px 200px",
         }} />
 
-        {/* Top bar: logo + skip */}
         <div style={{
           display: "flex", justifyContent: "space-between", alignItems: "center",
           padding: "56px 24px 0",
@@ -257,7 +251,6 @@ export function MobileOnboarding() {
           )}
         </div>
 
-        {/* Slide content — draggable */}
         <div
           style={{
             flex: 1,
@@ -271,12 +264,10 @@ export function MobileOnboarding() {
           }}
         >
 
-          {/* Eyebrow */}
           <div key={`ey-${index}`} className="ob-rise ob-d1 ob-eyebrow" style={{ marginBottom: "32px" }}>
             {slide.eyebrow}
           </div>
 
-          {/* Headline */}
           <div key={`hd-${index}`} className="ob-rise ob-d2 ob-fc" style={{
             fontSize: "clamp(52px, 18vw, 72px)",
             fontWeight: 300,
@@ -299,7 +290,6 @@ export function MobileOnboarding() {
             )}
           </div>
 
-          {/* Status badge */}
           {"badge" in slide && slide.badge && (() => {
             const c = badgeColors[slide.badge.cls];
             return (
@@ -318,7 +308,6 @@ export function MobileOnboarding() {
             );
           })()}
 
-          {/* Body */}
           {"body" in slide && slide.body && (
             <p key={`bo-${index}`} className="ob-rise ob-d3 ob-fm" style={{
               fontSize: "13px", color: "#94a3b8", lineHeight: 1.8, fontWeight: 300,
@@ -327,7 +316,6 @@ export function MobileOnboarding() {
             </p>
           )}
 
-          {/* CTA slide buttons */}
           {"isCta" in slide && slide.isCta && (
             <div key={`cta-${index}`} className="ob-rise ob-d3" style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "8px" }}>
               <button
@@ -346,14 +334,12 @@ export function MobileOnboarding() {
           )}
         </div>
 
-        {/* Bottom: dots + next hint */}
         {"isCta" in slide && slide.isCta ? null : (
           <div style={{
             padding: "0 28px 52px",
             display: "flex", justifyContent: "space-between", alignItems: "center",
             position: "relative", zIndex: 20,
           }}>
-            {/* Dots */}
             <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               {slides.map((_, i) => (
                 <button
@@ -370,7 +356,6 @@ export function MobileOnboarding() {
               ))}
             </div>
 
-            {/* Next arrow */}
             <button
               onClick={() => goTo(index + 1)}
               style={{

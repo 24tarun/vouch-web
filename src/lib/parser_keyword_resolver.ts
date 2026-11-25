@@ -25,7 +25,6 @@ export interface ResolveTaskDeadlineResult {
 
 const URL_REGEX = /\b(?:https?:\/\/|www\.)[^\s]+/gi;
 
-/** Links can contain things like "/12/5/" that must not be read as dates. */
 function stripUrls(text: string): string {
     return text.replace(URL_REGEX, " ");
 }
@@ -191,7 +190,6 @@ export function stripMetadata(text: string): string {
 const URL_PLACEHOLDER_REGEX = /\uE000(\d+)\uE001/g;
 
 export function parseTaskTitleAndSubtasks(text: string): { title: string, subtasks: string[] } {
-    // Links contain "/" too, so hide them while splitting title / subtasks.
     const urls: string[] = [];
     const masked = text.replace(URL_REGEX, (url) => `\uE000${urls.push(url) - 1}\uE001`);
     const restore = (segment: string) => segment.replace(URL_PLACEHOLDER_REGEX, (_, index) => urls[Number(index)]);

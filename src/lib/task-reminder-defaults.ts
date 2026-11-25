@@ -25,7 +25,6 @@ interface BuildDefaultDeadlineReminderRowsInput {
     deadlineOneHourWarningEnabled: boolean;
     deadlineFinalWarningEnabled: boolean;
     deadlineDueWarningEnabled: boolean;
-    /** Reminder instants (ms) the user marked urgent, which arm the row's alarm. */
     urgentReminderMs?: Set<number>;
     now?: Date;
 }

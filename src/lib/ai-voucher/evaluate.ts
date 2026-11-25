@@ -1,9 +1,3 @@
-/**
- * AI Voucher Decision Processor
- *
- * Orchestrates the end-to-end flow: fetch task → download proof → evaluate with Gemini →
- * update task + create ledger/events → send notification
- */
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath, revalidateTag } from "next/cache";
@@ -27,7 +21,6 @@ export async function processAiVoucherDecision(
   const notifyOnEvaluationError = options?.notifyOnEvaluationError ?? true;
 
   try {
-    // 1. Fetch task + proof row using admin client
     const adminClient = createAdminClient();
 
     const { data: taskData } = await adminClient
@@ -52,7 +45,6 @@ export async function processAiVoucherDecision(
 
     const task = taskData as any;
 
-    // 2. Verify preconditions
     if (task.voucher_id !== AI_PROFILE_ID) {
       console.error(
         `Task ${taskId} is not AI-vouched (voucher: ${task.voucher_id})`
@@ -86,12 +78,10 @@ export async function processAiVoucherDecision(
 
     if (!proof) {
       console.error(`No proof found for task ${taskId}`);
-      // Mark as failed since AI can't vouch without evidence
       await failTask(taskId, task, "No proof submitted");
       return;
     }
 
-    // 3. Download proof binary from storage
     console.log(`Downloading proof for task ${taskId}`);
     const { data: proofBuffer, error: downloadError } =
       await adminClient.storage
@@ -104,7 +94,6 @@ export async function processAiVoucherDecision(
       return;
     }
 
-    // 4. Call Gemini evaluation
     console.log(
       `Evaluating proof for task ${taskId} (${proof.media_kind}, ${proof.mime_type})`
     );
@@ -133,14 +122,12 @@ export async function processAiVoucherDecision(
       if (throwOnEvaluationError) {
         throw error;
       }
-      // Leave task in AWAITING_AI so user can escalate or retry.
       if (notifyOnEvaluationError) {
         await sendEvaluationErrorNotification(task, error);
       }
       return;
     }
 
-    // 5. Process the decision
     console.log(`Decision for task ${taskId}: ${decision.decision}`);
 
     if (decision.decision === "approved") {
@@ -186,22 +173,16 @@ export async function notifyAiVoucherEvaluationErrorByTaskId(
   await sendEvaluationErrorNotification(task, error);
 }
 
-/**
- * Mark task as AI_ACCEPTED, delete proof, write AI_APPROVE event
- */
 async function approveTask(taskId: string, task: any, reason?: string): Promise<void> {
   const adminClient = createAdminClient();
 
-  // Delete proof from storage + DB
   const cleanup = await deleteTaskProof(taskId, "ai_voucher_approve");
   if (!cleanup.success) {
     console.error(
       `Failed to delete proof for approved task ${taskId}: ${cleanup.error}`
     );
-    // Continue anyway; task is about to be marked complete
   }
 
-  // Update task to AI_ACCEPTED
   const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
       status: "AI_ACCEPTED",
@@ -217,7 +198,6 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
     return;
   }
 
-  // Record in ai_vouches
   await (adminClient.from("ai_vouches") as any).insert({
     task_id: taskId,
     attempt_number: (task.resubmit_count ?? 0) + 1,
@@ -226,7 +206,6 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
     approved_at: new Date().toISOString(),
   });
 
-  // Write task event
   await (adminClient.from("task_events") as any).insert({
     task_id: taskId,
     event_type: "AI_APPROVE",
@@ -235,10 +214,8 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
     to_status: "AI_ACCEPTED",
   });
 
-  // Enqueue Google Calendar upsert
   await enqueueGoogleCalendarOutbox(task.user_id, taskId, "UPSERT");
 
-  // Push notification only (no email)
   await sendNotification({
     userId: task.user.id,
     title: "Task approved",
@@ -248,16 +225,12 @@ async function approveTask(taskId: string, task: any, reason?: string): Promise<
     data: { taskId, kind: "TASK_AI_APPROVED" },
   });
 
-  // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");
   revalidatePath("/tasks");
   revalidatePath("/settings");
   revalidatePath(`/tasks/${taskId}`);
 }
 
-/**
- * Mark task as AI_DENIED -> AWAITING_USER (appeal/escalation path), create denial record
- */
 async function denyTask(
   taskId: string,
   task: any,
@@ -265,7 +238,6 @@ async function denyTask(
 ): Promise<void> {
   const adminClient = createAdminClient();
 
-  // Delete proof from storage + DB
   const cleanup = await deleteTaskProof(taskId, "ai_voucher_deny");
   if (!cleanup.success) {
     console.error(
@@ -275,7 +247,6 @@ async function denyTask(
 
   const attemptNumber = (task.resubmit_count ?? 0) + 1;
 
-  // Record in ai_vouches
   await (adminClient.from("ai_vouches") as any).insert({
     task_id: taskId,
     attempt_number: attemptNumber,
@@ -283,8 +254,6 @@ async function denyTask(
     reason,
   });
 
-  // AI denial -> AI_DENIED (transitional) -> AWAITING_USER
-  // No penalty at AI denial stage; penalty only on owner's acceptDenial action
   const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
       status: "AWAITING_USER",
@@ -301,7 +270,6 @@ async function denyTask(
     return;
   }
 
-  // Write AI_DENIED transitional event, then auto-hop to AWAITING_USER
   await (adminClient.from("task_events") as any).insert([
     {
       task_id: taskId,
@@ -321,7 +289,6 @@ async function denyTask(
     },
   ]);
 
-  // Push notification only (no email)
   await sendNotification({
     userId: task.user.id,
     title: "Proof denied by AI",
@@ -331,16 +298,12 @@ async function denyTask(
     data: { taskId, kind: "TASK_AI_DENIED_RESUBMIT" },
   });
 
-  // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");
   revalidatePath("/tasks");
   revalidatePath("/settings");
   revalidatePath(`/tasks/${taskId}`);
 }
 
-/**
- * Mark task as AI_DENIED -> AWAITING_USER due to missing proof
- */
 async function failTask(
   taskId: string,
   task: any,
@@ -348,10 +311,8 @@ async function failTask(
 ): Promise<void> {
   const adminClient = createAdminClient();
 
-  // Delete proof if any
   await deleteTaskProof(taskId, "ai_voucher_fail");
 
-  // No proof -> AI_DENIED -> AWAITING_USER (no penalty at this stage)
   const { error: updateError } = await (adminClient.from("tasks") as any)
     .update({
       status: "AWAITING_USER",
@@ -366,7 +327,6 @@ async function failTask(
     return;
   }
 
-  // Write AI_DENIED transitional event, then auto-hop to AWAITING_USER
   await (adminClient.from("task_events") as any).insert([
     {
       task_id: taskId,
@@ -386,7 +346,6 @@ async function failTask(
     },
   ]);
 
-  // Send push notification
   if (task.user?.id) {
     await sendNotification({
       userId: task.user.id,
@@ -400,17 +359,12 @@ async function failTask(
     });
   }
 
-  // Invalidate caches
   revalidateTag(activeTasksTag(task.user_id), "max");
   revalidatePath("/tasks");
   revalidatePath("/settings");
   revalidatePath(`/tasks/${taskId}`);
 }
 
-/**
- * Send notification when evaluation fails (Gemini error, etc.)
- * Task stays in AWAITING_AI so user can escalate
- */
 async function sendEvaluationErrorNotification(
   task: any,
   error: unknown

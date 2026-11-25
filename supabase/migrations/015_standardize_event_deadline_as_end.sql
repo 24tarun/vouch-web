@@ -1,5 +1,3 @@
--- Standardize Google event semantics so task deadline always maps to event end.
--- Also carry bounded-window offsets through recurring task generation.
 
 UPDATE public.google_calendar_connections
 SET deadline_source_preference = 'end'

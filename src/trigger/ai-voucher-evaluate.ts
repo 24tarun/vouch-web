@@ -1,9 +1,3 @@
-/**
- * Trigger.dev Task: AI Voucher Video Proof Evaluation
- *
- * Evaluates video proofs asynchronously. Fired after a video proof upload completes.
- * Images are evaluated synchronously in the server action (Gemini is fast enough).
- */
 
 import { task, wait } from "@trigger.dev/sdk/v3";
 import {
@@ -22,7 +16,6 @@ export const aiVoucherEvaluate = task({
 
     console.info(`Starting AI voucher evaluation for task ${taskId}`);
 
-    // Retry up to 3 times with exponential backoff.
     let attempt = 0;
     const maxAttempts = 3;
     let lastError: unknown;

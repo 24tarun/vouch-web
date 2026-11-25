@@ -1,6 +1,3 @@
--- Proof attachment state is intentionally independent from task status.
--- Removing proof only reopens a task when the owner had already submitted it
--- for review. Uploading/finalizing proof never marks a task complete.
 CREATE OR REPLACE FUNCTION public.remove_task_proof_v2(
   p_task_id uuid,
   p_actor_user_client_instance_id uuid DEFAULT NULL
@@ -62,9 +59,6 @@ BEGIN
   WHERE proof.task_id = v_task.id AND proof.owner_id = v_actor
   FOR UPDATE;
 
-  -- FAILED is the internal cleanup marker, not a task status or user-visible
-  -- proof state. Keeping the row until Storage deletion succeeds lets the
-  -- scheduled cleanup retry without orphaning the object.
   UPDATE public.task_completion_proofs AS proof
   SET upload_state = 'FAILED', updated_at = now()
   WHERE proof.task_id = v_task.id AND proof.owner_id = v_actor;

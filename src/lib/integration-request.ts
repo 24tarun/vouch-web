@@ -24,10 +24,6 @@ function getBearerToken(request: NextRequest): string | null {
     return token || null;
 }
 
-/**
- * Rate-limits by IP, then resolves the `Authorization: Bearer vouch_…` API key to its owner.
- * Returns either the user id or a ready-to-send error response.
- */
 export async function authenticateIntegrationRequest(
     request: NextRequest,
     rateLimitScope: string

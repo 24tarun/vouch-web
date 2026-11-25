@@ -1,13 +1,3 @@
-/**
- * Trigger: voucher-timeout
- * Runs: Every hour at minute 0 (`0 * * * *`).
- * What it does when it runs:
- * 1) Finds tasks still in AWAITING_VOUCHER where voucher_response_deadline has passed.
- * 2) Atomically flips each matched task to AUTO_ACCEPTED.
- * 3) Adds only a voucher timeout penalty ledger entry for the voucher.
- * 4) Deletes volatile proof media and logs a VOUCHER_TIMEOUT system event.
- * 5) Skips AI-vouched tasks (AI processes deterministically, no timeout).
- */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteTaskProof } from "@/lib/task-proof";
@@ -27,7 +17,7 @@ interface TimeoutTask {
 
 export const voucherTimeout = schedules.task({
     id: "voucher-timeout",
-    cron: "0 * * * *", // Run every hour
+    cron: "0 * * * *",
     run: async () => {
         const supabase = createAdminClient();
         const now = new Date().toISOString();

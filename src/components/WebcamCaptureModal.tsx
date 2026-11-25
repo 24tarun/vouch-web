@@ -35,8 +35,6 @@ function get43CropParams(videoWidth: number, videoHeight: number) {
 }
 
 function detectBrave(): boolean {
-    // navigator.brave is a Brave-specific property
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return typeof (navigator as any).brave !== "undefined";
 }
 
@@ -324,10 +322,6 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
         (async () => {
             let stream: MediaStream | null = null;
             try {
-                // Use plain `video: true` — no facingMode constraint.
-                // `facingMode: "environment"` (rear camera) does not exist on desktop
-                // webcams and causes OverconstrainedError/NotFoundError even when
-                // the browser has camera permission.
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({
                         video: {
@@ -444,8 +438,6 @@ export function WebcamCaptureModal({ open, onClose, onCapture, onFallbackToFileP
                                 playsInline
                                 muted
                                 className="absolute inset-0 h-full w-full bg-black"
-                                // Capture uses the same centered 4:3 crop and horizontal flip,
-                                // so the uploaded proof matches this preview exactly.
                                 style={{ objectFit: "cover", transform: "scaleX(-1)" }}
                             />
                         </div>

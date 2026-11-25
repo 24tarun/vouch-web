@@ -1,7 +1,3 @@
--- Mobile operating systems suspend JavaScript while an app is backgrounded or
--- the phone is locked. A missing mobile heartbeat therefore cannot prove that
--- the user dismissed the app. Mobile sessions are completed only from an
--- explicit native close request; web and Mac retain heartbeat-timeout cleanup.
 CREATE OR REPLACE FUNCTION private.complete_stale_pomo_sessions()
 RETURNS integer
 LANGUAGE plpgsql

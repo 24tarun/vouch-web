@@ -3,7 +3,6 @@ import { isEventTask } from "@/lib/calendar/types";
 
 const DEADLINE_GRACE_MS = 60 * 1000;
 
-/** Why a deadline pin is locked, or null when it can be dragged to postpone. */
 export function getPinLockReason(
     task: Pick<CalendarTask, "status" | "postponed_at" | "deadline" | "google_sync_for_task" | "is_strict">,
     now: Date = new Date()
@@ -21,7 +20,6 @@ function localDateInTimeZone(ms: number, timeZone: string): string {
     return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(ms));
 }
 
-/** Mirrors postpone_task_v2 so invalid drops are caught before the round-trip. */
 export function validatePostponeTarget(
     task: Pick<CalendarTask, "deadline" | "daily_rule_timezone">,
     newDeadlineMs: number,
@@ -39,7 +37,6 @@ export function validatePostponeTarget(
     return null;
 }
 
-/** Blocks that would end after a deadline moved earlier (the database removes them). */
 export function countBlocksPastDeadline(blocks: Array<{ end_at: string }>, newDeadlineMs: number): number {
     return blocks.filter((block) => Date.parse(block.end_at) > newDeadlineMs).length;
 }

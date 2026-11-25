@@ -1,6 +1,3 @@
--- Deletes task_reminders when a task reaches a final state.
--- Covers all transition sites (server actions, background jobs, AI evaluator)
--- without requiring per-action cleanup code.
 CREATE OR REPLACE FUNCTION public.delete_reminders_on_final_task_state()
 RETURNS trigger
 LANGUAGE plpgsql

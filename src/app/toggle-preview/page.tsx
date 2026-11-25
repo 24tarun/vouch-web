@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 
-/* ─── Variant 1: iOS Classic ─────────────────────────────────────────────── */
 function ToggleIOS({ label }: { label: string }) {
     const [on, setOn] = useState(false);
     return (
@@ -42,7 +41,6 @@ function ToggleIOS({ label }: { label: string }) {
     );
 }
 
-/* ─── Variant 2: TAS Cyan ────────────────────────────────────────────────── */
 function ToggleCyan({ label }: { label: string }) {
     const [on, setOn] = useState(false);
     return (
@@ -83,7 +81,6 @@ function ToggleCyan({ label }: { label: string }) {
     );
 }
 
-/* ─── Variant 3: Glassmorphic ────────────────────────────────────────────── */
 function ToggleGlass({ label }: { label: string }) {
     const [on, setOn] = useState(false);
     return (
@@ -137,7 +134,6 @@ function ToggleGlass({ label }: { label: string }) {
     );
 }
 
-/* ─── Variant 4: Pill Outline ────────────────────────────────────────────── */
 function ToggleOutline({ label }: { label: string }) {
     const [on, setOn] = useState(false);
     return (
@@ -162,7 +158,6 @@ function ToggleOutline({ label }: { label: string }) {
                 aria-checked={on}
                 role="switch"
             >
-                {/* Fill track */}
                 <motion.div
                     animate={{ scaleX: on ? 1 : 0 }}
                     initial={false}
@@ -174,7 +169,6 @@ function ToggleOutline({ label }: { label: string }) {
                         originX: 0,
                     }}
                 />
-                {/* Knob */}
                 <motion.div
                     animate={{ x: on ? 22 : 0 }}
                     transition={{ type: "spring", stiffness: 480, damping: 30 }}
@@ -193,7 +187,6 @@ function ToggleOutline({ label }: { label: string }) {
     );
 }
 
-/* ─── Variant 5: Squish ──────────────────────────────────────────────────── */
 function ToggleSquish({ label }: { label: string }) {
     const [on, setOn] = useState(false);
     const [pressed, setPressed] = useState(false);
@@ -241,7 +234,6 @@ function ToggleSquish({ label }: { label: string }) {
     );
 }
 
-/* ─── Layout helpers ─────────────────────────────────────────────────────── */
 function Row({
     label,
     desc,
@@ -299,7 +291,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     );
 }
 
-/* ─── Page ───────────────────────────────────────────────────────────────── */
 export default function TogglePreview() {
     return (
         <>

@@ -23,7 +23,6 @@ export function shiftClockTime(hour: number, minute: number, delta: number): str
     return `${nextHour}:${nextMinute}`;
 }
 
-/** Turns loose keyboard input ("9", "930", "9:3", "1830") into "HH:MM", or "" when unparseable. */
 export function parseTimeInput(raw: string): string {
     const digits = raw.replace(/\D/g, "").slice(0, 4);
     if (!digits) return "";
@@ -240,8 +239,6 @@ export function CustomTimePicker({
                 <div
                     className={cn(
                         "absolute left-1/2 z-50 -translate-x-1/2 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 shadow-xl shadow-black/50",
-                        // The compact variant sits at the bottom of the schedule dialog, where a
-                        // downward menu would open past the scroll container's edge.
                         compact ? "bottom-full mb-1" : "top-full mt-1"
                     )}
                 >

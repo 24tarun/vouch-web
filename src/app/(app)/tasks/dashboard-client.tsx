@@ -120,7 +120,6 @@ function sortActiveTasks(tasks: Task[], sortMode: DashboardSortMode): Task[] {
 
         if (sortMode === "deadline_asc") {
             if (deadlineA !== deadlineB) return deadlineA - deadlineB;
-            // For same deadline, newer task first.
             if (createdA !== createdB) return createdB - createdA;
             return 0;
         }
@@ -504,8 +503,6 @@ export default function DashboardClient({
                 currentActiveTasks.find((task) => task.id === taskId) ||
                 currentCompletedTasks.find((task) => task.id === taskId);
 
-            // If the task moved to a terminal/non-active status, remove it from all lists
-            // even if it wasn't previously tracked (e.g. AWAITING_AI -> AI_ACCEPTED).
             const TERMINAL_STATUSES = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED", "DENIED", "MISSED", "SURRENDERED", "RECTIFIED", "SETTLED", "DELETED"];
             if (!existingTask) {
                 if (change.newRow && TERMINAL_STATUSES.includes(change.newRow.status)) {

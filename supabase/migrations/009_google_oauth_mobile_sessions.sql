@@ -1,4 +1,3 @@
--- Secure mobile Google OAuth kickoff sessions (opaque sid/state, short-lived, single-use)
 CREATE TABLE IF NOT EXISTS public.google_oauth_mobile_sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   sid text NOT NULL UNIQUE,

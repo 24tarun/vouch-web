@@ -15,23 +15,20 @@ export function DesktopLanding() {
       />
 
       <style>{`
-        /* ── App palette (slate-950/900/800 — matches dashboard) */
         :root {
-          --bg:           #020617;   /* slate-950 */
-          --surface:      #0f172a;   /* slate-900 */
-          --card:         #1e293b;   /* slate-800 */
-          --border:       #1e293b;   /* slate-800 */
-          --border-hi:    #334155;   /* slate-700 */
-          --fg:           #f8fafc;   /* slate-50  */
-          --fg-dim:       #94a3b8;   /* slate-400 */
-          --fg-muted:     #334155;   /* slate-700 */
+          --bg:           #020617;
+          --surface:      #0f172a;
+          --card:         #1e293b;
+          --border:       #1e293b;
+          --border-hi:    #334155;
+          --fg:           #f8fafc;
+          --fg-dim:       #94a3b8;
+          --fg-muted:     #334155;
 
-          /* App's cyan accent (seven-seg display / pomodoro) */
           --cyan:         #00d9ff;
           --cyan-glow:    rgba(0, 217, 255, 0.35);
           --cyan-glow-hi: rgba(0, 217, 255, 0.6);
 
-          /* Solarized status palette (from TaskRow / CommitmentCard) */
           --s-amber:      #fbbf24;
           --s-emerald:    #34d399;
           --s-red:        #f87171;
@@ -55,11 +52,9 @@ export function DesktopLanding() {
         .d4   { animation-delay: 0.50s; }
         .d5   { animation-delay: 0.64s; }
 
-        /* ── Glow helpers ──────────────────────────────── */
         .cyan-glow  { filter: drop-shadow(0 0 10px var(--cyan-glow)); }
         .text-cyan  { color: var(--cyan); }
 
-        /* ── Buttons ───────────────────────────────────── */
         .btn-solid {
           display: inline-block;
           background: var(--cyan);
@@ -99,9 +94,7 @@ export function DesktopLanding() {
           border-color: var(--cyan);
         }
 
-        /* ── Eyebrow label ─────────────────────────────── */
 
-        /* ── Status badges ─────────────────────────────── */
         .badge {
           font-family: 'DM Mono', monospace;
           font-size: 10px;
@@ -119,7 +112,6 @@ export function DesktopLanding() {
         .badge-orange  { color: var(--s-orange);  border-color: var(--s-orange);  background: rgba(251,146,60,0.08);  }
         .badge-purple  { color: var(--s-purple);  border-color: var(--s-purple);  background: rgba(192,132,252,0.08); }
 
-        /* ── Cards ─────────────────────────────────────── */
         .step-card { transition: background 0.3s, border-color 0.3s; }
         .step-card:hover { background: #0f172a !important; border-color: var(--border-hi) !important; }
         .step-card:hover .step-num { color: var(--cyan) !important; filter: drop-shadow(0 0 8px var(--cyan-glow)); }
@@ -129,15 +121,12 @@ export function DesktopLanding() {
         .feat-item:hover { border-color: var(--cyan) !important; }
         .feat-item:hover .feat-title { color: var(--fg) !important; }
 
-        /* ── Stack table ───────────────────────────────── */
         .stack-row { transition: background 0.2s; }
         .stack-row:hover { background: #0f172a !important; }
 
-        /* ── Footer icons ──────────────────────────────── */
         .icon-link { color: var(--fg-muted); transition: color 0.2s, filter 0.2s; display: inline-flex; }
         .icon-link:hover { color: var(--cyan); filter: drop-shadow(0 0 6px var(--cyan-glow)); }
 
-        /* ── Noise grain overlay ───────────────────────── */
         body::after {
           content: '';
           position: fixed; inset: 0;
@@ -146,7 +135,6 @@ export function DesktopLanding() {
           background-size: 200px 200px;
         }
 
-        /* ── Subtle radial hero glow ───────────────────── */
         .hero-glow {
           position: absolute;
           top: -200px; left: 50%;
@@ -196,7 +184,6 @@ export function DesktopLanding() {
 
       <div style={{ background: "var(--bg)", color: "var(--fg)", minHeight: "100vh" }}>
 
-        {/* ─── HERO ─── */}
         <section style={{ position: "relative", overflow: "hidden", minHeight: "100dvh", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "56px 2.5rem 80px", textAlign: "center" }}>
           <div className="hero-glow" />
           <div style={{ maxWidth: "1280px", margin: "0 auto", width: "100%", position: "relative", paddingTop: "42px" }}>

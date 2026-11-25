@@ -1,7 +1,3 @@
--- Owner-initiated rectification requests shared by web and mobile.
--- All mutating RPCs are SECURITY DEFINER because authenticated clients only
--- receive SELECT access to the request tables. Every RPC performs explicit
--- actor and state checks and has PUBLIC/anon execution revoked below.
 
 ALTER TABLE public.tasks
 DROP CONSTRAINT IF EXISTS tasks_status_check;
@@ -139,8 +135,6 @@ GRANT SELECT ON public.ai_rectification_usage TO authenticated;
 GRANT ALL ON public.rectification_requests TO service_role;
 GRANT ALL ON public.ai_rectification_usage TO service_role;
 
--- Friendship removal treats only open human-targeted rectification requests as
--- relationship conflicts. AI-targeted requests intentionally do not block it.
 CREATE OR REPLACE FUNCTION public.has_pending_voucher_conflict(p_user_a uuid, p_user_b uuid)
 RETURNS boolean
 LANGUAGE sql
@@ -766,8 +760,6 @@ SET search_path = ''
 AS $$
 DECLARE
   v_request public.rectification_requests%ROWTYPE;
-  -- task_events.actor_id and rectify_passes.authorized_by reference profiles.
-  -- The seeded AI profile is the valid system actor used elsewhere in the app.
   v_system_actor constant uuid := '11111111-1111-1111-1111-111111111111';
 BEGIN
   FOR v_request IN
@@ -806,8 +798,6 @@ BEGIN
 END;
 $$;
 
--- Proof upload finalization remains atomic while recognizing rectification as
--- an attachable review state and emitting a request-specific timeline event.
 CREATE OR REPLACE FUNCTION public.finalize_task_proof_atomic(
   p_task_id uuid,
   p_owner_id uuid,
@@ -893,7 +883,6 @@ GRANT EXECUTE ON FUNCTION public.finalize_task_proof_atomic(
   uuid, uuid, text, text, text, text, integer, integer, text, text
 ) TO service_role;
 
--- Include request-scoped AI usage in the existing quota response.
 CREATE OR REPLACE FUNCTION public.get_ai_voucher_quota()
 RETURNS TABLE (
   account_tier text, used integer, pending integer, monthly_limit integer,
@@ -937,7 +926,6 @@ BEGIN
 END;
 $$;
 
--- Human-facing RPC grants.
 REVOKE ALL ON FUNCTION public.request_task_rectification(uuid, text, text, uuid) FROM public, anon;
 REVOKE ALL ON FUNCTION public.update_task_rectification(uuid, text, uuid) FROM public, anon;
 REVOKE ALL ON FUNCTION public.cancel_task_rectification(uuid, uuid) FROM public, anon;
@@ -957,7 +945,6 @@ GRANT EXECUTE ON FUNCTION public.get_task_rectification_pass_summary(uuid) TO au
 GRANT EXECUTE ON FUNCTION public.submit_rectification_ai_appeal(uuid, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.escalate_rectification_to_original_voucher(uuid, uuid) TO authenticated;
 
--- Service-only RPC grants.
 REVOKE ALL ON FUNCTION public.record_ai_rectification_decision(uuid, text, text) FROM public, anon, authenticated;
 REVOKE ALL ON FUNCTION public.process_due_rectification_requests(timestamptz, uuid) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.record_ai_rectification_decision(uuid, text, text) TO service_role;

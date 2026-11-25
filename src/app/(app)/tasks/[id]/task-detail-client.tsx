@@ -254,7 +254,6 @@ export default function TaskDetailClient({
         });
     };
 
-    // AI Voucher resubmit state
     const isAiVouched = taskState.voucher_id === AI_PROFILE_ID;
     const resubmitCount = taskState.resubmit_count ?? 0;
     const MAX_RESUBMITS = 3;
@@ -435,7 +434,6 @@ export default function TaskDetailClient({
             try {
                 input.setSelectionRange(cursorPosition, cursorPosition);
             } catch {
-                // Some input types/platforms may not support selection range.
             }
         });
     };
@@ -463,21 +461,6 @@ export default function TaskDetailClient({
         return () => window.clearTimeout(timeoutId);
     }, [taskState.deadline, taskState.status]);
 
-    /*
-     * This screen keeps local editable copies of task data so optimistic actions (subtasks, reminders,
-     * status transitions) can update instantly without waiting for server round-trips.
-     *
-     * A plain router.refresh() is not enough when local state was initialized from props once, because
-     * refreshed server props do not automatically overwrite those local copies.
-     *
-     * Sync order is deliberate:
-     * 1) Replace the primary task snapshot (`taskState`) from latest server truth.
-     * 2) Replace local subtasks from server-provided relations.
-     * 3) Replace local reminders with sorted server-provided relations.
-     *
-     * This intentionally does NOT reset local-only draft UI state such as proofDraft, form inputs,
-     * dialog toggles, or pending flags.
-     */
     useEffect(() => {
         setTaskState(task);
         setSubtasks(task.subtasks || []);
@@ -921,7 +904,6 @@ export default function TaskDetailClient({
 
         <div className="mx-auto w-full max-w-[1480px] px-4 md:px-6 xl:px-10 pb-12 space-y-7">
 
-            {/* Hidden proof file input */}
             <input ref={proofInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={handleProofInputChange} />
             <WebcamCaptureModal
                 open={showWebcamModal}
@@ -937,7 +919,6 @@ export default function TaskDetailClient({
                 }}
             />
 
-            {/* ① HERO HEADER — same columns as the stats/timeline grid below */}
             <div className="pt-2 lg:grid lg:grid-cols-3 lg:gap-8 lg:items-start">
                 <div className="min-w-0 lg:col-span-2">
                     <h1 className="text-3xl font-bold text-white leading-tight break-words">
@@ -971,7 +952,6 @@ export default function TaskDetailClient({
 
             <div className="lg:grid lg:grid-cols-3 lg:gap-8 lg:items-start">
                 <div className="space-y-7 lg:col-span-2">
-                    {/* ② STATS STRIP */}
                     <TaskDetailStatsStrip
                         groupRow={taskState.user_id === viewerId && taskState.status !== "DELETED" ? <TaskGroupLink task={taskState} /> : undefined}
                         deadline={displayedDeadline}
@@ -986,7 +966,6 @@ export default function TaskDetailClient({
                         onEditFutureSetting={openRecurrenceEditor}
                     />
 
-                    {/* Google Sync */}
                     {googleSyncDirectionLabel && (
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] uppercase tracking-wider font-bold text-slate-600">Sync</span>
@@ -994,7 +973,6 @@ export default function TaskDetailClient({
                         </div>
                     )}
 
-                    {/* ③ STATUS CONTEXT BANNER */}
                     {taskState.status === "AWAITING_RECTIFICATION" && (
                         <div className="rounded-xl border border-violet-500/30 bg-violet-950/15 overflow-hidden">
                             <div className="h-px bg-gradient-to-r from-violet-500/70 via-violet-400/20 to-transparent" />
@@ -1209,14 +1187,12 @@ export default function TaskDetailClient({
                         </div>
                     )}
 
-                    {/* Proof upload error */}
                     {proofUploadError && (
                         <div className="rounded-xl border border-red-900/50 bg-red-950/15 px-4 py-3">
                             <p className="text-sm font-mono text-red-300">{proofUploadError}</p>
                         </div>
                     )}
 
-                    {/* Stored proof */}
                     {storedProof && storedProofSrc && !proofDraft && (
                         <div className="space-y-2">
                     <div className="flex items-center gap-3">
@@ -1275,7 +1251,6 @@ export default function TaskDetailClient({
                         </div>
                     )}
 
-                    {/* Proof draft preview */}
                     {proofDraft && (
                         <div className="space-y-2">
                     <div className="flex items-center gap-3">
@@ -1331,7 +1306,6 @@ export default function TaskDetailClient({
                         </div>
                     )}
 
-                    {/* ACTIONS BAR */}
                     <div className="space-y-3">
                 {isOwner && isActiveParentTask && potentialRp !== null && potentialRp > 0 && (
                     <p className="text-xs font-mono text-orange-400/80">
@@ -1643,7 +1617,6 @@ export default function TaskDetailClient({
                     </div>
                 </div>
 
-                {/* ⑦ ACTIVITY LOG */}
                 <aside className="mt-7 lg:mt-0 lg:col-span-1 lg:sticky lg:top-24">
                     <div className="rounded-xl border border-slate-800/80 bg-slate-950/35 p-4 lg:p-5 space-y-4">
                         <div className="flex w-full items-center gap-3">
@@ -1786,7 +1759,6 @@ export default function TaskDetailClient({
                 </DialogContent>
             </Dialog>
 
-            {/* Postpone dialog */}
             <PostponeDeadlineDialog open={isPostponeDialogOpen} onOpenChange={setIsPostponeDialogOpen}
                 currentDeadlineIso={taskState.deadline} isSubmitting={isActionPending("postpone")}
                 onConfirm={(newDeadlineIso) => handlePostpone(newDeadlineIso)} />
@@ -1808,7 +1780,6 @@ export default function TaskDetailClient({
                 />
             )}
 
-            {/* Fullscreen proof overlay */}
             {isStoredProofFullscreen && storedProof && storedProofSrc && (
                 <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4" onClick={() => setIsStoredProofFullscreen(false)}>
                     <button type="button" onClick={(e) => { e.stopPropagation(); setIsStoredProofFullscreen(false); }}
@@ -1825,7 +1796,6 @@ export default function TaskDetailClient({
                 </div>
             )}
 
-            {/* Escalation dialog */}
             {showEscalationPicker && (
                 <Dialog open={showEscalationPicker} onOpenChange={setShowEscalationPicker}>
                     <DialogContent className="bg-slate-900 border-slate-800 text-slate-300">

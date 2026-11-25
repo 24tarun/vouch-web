@@ -6,7 +6,6 @@ import { blockTimesSchema, integrationDb } from "@/lib/calendar/integration";
 
 const idSchema = z.uuid();
 
-/** PATCH /api/integrations/calendar/blocks/:id — { start_at, end_at } moves or resizes a block. */
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     const auth = await authenticateIntegrationRequest(request, "calendar");
     if (auth.response) return auth.response;
@@ -20,7 +19,6 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
     return jsonNoStore({ block: result.block });
 }
 
-/** DELETE /api/integrations/calendar/blocks/:id */
 export async function DELETE(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     const auth = await authenticateIntegrationRequest(request, "calendar");
     if (auth.response) return auth.response;

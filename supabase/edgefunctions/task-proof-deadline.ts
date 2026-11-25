@@ -1,10 +1,6 @@
 export const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
 export const COMPLETION_EDIT_LOCKED_ERROR = 'The task deadline has passed. Proof and completion can no longer be changed.';
 
-// Single source of truth for which task statuses still have an editable
-// completion/proof state. The client (lib/tasks/task-completion-lock.ts)
-// imports this exact list so it predicts what the server will accept -- see
-// code-review/02-correctness-findings.md #1.
 export const COMPLETION_EDITABLE_STATUSES = [
   'ACTIVE',
   'POSTPONED',
@@ -32,22 +28,8 @@ export function canMarkProofUploadFailed(uploadState: string | null | undefined)
   return uploadState === 'PENDING';
 }
 
-/**
- * How long after an attested capture the upload may still land. Generous because
- * a large video on a poor connection, or an upload resumed after the app was
- * killed, is normal use rather than an abuse signal.
- */
 export const CAPTURE_UPLOAD_WINDOW_MS = 15 * 60 * 1000;
 
-/**
- * Whether a locally recorded capture start falls inside the window its license
- * authorized.
- *
- * Kept separate from signature verification so the policy is testable without
- * crypto. The signature is what makes `notBefore`/`notAfter` trustworthy; this
- * decides whether the device's claimed instant is allowed to sit between them,
- * and that the upload has not been banked for later.
- */
 export function isCaptureStartWithinLicense(
   license: { notBefore: string; notAfter: string },
   claimedStartedAtMs: number,

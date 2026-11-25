@@ -27,10 +27,6 @@ export function canOwnerTemporarilyDelete(task: TaskDeleteCandidate, nowMs: numb
         return false;
     }
 
-    // A recurring occurrence is governed by its recurrence rule. Allowing the
-    // one-hour creation grace period here would let an owner erase a freshly
-    // generated instance (most visibly at midnight) without stopping or
-    // pausing the series.
     if (task.recurrence_rule_id) {
         return false;
     }

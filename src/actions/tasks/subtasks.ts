@@ -51,7 +51,6 @@ export async function addTaskSubtask(parentTaskId: string, title: string) {
         return { error: SUBTASK_LIMIT_ERROR };
     }
 
-    // @ts-ignore
     const { data: subtask, error } = await (supabase.from("task_subtasks") as any)
         .insert({
             parent_task_id: parentTaskId,
@@ -210,7 +209,6 @@ export async function toggleTaskSubtask(parentTaskId: string, subtaskId: string,
 
     const nowIso = new Date().toISOString();
 
-    // @ts-ignore
     const { data: updatedSubtask, error } = await (supabase.from("task_subtasks") as any)
         .update({
             is_completed: completed,
@@ -261,7 +259,6 @@ export async function renameTaskSubtask(parentTaskId: string, subtaskId: string,
         return { error: `Cannot edit subtasks in ${parentTask.status} status` };
     }
 
-    // @ts-ignore
     const { data: updatedSubtask, error } = await (supabase.from("task_subtasks") as any)
         .update({
             title: normalizedTitle,

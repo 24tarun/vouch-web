@@ -1,5 +1,3 @@
--- Tombstones table: prevents re-importing Google events that were deleted from the app.
--- Tombstones are checked before creating a task from a Google event delta.
 CREATE TABLE IF NOT EXISTS public.google_calendar_event_tombstones (
   user_id     UUID  NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   calendar_id TEXT  NOT NULL,
@@ -14,8 +12,6 @@ ALTER TABLE public.google_calendar_event_tombstones ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can select own tombstones"
   ON public.google_calendar_event_tombstones FOR SELECT USING (auth.uid() = user_id);
 
--- Partial unique index on the outbox to prevent two concurrent workers from both
--- claiming PROCESSING status for the same (user, task) pair.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_processing_unique
   ON public.google_calendar_sync_outbox (user_id, task_id)
   WHERE status = 'PROCESSING' AND task_id IS NOT NULL;

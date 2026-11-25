@@ -20,7 +20,6 @@ import { enqueueGoogleCalendarOutbox } from "@/lib/google-calendar/sync";
 import { stripEventColorTokens } from "@/lib/task-title-event-color";
 import { parseTaskDescription, stripProofRequiredTokens } from "@/lib/task-title-parser";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 export const INVALID_DEADLINE_ERROR = "Deadline is invalid.";
 export const PAST_DEADLINE_ERROR = "Deadline must be in the future.";
@@ -57,7 +56,6 @@ export const ALLOWED_PROOF_MIME_TYPES = new Set([
     "video/mp4", "video/quicktime", "video/webm",
 ]);
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface MarkTaskCompleteWithProofResult {
     success?: boolean;
@@ -69,7 +67,6 @@ export interface MarkTaskCompleteWithProofResult {
     };
 }
 
-// ─── Timezone helpers ─────────────────────────────────────────────────────────
 
 export function isValidTimeZone(timeZone: string): boolean {
     try {
@@ -136,11 +133,6 @@ export function getVoucherResponseDeadlineUtc(baseDate: Date = new Date(), userT
     return new Date(targetIso);
 }
 
-// ─── Cache invalidation ───────────────────────────────────────────────────────
-// (invalidateActiveTasksCache and invalidatePendingVoucherRequestsCache are re-exported from @/lib/cache-tags above)
-
-// ─── Google Calendar helpers ──────────────────────────────────────────────────
-
 export async function enqueueGoogleCalendarUpsert(userId: string, taskId: string) {
     try {
         await enqueueGoogleCalendarOutbox(userId, taskId, "UPSERT");
@@ -164,7 +156,6 @@ export async function enqueueGoogleCalendarDelete(
     }
 }
 
-// ─── Title normalization ──────────────────────────────────────────────────────
 
 export function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTitle: string; googleSyncForTask: boolean; isStrict: boolean } {
     const { taskInput } = parseTaskDescription(rawTitle);
@@ -185,7 +176,6 @@ export function normalizeTaskTitleAndSyncKind(rawTitle: string): { normalizedTit
     };
 }
 
-// ─── Deadline / date helpers ──────────────────────────────────────────────────
 
 export function parseAndValidateFutureDeadline(rawDeadline: string): { deadline?: Date; error?: string } {
     const parsedDeadline = new Date(rawDeadline);
@@ -214,7 +204,6 @@ export function getDefaultTaskDeadline(defaultTime = "23:00"): Date {
     return defaultDeadline;
 }
 
-// ─── Subtask normalization ────────────────────────────────────────────────────
 
 export function normalizeSubtaskTitles(rawTitles: unknown): { titles: string[]; error?: string } {
     if (rawTitles == null || rawTitles === "") {
@@ -264,7 +253,6 @@ export function normalizeSubtasksFromFormData(formValue: FormDataEntryValue | nu
     }
 }
 
-// ─── Reminder normalization ───────────────────────────────────────────────────
 
 export function validateReminderIsoList(rawValues: unknown, deadline: Date): { reminderDates: Date[]; error?: string } {
     if (rawValues == null || rawValues === "") {
@@ -326,11 +314,6 @@ export function normalizeRemindersFromFormData(
     }
 }
 
-/**
- * Reminder instants the client marked urgent. Unknown or unparseable entries are
- * ignored rather than rejected: urgency is a flag on reminders that are validated
- * separately, so a stale entry must not block task creation.
- */
 export function normalizeUrgentRemindersFromFormData(formValue: FormDataEntryValue | null): Set<number> {
     const urgentMs = new Set<number>();
     if (typeof formValue !== "string" || !formValue.trim()) return urgentMs;
@@ -373,7 +356,6 @@ export function buildManualReminderOffsetsFromDeadline(deadline: Date, reminderD
     return Array.from(offsets.values()).sort((a, b) => a - b);
 }
 
-// ─── Form data parsers ────────────────────────────────────────────────────────
 
 export function parseRequiredPomoMinutesFromFormData(
     formValue: FormDataEntryValue | null
@@ -468,7 +450,6 @@ export function validateProofIntent(rawProofIntent?: TaskProofIntent | null): { 
     };
 }
 
-// ─── DB insertion helpers ─────────────────────────────────────────────────────
 
 export async function insertTaskSubtasks(
     supabase: SupabaseClient<Database>,
@@ -478,7 +459,6 @@ export async function insertTaskSubtasks(
 ): Promise<{ error?: string }> {
     if (titles.length === 0) return {};
 
-    // @ts-ignore
     const { error } = await (supabase.from("task_subtasks") as any).insert(
         titles.map((title) => ({
             parent_task_id: parentTaskId,
@@ -550,7 +530,6 @@ export async function insertTaskReminderRows(
     return {};
 }
 
-// ─── Revalidation helpers ─────────────────────────────────────────────────────
 
 export function revalidateTaskSurfaces(taskId: string, userId: string) {
     invalidateActiveTasksCache(userId);
@@ -570,14 +549,12 @@ export function revalidateTaskAndSocialSurfaces(taskId: string, ownerUserId: str
     revalidatePath(`/tasks/${taskId}`);
 }
 
-// ─── Ownership query helpers ──────────────────────────────────────────────────
 
 export async function getOwnedParentTask(
     supabase: SupabaseClient<Database>,
     parentTaskId: string,
     userId: string
 ) {
-    // @ts-ignore
     const { data: task } = await (supabase.from("tasks") as any)
         .select("id, user_id, status")
         .eq("id", parentTaskId as any)
@@ -587,7 +564,6 @@ export async function getOwnedParentTask(
     return task as { id: string; user_id: string; status: TaskStatus } | null;
 }
 
-// ─── Reminder realignment ─────────────────────────────────────────────────────
 
 export async function realignTaskRemindersAfterPostpone(
     supabase: SupabaseClient<Database>,

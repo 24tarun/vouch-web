@@ -28,19 +28,6 @@ test("active owner sees only currently actionable top-level task detail buttons"
         escalationPending: false,
     });
 
-    /*
-     * What and why this test checks:
-     * This verifies the shared top-level visibility policy for the most common owner-active state, where
-     * the task detail page should show only actionable controls instead of rendering disabled buttons.
-     *
-     * Passing scenario:
-     * An active owner sees the full actionable set for focus, proof, completion, postpone, recurrence,
-     * delete, and section toggles, while override stays hidden because it is not actionable.
-     *
-     * Failing scenario:
-     * If any unavailable control still appears here or an actionable control disappears, the task detail
-     * screen will drift away from the new hide-instead-of-disable contract.
-     */
     assert.deepEqual(visibility.actions, {
         pomo: true,
         attachProof: true,
@@ -78,17 +65,6 @@ test("non-owner task detail view hides owner-only top-level buttons entirely", (
         escalationPending: false,
     });
 
-    /*
-     * What and why this test checks:
-     * This locks the owner-only rule for shared task detail rendering across web and mobile wrappers.
-     *
-     * Passing scenario:
-     * A non-owner sees no owner-only main actions, no awaiting actions, and no proof-removal control.
-     *
-     * Failing scenario:
-     * If any of these remain visible for non-owners, the page will still behave like the old disabled-button
-     * design and expose controls that should now disappear.
-     */
     assert.deepEqual(visibility.awaiting, {
         addProof: false,
         undoComplete: false,
@@ -203,18 +179,6 @@ test("awaiting owner actions disappear when pending or when undo complete is blo
         escalationPending: false,
     });
 
-    /*
-     * What and why this test checks:
-     * This verifies the specific awaiting-state regression the user called out, including hiding buttons
-     * during in-flight proof actions and after undo-complete becomes invalid past the deadline.
-     *
-     * Passing scenario:
-     * Pending add-proof, pending undo-complete, and pending remove-proof controls all resolve to hidden.
-     *
-     * Failing scenario:
-     * If any of these stay visible while blocked, the task detail page would still render disabled awaiting
-     * controls instead of removing them.
-     */
     assert.equal(visibility.awaiting.addProof, false);
     assert.equal(visibility.awaiting.undoComplete, false);
     assert.equal(visibility.proof.removeStored, false);
@@ -283,20 +247,6 @@ test("nested subtask and reminder controls render only when their actions are av
         isPastReminder: false,
     });
 
-    /*
-     * What and why this test checks:
-     * This covers the nested editor controls inside task detail sections, which also need to follow the
-     * hide-instead-of-disable rule for add, toggle, rename, delete, and reminder removal actions.
-     *
-     * Passing scenario:
-     * Locked subtask controls all evaluate to hidden, the add-subtask button hides while its own request is
-     * pending, row-level subtask controls hide while that row is pending, and a ready reminder action renders
-     * before hiding again once reminder saving is pending.
-     *
-     * Failing scenario:
-     * If locked or pending nested controls still evaluate to visible, expanded task detail sections will
-     * continue showing disabled buttons after the main action grid has been cleaned up.
-     */
     assert.deepEqual(lockedSubtaskVisibility, {
         add: false,
         toggle: false,

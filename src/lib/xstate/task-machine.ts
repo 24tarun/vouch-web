@@ -3,7 +3,6 @@ import { setup, assign } from "xstate";
 const DEADLINE_INCLUSIVE_MINUTE_MS = 60 * 1000;
 const AI_PROFILE_ID = "11111111-1111-1111-1111-111111111111";
 
-// Task status types — V2 lifecycle
 export type TaskStatus =
     | "ACTIVE"
     | "POSTPONED"
@@ -24,7 +23,6 @@ export type TaskStatus =
     | "DELETED"
     | "SETTLED";
 
-// Events that can trigger state transitions
 export type TaskEvent =
     { type: "POSTPONE"; newDeadline: Date }
     | { type: "MARK_COMPLETE" }
@@ -41,7 +39,6 @@ export type TaskEvent =
     | { type: "RECTIFY" }
     | { type: "OVERRIDE" };
 
-// Context for the task machine
 export interface TaskContext {
     taskId: string;
     userId: string;
@@ -57,7 +54,6 @@ export interface TaskContext {
     updatedAt: Date;
 }
 
-// The task state machine
 export const taskMachine = setup({
     types: {
         context: {} as TaskContext,
@@ -205,7 +201,6 @@ export const taskMachine = setup({
             },
         },
         AI_DENIED: {
-            // Auto-transitions to AWAITING_USER (transitional, logged)
             always: {
                 target: "AWAITING_USER",
             },
@@ -213,7 +208,6 @@ export const taskMachine = setup({
         AWAITING_USER: {
             on: {
                 APPEAL: {
-                    // Resubmit to AI (if denial count < 3)
                     target: "AWAITING_AI",
                     actions: ["updateTimestamp"],
                 },
@@ -228,7 +222,6 @@ export const taskMachine = setup({
             },
         },
         ESCALATED: {
-            // Auto-transitions to AWAITING_VOUCHER (transitional, logged)
             always: {
                 target: "AWAITING_VOUCHER",
                 actions: ["setVoucherResponseDeadline"],
@@ -284,7 +277,6 @@ export const taskMachine = setup({
     },
 });
 
-// Helper function to get valid transitions from a state
 export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     const transitions: Record<TaskStatus, TaskEvent["type"][]> = {
         ACTIVE: ["POSTPONE", "MARK_COMPLETE", "DEADLINE_PASSED", "SURRENDER"],
@@ -292,9 +284,9 @@ export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
         MARKED_COMPLETE: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER", "AI_APPROVE", "AI_DENY"],
         AWAITING_VOUCHER: ["VOUCHER_ACCEPT", "VOUCHER_DENY", "TIMEOUT_VOUCHER"],
         AWAITING_AI: ["AI_APPROVE", "AI_DENY"],
-        AI_DENIED: [], // Auto-transitions to AWAITING_USER
+        AI_DENIED: [],
         AWAITING_USER: ["APPEAL", "ESCALATE", "ACCEPT_DENIAL"],
-        ESCALATED: [], // Auto-transitions to AWAITING_VOUCHER
+        ESCALATED: [],
         AWAITING_RECTIFICATION: [],
         ACCEPTED: [],
         AUTO_ACCEPTED: [],
@@ -309,7 +301,6 @@ export function getValidTransitions(status: TaskStatus): TaskEvent["type"][] {
     return transitions[status];
 }
 
-// Helper to check if a transition is valid
 export function canTransition(
     currentStatus: TaskStatus,
     event: TaskEvent["type"]
@@ -317,16 +308,12 @@ export function canTransition(
     return getValidTransitions(currentStatus).includes(event);
 }
 
-// Success statuses (task completed one way or another)
 export const SUCCESS_STATUSES: TaskStatus[] = ["ACCEPTED", "AUTO_ACCEPTED", "AI_ACCEPTED"];
 
-// Failure statuses (task not completed)
 export const FAILURE_STATUSES: TaskStatus[] = ["DENIED", "MISSED", "SURRENDERED"];
 
-// Active (pre-completion) statuses
 export const ACTIVE_STATUSES: TaskStatus[] = ["ACTIVE", "POSTPONED"];
 
-// Terminal statuses
 export const TERMINAL_STATUSES: TaskStatus[] = [
     ...SUCCESS_STATUSES,
     ...FAILURE_STATUSES,

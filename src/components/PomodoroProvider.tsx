@@ -269,7 +269,6 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             return;
         }
 
-        // Guard invalid concurrent starts locally for snappy feedback.
         if (session && (session.status === "ACTIVE" || session.status === "PAUSED")) {
             if (session.task_id !== taskId) {
                 toast.error("One Pomodoro session at a time. Stop the current session first.");
@@ -294,7 +293,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
                     : null;
             locallyStartedSessionIdRef.current = startedSessionId;
             await refreshSession();
-            setMinimized(false); // Open timer
+            setMinimized(false);
         }
         setIsLoading(false);
     };
@@ -326,7 +325,7 @@ export function PomodoroProvider({ children }: { children: ReactNode }) {
             toast.error(res.error);
         } else {
             toast.success("Pomodoro session logged!");
-            await refreshSession(); // Should clear session
+            await refreshSession();
             router.refresh();
         }
     };

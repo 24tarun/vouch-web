@@ -2,7 +2,6 @@ import { Fragment } from "react";
 import { splitTitleLinks } from "@/lib/task-title-parser";
 import { cn } from "@/lib/utils";
 
-/** Renders text with any URLs shown in full as clickable links. */
 export function LinkifiedText({ text, linkClassName }: { text: string; linkClassName?: string }) {
     const segments = splitTitleLinks(text);
     if (!segments.some((segment) => segment.type === "link")) return <>{text}</>;

@@ -34,8 +34,6 @@ export default async function SettingsPage() {
         .single();
 
     if (!profile) {
-        // This should theoretically not happen if signIn enforces it, 
-        // but if it does, force a logout or redirect
         await supabase.auth.signOut();
         redirect("/login?error=profile_missing");
     }

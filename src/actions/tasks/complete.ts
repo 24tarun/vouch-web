@@ -97,7 +97,6 @@ export async function cancelRepetition(taskId: string) {
 
     if (!user) return { error: "Not authenticated" };
 
-    // @ts-ignore
     const { data: task } = await supabase.from("tasks")
         .select("recurrence_rule_id, status")
         .eq("id", taskId)

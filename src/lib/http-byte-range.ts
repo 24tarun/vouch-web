@@ -3,7 +3,6 @@ export interface HttpByteRange {
     end: number;
 }
 
-/** Parse one RFC 9110 byte range. Multiple ranges are intentionally unsupported. */
 export function parseHttpByteRange(rangeHeader: string, size: number): HttpByteRange | null {
     if (!Number.isSafeInteger(size) || size <= 0) return null;
 

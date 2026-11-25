@@ -1,8 +1,5 @@
 import { JSDOM } from "jsdom";
 
-// Must be imported before react-dom: react-dom decides at module-evaluation time
-// whether a DOM is available, and input events fall back to a broken polyfill path
-// when the globals are installed afterwards.
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
 
 const globalAny = globalThis as typeof globalThis & {

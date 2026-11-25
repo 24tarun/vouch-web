@@ -1,6 +1,6 @@
 export const SCORE_BASE = 400;
 export const BAYESIAN_BASE_WEIGHT = 10;
-export const BAYESIAN_TASK_THRESHOLD = 40; // Prior fades as finalized history accumulates
+export const BAYESIAN_TASK_THRESHOLD = 40;
 
 export const WEIGHT_DELIVERY = 0.4;
 export const WEIGHT_ACCOUNTABILITY = 0.25;

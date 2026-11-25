@@ -15,7 +15,6 @@ export async function getTask(taskId: string) {
 
     if (!user) return null;
 
-    // @ts-ignore
     const { data: task } = await (supabase.from("tasks") as any)
         .select(`
       *,
@@ -190,7 +189,6 @@ export async function getTaskPomoSummary(taskId: string) {
 
     if (!user) return null;
 
-    // @ts-ignore
     const { data: task } = await (supabase.from("tasks") as any)
         .select("id, user_id, voucher_id, status, user:profiles!tasks_user_id_fkey(voucher_can_view_active_tasks)")
         .eq("id", taskId as any)
@@ -206,7 +204,6 @@ export async function getTaskPomoSummary(taskId: string) {
     const ownerAllowsVoucherActiveView = (task as any).user?.voucher_can_view_active_tasks === true;
     if (isVoucher && !isOwner && isActiveTask && !ownerAllowsVoucherActiveView) return null;
 
-    // @ts-ignore
     const { data: sessions } = await (supabase.from("pomo_sessions") as any)
         .select("elapsed_seconds, status, completed_at")
         .eq("task_id", taskId as any)

@@ -1,8 +1,3 @@
--- Calendar time blocks: planned work sessions for a task.
--- A block belongs either to a real task, or to a not-yet-generated occurrence
--- of a recurrence rule (identified by the occurrence's deadline). When the
--- recurrence generator inserts that occurrence, the block is re-pointed at it.
--- Blocks are private to their owner and never visible to vouchers.
 
 CREATE TABLE public.task_time_blocks (
   id                  uuid        NOT NULL DEFAULT gen_random_uuid(),
@@ -51,7 +46,6 @@ CREATE POLICY task_time_blocks_update_own ON public.task_time_blocks
 CREATE POLICY task_time_blocks_delete_own ON public.task_time_blocks
   FOR DELETE TO authenticated USING (user_id = (SELECT auth.uid()));
 
--- Validates ownership and the "never after the deadline" rule on writes.
 CREATE OR REPLACE FUNCTION private.validate_task_time_block()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -69,7 +63,6 @@ BEGIN
     IF NEW.user_id <> OLD.user_id THEN
       RAISE EXCEPTION 'Time block owner cannot change.';
     END IF;
-    -- Re-pointing is only allowed when a ghost occurrence materializes.
     IF NEW.task_id IS DISTINCT FROM OLD.task_id
        OR NEW.recurrence_rule_id IS DISTINCT FROM OLD.recurrence_rule_id
        OR NEW.occurrence_deadline IS DISTINCT FROM OLD.occurrence_deadline THEN
@@ -138,9 +131,6 @@ CREATE TRIGGER task_time_blocks_validate
   BEFORE INSERT OR UPDATE ON public.task_time_blocks
   FOR EACH ROW EXECUTE FUNCTION private.validate_task_time_block();
 
--- Tasks are soft-deleted (status = DELETED), so the FK cascade never fires.
--- Remove a task's blocks when it is deleted, and drop blocks that would end
--- after a deadline that moved earlier.
 CREATE OR REPLACE FUNCTION private.cleanup_task_time_blocks_on_task_update()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -162,8 +152,6 @@ CREATE TRIGGER tasks_cleanup_time_blocks
   AFTER UPDATE OF status, deadline ON public.tasks
   FOR EACH ROW EXECUTE FUNCTION private.cleanup_task_time_blocks_on_task_update();
 
--- When a recurring occurrence is generated, attach blocks planned on its ghost.
--- Never blocks task creation: any failure just drops the orphaned ghost blocks.
 CREATE OR REPLACE FUNCTION private.attach_ghost_time_blocks_on_task_insert()
 RETURNS trigger
 LANGUAGE plpgsql

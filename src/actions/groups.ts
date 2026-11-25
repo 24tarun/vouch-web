@@ -57,7 +57,6 @@ export async function getGroups(): Promise<ResolvedGroup[]> {
         }
     }
     const taskIds = [...members.keys()];
-    // Include the same completion prerequisites as normal dashboard rows.
     for (let batch = 0; batch < taskIds.length; batch += 100) {
         const ids = taskIds.slice(batch, batch + 100);
         for (const table of ['task_subtasks', 'pomo_sessions', 'task_completion_proofs'] as const) {
@@ -138,7 +137,6 @@ export async function deleteGroup(groupId: string, deleteLinkedTasks: boolean) {
                 if (result.error) throw new Error(result.error.message);
                 tasks.push(...(result.data || []) as Task[]);
             }
-            // Snapshot recurring targets before rule deletion clears their task foreign keys.
             const rules = new Set(links.flatMap(link => link.recurrence_rule_id ? [link.recurrence_rule_id] : []));
             tasks.forEach(task => { if (task.recurrence_rule_id) rules.add(task.recurrence_rule_id); });
             for (const task of tasks.filter(task => !task.recurrence_rule_id && canOwnerTemporarilyDelete(task))) {

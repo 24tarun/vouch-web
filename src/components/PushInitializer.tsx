@@ -12,8 +12,6 @@ interface PushInitializerProps {
 
 export function PushInitializer({ autoPrompt = false }: PushInitializerProps) {
     const hasVapidKey = VAPID_PUBLIC_KEY.length > 0;
-    // Browser capabilities are only known after mount; reading them during render
-    // made the server ("unsupported") and client markup differ (hydration mismatch).
     const [supportsPushState, setSupportsPushState] = useState<boolean | null>(null);
     useEffect(() => {
         setSupportsPushState(

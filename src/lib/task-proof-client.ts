@@ -137,7 +137,6 @@ async function probeDurationBySeek(video: HTMLVideoElement): Promise<number | nu
                 reject(new Error("Duration seek probe failed"));
             };
 
-            // Some browsers only populate duration after seeking to a very large time.
             video.currentTime = Number.MAX_SAFE_INTEGER;
         });
     } catch {
@@ -183,8 +182,6 @@ async function bestEffortCompressVideo(file: File, durationMs: number): Promise<
     if (!("MediaRecorder" in window)) return null;
     if (!HTMLCanvasElement.prototype.captureStream) return null;
 
-    // Keep mobile-friendly MP4/MOV files intact when they are already a reasonable size.
-    // Re-encoding every clip as WebM made desktop uploads unplayable in some iOS webviews.
     const normalizedType = (file.type || "").toLowerCase();
     if (file.size <= 50 * 1024 * 1024 && (normalizedType === "video/mp4" || normalizedType === "video/quicktime")) {
         return null;

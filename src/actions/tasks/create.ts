@@ -73,14 +73,12 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
         return { error: normalizedSubtasks.error };
     }
 
-    // @ts-ignore
     const { data: profileDefaults } = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .maybeSingle();
 
-    // @ts-ignore
     const { data: friends } = await supabase
         .from("friendships")
         .select("friend_id")
@@ -136,7 +134,6 @@ export async function createTaskSimple(title: string, subtasksInput?: string[]) 
 
     const finalRequiresProofSimple = defaultVoucherId === AI_ID_SIMPLE ? true : requiresProof;
 
-    // @ts-ignore
     const { data: task, error } = await (supabase.from("tasks") as any)
         .insert({
             user_id: user.id,
@@ -186,7 +183,6 @@ export async function getCachedActiveTasksForUser(userId: string) {
     if (!userId) return [];
 
     const supabaseAdmin = createAdminClient();
-    // @ts-ignore
     const { data, error } = await (supabaseAdmin.from("tasks") as any)
         .select("*, recurrence_rule:recurrence_rules(paused_at)")
         .eq("user_id", userId as any)
@@ -366,7 +362,6 @@ export async function createTask(formData: FormData) {
     const isAiVoucher = voucherId === AI_PROFILE_ID;
 
     if (voucherId !== (user as any).id) {
-        // @ts-ignore
         const { data: friendship } = await supabase
             .from("friendships")
             .select("*")
@@ -421,7 +416,6 @@ export async function createTask(formData: FormData) {
             })()
             : initialDeadlineLocalDate;
 
-        // @ts-ignore
         const { data: rule, error: ruleError } = await (supabase.from(RecurrenceRuleTable) as any)
             .insert({
                 user_id: (user as any).id,
@@ -449,7 +443,6 @@ export async function createTask(formData: FormData) {
         recurrenceRuleId = (rule as any).id;
     }
 
-    // @ts-ignore
     const { data: task, error } = await (supabase.from("tasks" as any) as any)
         .insert({
             user_id: (user as any).id,
@@ -527,7 +520,6 @@ export async function createTask(formData: FormData) {
         }
     }
 
-    // @ts-ignore
     const taskEvents: Array<Record<string, unknown>> = [{
         task_id: (task as any).id,
         event_type: "ACTIVE",

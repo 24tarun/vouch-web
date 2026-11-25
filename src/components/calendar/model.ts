@@ -11,7 +11,6 @@ import {
 } from "@/lib/calendar/types";
 import type { TaskStatus } from "@/lib/xstate/task-machine";
 
-/** Anything that owns a deadline on the calendar: a real task or a ghost occurrence. */
 export interface CalendarItem {
     key: string;
     title: string;
@@ -22,9 +21,7 @@ export interface CalendarItem {
     isEvent: boolean;
     isStrict: boolean;
     spanStartMs: number | null;
-    /** Finished tasks render dimmed. */
     open: boolean;
-    /** Null when the pin may be dragged to postpone. */
     lockReason: string | null;
     canHaveBlocks: boolean;
     task: CalendarTask | null;
@@ -80,12 +77,9 @@ export function ghostToItem(ghost: CalendarGhost): CalendarItem {
 }
 
 export interface WeekModel {
-    /** Every known item, including picker-only tasks outside the week. */
     itemsByKey: Map<string, CalendarItem>;
-    /** Items whose deadline falls inside the visible week. */
     weekItems: CalendarItem[];
     blocks: CalendarBlock[];
-    /** Items you can attach a new block to. */
     plannable: CalendarItem[];
 }
 
@@ -125,7 +119,6 @@ export interface DaySegment {
     endMinutes: number;
 }
 
-/** Split [startMs, endMs) into per-day pieces within the visible week. */
 export function splitIntoDaySegments(startMs: number, endMs: number, weekStart: Date): DaySegment[] {
     const segments: DaySegment[] = [];
     for (let dayIndex = 0; dayIndex < 7; dayIndex++) {

@@ -1,13 +1,3 @@
-/**
- * Trigger: voucher-deadline-warning
- * Runs: Daily at 09:00, 12:00, 15:00, 18:00, and 21:00 UTC (`0 9,12,15,18,21 * * *`).
- * What it does when it runs:
- * 1) Loads tasks in AWAITING_VOUCHER whose voucher_response_deadline is still in the future.
- * 2) Aggregates pending request counts per voucher.
- * 3) Sends each voucher a digest notification about pending vouch requests.
- * 4) Writes/uses voucher_reminder_logs to avoid sending more than one digest per voucher per UTC day.
- * 5) Skips AI-vouched tasks (AI is not a human voucher, no reminder needed).
- */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendNotification } from "@/lib/notifications";
@@ -28,7 +18,6 @@ type VoucherReminderLogInsert = Database["public"]["Tables"]["voucher_reminder_l
 
 export const voucherDeadlineWarning = schedules.task({
     id: "voucher-deadline-warning",
-    // 09:00, 12:00, 15:00, 18:00, 21:00 UTC
     cron: "0 9,12,15,18,21 * * *",
     run: async () => {
         const supabase = createAdminClient();
@@ -92,8 +81,6 @@ export const voucherDeadlineWarning = schedules.task({
                 pending_count: summary.count,
             };
 
-            // Reserve today's digest slot before sending to prevent duplicate sends
-            // across overlapping trigger executions.
             const { error: reserveError } = await (supabase.from("voucher_reminder_logs") as any)
                 .insert(reminderLogPayload as any);
             if (reserveError) {
@@ -124,7 +111,6 @@ export const voucherDeadlineWarning = schedules.task({
             } catch (error) {
                 console.error(`Failed to send digest reminder for voucher ${voucherId}:`, error);
 
-                // Release reservation so a later run can retry the digest.
                 const { error: releaseError } = await (supabase.from("voucher_reminder_logs") as any)
                     .delete()
                     .eq("voucher_id", voucherId as any)
@@ -136,6 +122,3 @@ export const voucherDeadlineWarning = schedules.task({
         }
     },
 });
-
-
-

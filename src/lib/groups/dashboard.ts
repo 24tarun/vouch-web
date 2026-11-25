@@ -121,8 +121,6 @@ function summarizeGroupDay(
   return 'completed';
 }
 
-// Complete group member data supplies summaries; raw task pages only decide which
-// historical dates have been reached. Never compute a summary from a partial page.
 export function buildGroupDashboard({
   groups,
   dueSoonTasks,
@@ -154,7 +152,6 @@ export function buildGroupDashboard({
   const today = groupDate(new Date(nowMs), timezone);
   for (const group of groups) {
     const all = new Map(group.members.map((task) => [task.id, task]));
-    // Canonical optimistic task caches take precedence over fetched group members.
     for (const task of canonical.values())
       if (all.has(task.id) || belongsToGroup(task, group))
         all.set(task.id, { ...all.get(task.id), ...task });
@@ -206,7 +203,6 @@ export function buildGroupDashboard({
       )
     )
       dates.add(today);
-    // Locally projected misses may not have reached the raw history page yet.
     members
       .filter(
         (task) =>
@@ -256,7 +252,6 @@ export function buildGroupDashboard({
     const sorted = sortDashboardTasks(rows, sortMode).map(
       (row) => byKey.get(row.id)!,
     );
-    // Empty groups have no actionable deadline. Keep dated work first for deadline sorting.
     return sortMode.startsWith('deadline')
       ? [
           ...sorted.filter((entry) => entry.kind !== 'group-empty'),

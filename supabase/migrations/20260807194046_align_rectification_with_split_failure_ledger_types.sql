@@ -1,6 +1,3 @@
--- A rectification needs the original charge in the ledger so it can reverse
--- it. Keep that invariant in the database rather than relying on every
--- deadline worker or client to make a second, separate write.
 
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_entries_one_failure_per_task
   ON public.ledger_entries(task_id)
@@ -48,8 +45,6 @@ CREATE TRIGGER tasks_record_failure_ledger
   FOR EACH ROW
   EXECUTE FUNCTION private.record_task_failure_ledger();
 
--- Repair the only failures from the current ledger month which reached a
--- final failure status before their ledger entry was recorded.
 INSERT INTO public.ledger_entries(user_id, task_id, period, amount_cents, entry_type)
 SELECT
   t.user_id,

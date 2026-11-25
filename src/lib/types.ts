@@ -1,6 +1,5 @@
 import type { TaskStatus } from "./xstate/task-machine";
 
-// Database types matching Supabase schema
 export interface Profile {
     id: string;
     email: string;
@@ -158,13 +157,6 @@ export interface TaskReminder {
     updated_at: string;
 }
 
-/**
- * A device's record that it has armed a reminder on its own OS scheduler.
- * The reminder cron skips pushing to any device holding a live claim, which is
- * what keeps punctual local delivery from double-notifying. `armed_until` is a
- * lease: a device that stops syncing lets its claims expire and is pushed to
- * again.
- */
 export interface ReminderDeviceClaim {
     reminder_id: string;
     user_id: string;
@@ -174,7 +166,6 @@ export interface ReminderDeviceClaim {
     updated_at: string;
 }
 
-/** Outbox row telling a device its armed reminders are stale and must re-sync. */
 export interface ReminderInvalidation {
     id: number;
     user_id: string;
@@ -229,7 +220,7 @@ export interface LedgerEntry {
     id: string;
     user_id: string;
     task_id: string;
-    period: string; // YYYY-MM
+    period: string;
     amount_cents: number;
     entry_type: "denied" | "missed" | "surrendered" | "rectified" | "override" | "voucher_timeout_penalty";
     created_at: string;
@@ -240,7 +231,7 @@ export interface RectifyPass {
     user_id: string;
     task_id: string;
     authorized_by: string | null;
-    period: string; // YYYY-MM
+    period: string;
     created_at: string;
 }
 
@@ -248,7 +239,7 @@ export interface Override {
     id: string;
     user_id: string;
     task_id: string;
-    period: string; // YYYY-MM
+    period: string;
     created_at: string;
 }
 
@@ -363,8 +354,8 @@ export interface Commitment {
     name: string;
     description: string;
     status: CommitmentStatus;
-    start_date: string; // YYYY-MM-DD
-    end_date: string; // YYYY-MM-DD
+    start_date: string;
+    end_date: string;
     created_at: string;
     updated_at: string;
 }
@@ -382,8 +373,8 @@ export type RecurrenceFrequency = "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY" | "W
 export interface RecurrenceRuleConfig {
     frequency: RecurrenceFrequency;
     interval: number;
-    days_of_week?: number[]; // 0=Sun, 1=Mon, etc.
-    time_of_day: string; // HH:MM
+    days_of_week?: number[];
+    time_of_day: string;
 }
 
 export interface RecurrenceRule {
@@ -404,14 +395,13 @@ export interface RecurrenceRule {
     google_event_color_id?: string | null;
     manual_reminder_offsets_ms?: number[] | null;
     alarm_reminder_offsets_ms?: number[] | null;
-    last_generated_date: string | null; // YYYY-MM-DD
+    last_generated_date: string | null;
     latest_iteration?: number;
     paused_at?: string | null;
     created_at: string;
     updated_at: string;
 }
 
-// Extended types with relations
 export interface TaskWithRelations extends Task {
     user?: Profile;
     voucher?: Profile;
@@ -443,7 +433,6 @@ export interface ProfileWithFriends extends Profile {
     friends?: FriendProfile[];
 }
 
-// API response types
 export interface ApiResponse<T> {
     data: T | null;
     error: string | null;

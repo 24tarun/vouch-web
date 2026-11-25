@@ -87,7 +87,6 @@ export async function exportUserData(): Promise<{ data: Record<string, unknown> 
 
     if (profileRes.error) return { error: "Failed to fetch profile data." };
 
-    // Attach subtasks and reminders to their tasks
     const subtasksByTask = groupBy(subtasksRes.data ?? [], "parent_task_id");
     const remindersByTask = groupBy(remindersRes.data ?? [], "parent_task_id");
     const tasks = (tasksRes.data ?? []).map((task: any) => ({

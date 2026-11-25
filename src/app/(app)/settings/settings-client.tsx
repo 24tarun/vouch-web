@@ -586,19 +586,6 @@ export default function SettingsClient({
         }
     }
 
-    /*
-     * This effect implements debounced auto-save for the Defaults card.
-     *
-     * Sequence of operations:
-     * 1) Skip the very first render with hasMountedRef so initial server-loaded values do not immediately
-     *    trigger a write-back.
-     * 2) Run validateDefaultsState(); if invalid, show defaultsError and stop without network calls.
-     * 3) Increment saveRequestIdRef to mark the newest intended save request.
-     * 4) Wait for the debounce window, then call updateUserDefaults(buildDefaultsFormData()).
-     * 5) When the request resolves, only apply the response if the request id still matches the newest
-     *    id; this discards stale out-of-order responses from earlier edits.
-     * 6) On success, briefly show defaultsSuccess and auto-hide it after 1.5s if no newer request exists.
-     */
     useEffect(() => {
         if (timeZoneUserSet) return;
         if (!deviceTimeZone || deviceTimeZone === timeZone) return;
@@ -709,7 +696,6 @@ export default function SettingsClient({
     useEffect(() => {
         setBlockedUsersLoading(true);
         void refreshRelationshipsAndSearch();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {

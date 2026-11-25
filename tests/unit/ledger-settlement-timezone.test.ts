@@ -12,8 +12,8 @@ test("resolveTimeZone falls back to UTC for invalid timezone", () => {
 });
 
 test("shouldCompileNow checks local day 3 at local hour 00", () => {
-    const berlinCompile = new Date("2026-05-02T22:10:00.000Z"); // 00:10 on May 3 in Berlin
-    const berlinNotCompile = new Date("2026-05-02T21:10:00.000Z"); // 23:10 on May 2 in Berlin
+    const berlinCompile = new Date("2026-05-02T22:10:00.000Z");
+    const berlinNotCompile = new Date("2026-05-02T21:10:00.000Z");
     assert.equal(shouldCompileNow(berlinCompile, "Europe/Berlin"), true);
     assert.equal(shouldCompileNow(berlinNotCompile, "Europe/Berlin"), false);
 });

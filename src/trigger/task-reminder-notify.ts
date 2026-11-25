@@ -1,11 +1,3 @@
-/**
- * Trigger: task-reminder-notify
- * Runs: Every minute (`* * * * *`).
- * What it does when it runs:
- * 1) Finds due task reminders that were not notified yet.
- * 2) Writes deadline warning task events for seeded default reminders.
- * 3) Marks reminders as notified to avoid duplicate sends.
- */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendExpoDataPushToUser } from "@/lib/expo-push";
@@ -129,17 +121,6 @@ export function buildReminderRemoteDeliveryMarkerData(group: ReminderNotificatio
     };
 }
 
-/**
- * Devices that already armed this group's reminders on their own OS scheduler.
- *
- * Local scheduling is the punctual channel — this cron can only *see* an
- * 18:00:00 reminder on its 18:00 tick, and still has row claiming, task
- * re-reads, Expo and APNs ahead of it. Devices that armed the reminder ahead of
- * time therefore fire it themselves, and pushing to them again would double up.
- * A device that stops syncing lets its claim lease expire and is pushed to
- * again, so a silent local-scheduling failure degrades to a late notification
- * rather than to none.
- */
 export async function loadClaimedClientInstanceIds(
     supabase: ReturnType<typeof createAdminClient>,
     reminderIds: string[]
@@ -154,8 +135,6 @@ export async function loadClaimedClientInstanceIds(
         .gt("armed_until", new Date().toISOString());
 
     if (error) {
-        // Failing open means a possible duplicate; failing closed would mean a
-        // missed final call. Duplicates are the cheaper mistake.
         console.error("Failed to load reminder device claims:", error);
         return claimsByReminderId;
     }
@@ -172,10 +151,6 @@ export async function loadClaimedClientInstanceIds(
     return claimsByReminderId;
 }
 
-/**
- * A device may skip the push only if it claimed *every* reminder in the group,
- * since one push covers the whole aggregated group.
- */
 export function getExcludedClientInstanceIds(
     group: ReminderNotificationGroup,
     claimsByReminderId: Map<string, string[]>
@@ -299,9 +274,6 @@ async function sendRemoteDeliveryMarker(
         const result = await sendExpoDataPushToUser(group.userId, {
             data: buildReminderRemoteDeliveryMarkerData(group),
             ttlSeconds: 60,
-            // A device that armed this reminder itself was never pushed to, so
-            // it must not be told the remote copy was delivered — that marker
-            // would cancel the local schedule it is relying on.
             excludeClientInstanceIds,
         });
 
@@ -339,7 +311,6 @@ async function sendWithWebRetry(params: Parameters<typeof sendNotification>[0]) 
         return result;
     }
 
-    // Best-effort immediate retries for Web Push channel only.
     for (let attempt = 0; attempt < 2; attempt++) {
         await new Promise((resolve) => setTimeout(resolve, 750));
         result = await sendNotification({
@@ -528,14 +499,8 @@ async function processDueTaskReminders(
     );
 
     for (const group of groupReminderNotificationEntries(notificationEntries)) {
-        // Once a push has gone out, this group must never be requeued: a
-        // rollback would make the next cron tick re-send the Expo push and the
-        // user's phone would show the same reminder twice.
         let pushAttempted = false;
         try {
-            // Completion can race the earlier bulk task lookup. Re-read the
-            // group immediately before delivery so a task that has since moved
-            // to proof/voucher review cannot receive a stale final call.
             const liveEntries = await refreshActiveEntriesBeforeDelivery(supabase, group.entries);
             if (liveEntries.length === 0) continue;
             const liveGroup: ReminderNotificationGroup = { ...group, entries: liveEntries };
@@ -547,9 +512,6 @@ async function processDueTaskReminders(
             });
 
             if (webNeedsRetry(sendResult.push.web)) {
-                // Web push already got its in-tick retries. Give up on it
-                // rather than rolling the reminder back, because reprocessing
-                // would duplicate the mobile push that did deliver.
                 console.warn(`Web push exhausted retries for reminder group ${group.key}; not requeuing.`);
             }
 

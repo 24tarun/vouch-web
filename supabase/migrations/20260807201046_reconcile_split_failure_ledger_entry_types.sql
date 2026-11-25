@@ -1,6 +1,3 @@
--- Production already uses a distinct ledger entry type for each kind of
--- failure. This repository was missing that migration, which made a fresh
--- local reset differ from the deployed schema.
 ALTER TABLE public.ledger_entries
   DROP CONSTRAINT IF EXISTS ledger_entries_entry_type_check;
 

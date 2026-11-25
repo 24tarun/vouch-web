@@ -100,9 +100,7 @@ export function TaskDateTimePicker({
 
     return (
         <div className={cn("grid gap-6 md:grid-cols-[minmax(0,1fr)_230px]", className)}>
-            {/* Left: Calendar */}
             <div>
-                {/* Month header */}
                 <div className="mb-3 flex items-center justify-between">
                     <div className="text-base font-semibold text-slate-100 sm:text-lg">
                         {format(visibleMonth, "MMMM yyyy")}
@@ -134,7 +132,6 @@ export function TaskDateTimePicker({
                     </div>
                 </div>
 
-                {/* Weekday headers */}
                 <div className="grid grid-cols-7 text-center">
                     {WEEKDAY_HEADERS.map((day) => (
                         <div key={day} className="pb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 sm:text-[11px]">
@@ -143,7 +140,6 @@ export function TaskDateTimePicker({
                     ))}
                 </div>
 
-                {/* Calendar grid */}
                 <div className="grid grid-cols-7 gap-y-0.5">
                     {calendarDays.map((day) => {
                         const isSelected = isSameDay(day, selectedDeadline);
@@ -180,7 +176,6 @@ export function TaskDateTimePicker({
                 </div>
             </div>
 
-            {/* Right: Time */}
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-1 md:content-start">
                 <div>
                     <div className="mb-1.5 flex items-center justify-between">

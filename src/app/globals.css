@@ -83,27 +83,21 @@
 
 .dark {
   --background: oklch(0.129 0 0);
-  /* Near perfect black/gray */
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.22 0 0);
-  /* Brighter surface for cards to distinguish from background */
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.22 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
-  /* Pure white primary */
   --primary-foreground: oklch(0.129 0 0);
   --secondary: oklch(0.2 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.2 0 0);
   --muted-foreground: oklch(0.8 0 0);
-  /* Brighter gray for dark mode */
   --accent: oklch(0.28 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.65 0.3 25);
-  /* Highly saturated Red */
   --border: oklch(0.35 0 0);
-  /* More visible border */
   --input: oklch(0.3 0 0);
   --ring: oklch(0.45 0 0);
   --chart-1: oklch(0.7 0 0);
@@ -138,14 +132,11 @@
     min-height: 100dvh;
     overscroll-behavior-y: none;
 
-    /* Better mobile scrolling */
     -webkit-overflow-scrolling: touch;
 
-    /* Prevent text size adjustment on orientation change */
     -webkit-text-size-adjust: 100%;
   }
 
-  /* Improve touch targets for buttons and links on mobile */
   @media (pointer: coarse) {
 
     button:not([role="switch"]),
@@ -164,19 +155,16 @@
     }
   }
 
-  /* Handle dynamic viewport height */
   .min-h-screen-dynamic {
     min-height: 100dvh;
   }
 }
 
-/* Task creator — amber calendar picker icon */
 .deadline-input::-webkit-calendar-picker-indicator {
     filter: brightness(0) saturate(100%) invert(84%) sepia(52%) saturate(749%) hue-rotate(332deg) brightness(103%);
     cursor: pointer;
 }
 
-/* Task creator — emerald calendar picker icon */
 .start-time-input::-webkit-calendar-picker-indicator {
     opacity: 0;
     cursor: pointer;
@@ -263,7 +251,6 @@
 
 }
 
-/* Toast animations for bottom-left position */
 [data-sonner-toaster][data-x-position="left"] [data-sonner-toast] {
   animation: toast-slide-in 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
 }
@@ -376,7 +363,6 @@
   box-shadow: 0 0 10px rgba(0, 217, 255, 0.7);
 }
 
-/* Long format (HH:MM:SS) — scale down to fit 6 digits + 2 colons */
 .seven-seg-display-long {
   gap: 0.4rem;
 }

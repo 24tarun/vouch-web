@@ -232,8 +232,6 @@ test("still pushes to a device that armed only part of an aggregated group", () 
         entry({ reminderId: "r2", taskId: "t2", title: "Call mum", source: "DEFAULT_DEADLINE_DUE" }),
     ]);
 
-    // One push covers the whole group, so partial local coverage is not enough:
-    // suppressing here would silently drop the reminder for r2.
     const claims = new Map([["r1", ["iphone"]]]);
 
     assert.deepEqual(getExcludedClientInstanceIds(groups[0], claims), []);
@@ -255,6 +253,5 @@ test("excludes only the devices holding a claim, leaving other devices covered",
     const claims = new Map([["r1", ["iphone", "ipad"]]]);
     const excluded = getExcludedClientInstanceIds(groups[0], claims).sort();
 
-    // The laptop browser never claims anything, so it keeps receiving push.
     assert.deepEqual(excluded, ["ipad", "iphone"]);
 });

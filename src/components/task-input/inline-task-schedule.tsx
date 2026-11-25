@@ -34,12 +34,9 @@ interface InlineTaskScheduleProps {
     onDeadlineChange: (deadline: Date) => boolean;
     onAddReminder: (reminder: Date) => boolean;
     onRemoveReminder: (key: string) => void;
-    /** Restores the deadline the title parser / profile default would produce. */
     onResetDeadline?: () => void;
-    /** Reminder keys armed to ring as an alarm rather than a plain notification. */
     urgentReminderKeys?: string[];
     onToggleUrgentReminder?: (key: string) => void;
-    /** Alarm-style delivery is only offered when the profile has it switched on. */
     alarmNotificationsEnabled?: boolean;
     disabled?: boolean;
 }
@@ -78,7 +75,6 @@ export function shiftReminderPart(date: Date, part: "hour" | "minute", delta: nu
     return next;
 }
 
-/** Clamps a typed "23" / "7" style entry into the valid range for its clock part. */
 export function clampClockPart(raw: string, part: "hour" | "minute"): number | null {
     const digits = raw.replace(/\D/g, "").slice(0, 2);
     if (!digits) return null;
@@ -97,7 +93,6 @@ export function setClockPart(date: Date, part: "hour" | "minute", value: number)
     return next;
 }
 
-/** New reminders start half an hour before the deadline, or now when that already passed. */
 function defaultReminderDraft(deadline: Date, now: Date): Date {
     const halfHourBefore = new Date(deadline.getTime() - 30 * 60_000);
     halfHourBefore.setSeconds(0, 0);
@@ -114,7 +109,6 @@ const DEADLINE_PRESETS = [
     { minutes: 360, label: "in 6 hours" },
 ];
 
-/** Reminder shortcuts are anchored to the deadline, not to the wall clock. */
 const REMINDER_PRESETS = [
     { minutes: 10, label: "10m before" },
     { minutes: 60, label: "1h before" },
@@ -127,7 +121,6 @@ export function offsetBeforeDeadline(deadline: Date, minutesBefore: number): Dat
     return next;
 }
 
-/** Resting look for every secondary control: filled + bordered so it reads as clickable. */
 const CONTROL_CLASS =
     "border border-slate-600/70 bg-slate-700/40 text-slate-300 transition-colors hover:border-slate-500 hover:bg-slate-600/50 hover:text-white";
 
@@ -137,7 +130,6 @@ const ACCENTS = {
     neutral: "border-slate-700/50 bg-slate-800/40 text-slate-100 focus:border-slate-500",
 } as const;
 
-/** A typeable `HH` or `MM` cell flanked by single-step minus/plus buttons. */
 function ClockPart({
     part,
     value,
@@ -212,10 +204,6 @@ function ClockPart({
     );
 }
 
-/**
- * `- HH + : - MM +` on one line. Shared by the deadline column and the
- * add-reminder popover so both clocks behave identically.
- */
 export function ClockStepper({
     value,
     accent,
@@ -250,7 +238,6 @@ export function ClockStepper({
     );
 }
 
-/** Quiet neutral control for the deadline/reminder editors. */
 const SOFT_CONTROL_CLASS =
     "border border-slate-700/50 bg-slate-800/40 text-slate-300 transition-colors hover:border-slate-600 hover:bg-slate-700/50 hover:text-white";
 

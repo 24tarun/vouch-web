@@ -1,5 +1,3 @@
--- Surrender already writes its ledger entry inside surrender_task_atomic.
--- The failure-ledger trigger owns only direct DENIED and MISSED transitions.
 CREATE OR REPLACE FUNCTION private.record_task_failure_ledger()
 RETURNS trigger
 LANGUAGE plpgsql

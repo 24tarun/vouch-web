@@ -39,8 +39,6 @@ export async function GET(request: NextRequest) {
     const mobileReturnUrl = cookieStore.get(GOOGLE_OAUTH_MOBILE_RETURN_COOKIE)?.value || null;
     cookieStore.delete(GOOGLE_OAUTH_MOBILE_RETURN_COOKIE);
 
-    // Resolve the user — prefer the cookie set by /start (works for both web and mobile),
-    // falling back to the live SSR session for any legacy callers that skipped /start.
     const cookieUserId = cookieStore.get(GOOGLE_OAUTH_USER_ID_COOKIE)?.value || null;
     cookieStore.delete(GOOGLE_OAUTH_USER_ID_COOKIE);
 
@@ -57,7 +55,6 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        // Use the admin client so we can write without needing a live user session
         const adminSupabase = createAdminClient();
         const tokens = await exchangeGoogleCodeForTokens(code);
         const accountEmail = extractEmailFromIdToken(tokens.id_token);

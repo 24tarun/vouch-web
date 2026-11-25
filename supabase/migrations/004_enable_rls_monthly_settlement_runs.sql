@@ -1,5 +1,3 @@
--- Enable RLS on monthly settlement idempotency table.
--- Service role used by Trigger.dev bypasses RLS, so no write policy is required for system jobs.
 
 ALTER TABLE public.monthly_settlement_runs ENABLE ROW LEVEL SECURITY;
 

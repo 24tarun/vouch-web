@@ -76,7 +76,6 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
     const [isFullscreen, setIsFullscreen] = useState(false);
     const autoStopTriggeredRef = useRef(false);
 
-    // VFD Color Style
     const vfdColor = "text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.6)]";
 
     useEffect(() => {
@@ -133,7 +132,6 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
 
     const isLongSession = session.duration_minutes >= 100;
 
-    // Format HH:MM:SS for long sessions, MM:SS otherwise
     const formatTime = (seconds: number) => {
         if (isLongSession) {
             const h = Math.floor(seconds / 3600);
@@ -157,7 +155,6 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
                 setIsFullscreen(false);
             }
         } catch {
-            // Ignore API failures. The overlay still covers the viewport.
         }
     };
 
@@ -170,7 +167,6 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
                     onClick={onMinimize}
                     className="group bg-black border border-slate-800 rounded-full h-20 pl-3 pr-6 flex items-center gap-4 shadow-2xl cursor-pointer hover:border-cyan-500/40 transition-all overflow-hidden min-w-[230px]"
                 >
-                    {/* Tiny Circular Progress */}
                     <div className="relative w-14 h-14 flex items-center justify-center">
                         <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
                             <path
@@ -233,9 +229,7 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
             </div>
 
             <div className="h-full w-full flex flex-col items-center justify-center gap-10 px-4">
-                {/* Main Clock */}
                 <div className="relative min-h-[170px] flex items-center justify-center">
-                    {/* VFD Display */}
                     <div className={cn("seven-seg-display z-10", isLongSession && "seven-seg-display-long", vfdColor)} aria-label={`Time remaining ${formattedTime}`}>
                         {formattedTime.split("").map((char, i) =>
                             char === ":" ? <SevenSegmentColon key={`colon-${i}`} /> : <SevenSegmentDigit key={`digit-${i}-${char}`} digit={char} />
@@ -243,7 +237,6 @@ export function PomodoroTimer({ session, taskTitle, minimized, serverClockOffset
                     </div>
                 </div>
 
-                {/* Controls */}
                 <div className="flex items-center w-full justify-center gap-10">
                     {session.status === "ACTIVE" ? (
                         <button

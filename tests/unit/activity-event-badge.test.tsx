@@ -39,18 +39,6 @@ test.afterEach(() => {
 test("activity event badge renders undo completion as a first-class timeline label", () => {
     const view = render(<ActivityEventBadge eventType="UNDO_COMPLETE" />);
 
-    /*
-     * What and why this test checks:
-     * This locks the shared activity-badge contract for undo completion so any timeline that renders
-     * task events through ActivityEventBadge shows an explicit, intentional label for the event.
-     *
-     * Passing scenario:
-     * Rendering the badge for UNDO_COMPLETE produces a visible `UNDO COMPLETE` label.
-     *
-     * Failing scenario:
-     * If the explicit label mapping disappears, downstream timelines regress to implicit fallback text
-     * or omit the event semantics the settings activity view expects.
-     */
     assert.ok(view.getByText("UNDO COMPLETE"));
 });
 

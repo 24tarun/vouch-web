@@ -7,7 +7,6 @@ import { integrationDb, serializeCalendar } from "@/lib/calendar/integration";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const iso = z.iso.datetime({ offset: true });
 
-/** GET /api/integrations/calendar?from=&to= — deadlines, blocks, upcoming repeats (max 15 days, default next 7). */
 export async function GET(request: NextRequest) {
     const auth = await authenticateIntegrationRequest(request, "calendar");
     if (auth.response) return auth.response;

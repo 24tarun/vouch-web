@@ -39,7 +39,6 @@ export function PlatformProvider({ children }: { children: React.ReactNode }) {
     const [value] = useState<PlatformContextType>(getInitialPlatformContext);
 
     useEffect(() => {
-        // Keep iOS native view edge-to-edge; fallback to black status area if overlay is ignored.
         if (value.isNative && value.platform === 'ios') {
             const statusBar = (window as unknown as {
                 Capacitor?: { Plugins?: { StatusBar?: StatusBarPlugin } };

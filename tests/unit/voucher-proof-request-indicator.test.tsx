@@ -121,17 +121,6 @@ test("voucher pending row shows ?N badge only when proof request is open with co
         />
     );
 
-    /*
-     * What and why this test checks:
-     * This validates the per-row indicator contract: vouchers should see `?N` only for tasks that
-     * currently have an open proof request, to avoid noisy badges on unrelated rows.
-     *
-     * Passing scenario:
-     * A task with proof_request_open=true and proof_request_count=4 renders a visible `?4` badge.
-     *
-     * Failing scenario:
-     * If `?4` does not render here, vouchers lose explicit feedback that a proof request message is open.
-     */
     assert.ok(openView.getByText("?4"));
 
     openView.unmount();
@@ -145,16 +134,6 @@ test("voucher pending row shows ?N badge only when proof request is open with co
         />
     );
 
-    /*
-     * What and why this test checks:
-     * This verifies the inverse condition for the same row-level badge rule.
-     *
-     * Passing scenario:
-     * A task with proof_request_open=false does not render `?N`, even if a historical count exists.
-     *
-     * Failing scenario:
-     * If the badge still renders, non-open rows look like they have active proof requests.
-     */
     assert.equal(closedView.queryByText("?4"), null);
 });
 
@@ -177,19 +156,6 @@ test("proof-request success patch opens request state and increments per-task co
 
     const after = applyProofRequestSuccessToPendingTasks(before, "task-1", nowIso);
 
-    /*
-     * What and why this test checks:
-     * This verifies the optimistic UI patch used after successful voucher proof-request action, so
-     * feedback appears instantly before realtime/server refresh completes.
-     *
-     * Passing scenario:
-     * Target task switches to proof_request_open=true, proof_requested_at is set to the action timestamp,
-     * and proof_request_count increments from 1 to 2 while other rows stay unchanged.
-     *
-     * Failing scenario:
-     * If the target row is not incremented/opened immediately, vouchers do not see reliable immediate
-     * confirmation and can re-click or mistrust the action.
-     */
     assert.equal(after[0]?.proof_request_open, true);
     assert.equal(after[0]?.proof_requested_at, nowIso);
     assert.equal(after[0]?.proof_request_count, 2);
@@ -217,17 +183,6 @@ test("friends page buckets active voucher tasks away from actionable pending req
     const activeTasks = getVoucherActiveTasks([activeTask, awaitingTask]);
     const actionablePendingTasks = getVoucherActionablePendingTasks([activeTask, awaitingTask]);
 
-    /*
-     * What and why this test checks:
-     * This protects the friends page layout contract: active voucher-assigned tasks are activity,
-     * while only awaiting-voucher rows belong in the actionable Pending list.
-     *
-     * Passing scenario:
-     * The active task appears only in the activity bucket, and the awaiting task appears only in Pending.
-     *
-     * Failing scenario:
-     * If active tasks remain in Pending, vouchers see ordinary active work as something to approve.
-     */
     assert.deepEqual(activeTasks.map((task) => task.id), ["active-task"]);
     assert.deepEqual(actionablePendingTasks.map((task) => task.id), ["awaiting-task"]);
 });
@@ -264,18 +219,6 @@ test("active voucher row reuses pending row layout without review action buttons
         />
     );
 
-    /*
-     * What and why this test checks:
-     * This locks the ACTIVE row UI to the normal friends-page task row while suppressing voucher
-     * review controls that only make sense for awaiting-voucher tasks.
-     *
-     * Passing scenario:
-     * The active task title, ACTIVE badge, and task deadline render, but accept/deny/proof actions are absent.
-     *
-     * Failing scenario:
-     * If the deadline is missing or action buttons render for active tasks, vouchers cannot track the
-     * owner's completion window or can try to review work that is not ready.
-     */
     assert.ok(view.getByText("Testing active row"));
     assert.ok(view.getByText("ACTIVE"));
     assert.ok(view.getByText(expectedDeadlineLabel));
@@ -305,19 +248,6 @@ test("vouched history row keeps title separate and renders status/date as pills"
         />
     );
 
-    /*
-     * What and why this test checks:
-     * This protects the Vouched row layout: the task title should occupy its own line, while the
-     * username, terminal status, and history date sit together in the meta row as pill-style items.
-     *
-     * Passing scenario:
-     * The title element contains only the title, and the ACCEPTED status plus date both render as badges
-     * in the following meta row.
-     *
-     * Failing scenario:
-     * If the status returns to the title line or the date becomes plain text, Vouched rows visually
-     * diverge from the active task rows on the Friends page.
-     */
     const titleElement = view.getByText("Finished task");
     const metaRow = titleElement.nextElementSibling;
     const statusBadge = view.getByText("ACCEPTED").closest("[data-slot='badge']");

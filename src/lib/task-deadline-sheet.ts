@@ -15,10 +15,6 @@ export function normalizeReminderDates(values: Date[]): Date[] {
     return Array.from(deduped.values()).sort((a, b) => a.getTime() - b.getTime());
 }
 
-/**
- * Urgency (alarm_enabled) is tracked by reminder identity rather than by instant, so a
- * default reminder stays urgent when the deadline — and therefore its time — moves.
- */
 export const DEFAULT_ONE_HOUR_REMINDER_KEY = "default-1h";
 export const DEFAULT_TEN_MINUTE_REMINDER_KEY = "default-10m";
 export const DEFAULT_ONE_HOUR_REMINDER_OFFSET_MS = 60 * 60 * 1000;
@@ -28,7 +24,6 @@ export function manualReminderKey(reminder: Date): string {
     return `manual-${reminder.toISOString()}`;
 }
 
-/** Turns urgency keys into the reminder instants they point at for a given deadline. */
 export function resolveUrgentReminderIsos(urgentReminderKeys: string[], deadline: Date): string[] {
     const deadlineMs = deadline.getTime();
     if (Number.isNaN(deadlineMs)) return [];

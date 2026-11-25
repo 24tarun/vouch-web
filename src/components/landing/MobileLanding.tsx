@@ -116,7 +116,6 @@ export function MobileLanding() {
 
       <div style={{ background: "var(--bg)", color: "var(--fg)", minHeight: "100dvh" }}>
 
-        {/* ─── HERO ─── */}
         <section style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", justifyContent: "center", padding: "80px 24px 48px" }}>
           <div style={{ marginBottom: "32px" }}>
             <div className="m-eyebrow" style={{ marginBottom: "28px" }}>
@@ -147,7 +146,6 @@ export function MobileLanding() {
           </Link>
         </section>
 
-        {/* ─── HOW IT WORKS ─── */}
         <section style={{ borderTop: "1px solid var(--border)", padding: "56px 24px" }}>
           <div className="m-eyebrow" style={{ marginBottom: "20px" }}>How it works</div>
           <h2 className="m-fc" style={{ fontSize: "36px", fontWeight: 300, color: "var(--fg)", marginBottom: "32px", lineHeight: 1, letterSpacing: "-0.02em" }}>
@@ -178,7 +176,6 @@ export function MobileLanding() {
           </div>
         </section>
 
-        {/* ─── FEATURES ─── */}
         <section style={{ borderTop: "1px solid var(--border)", background: "var(--surface)", padding: "56px 24px" }}>
           <div className="m-eyebrow" style={{ marginBottom: "20px" }}>Features</div>
           <h2 className="m-fc" style={{ fontSize: "36px", fontWeight: 300, color: "var(--fg)", marginBottom: "32px", lineHeight: 1, letterSpacing: "-0.02em" }}>
@@ -206,7 +203,6 @@ export function MobileLanding() {
           </div>
         </section>
 
-        {/* ─── REPUTATION TIERS ─── */}
         <section style={{ borderTop: "1px solid var(--border)", padding: "56px 24px" }}>
           <div className="m-eyebrow" style={{ marginBottom: "20px" }}>Reputation</div>
           <h2 className="m-fc" style={{ fontSize: "36px", fontWeight: 300, color: "var(--fg)", marginBottom: "12px", lineHeight: 1, letterSpacing: "-0.02em" }}>
@@ -235,7 +231,6 @@ export function MobileLanding() {
           </div>
         </section>
 
-        {/* ─── BOTTOM CTA ─── */}
         <section style={{ borderTop: "1px solid var(--border)", background: "var(--surface)", padding: "56px 24px" }}>
           <h2 className="m-fc" style={{ fontSize: "40px", fontWeight: 300, color: "var(--fg)", marginBottom: "16px", lineHeight: 1, letterSpacing: "-0.02em" }}>
             Ready to<br />
@@ -249,7 +244,6 @@ export function MobileLanding() {
           </Link>
         </section>
 
-        {/* ─── FOOTER ─── */}
         <footer style={{ borderTop: "1px solid var(--border)", padding: "28px 24px" }}>
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             <span className="m-fm" style={{ fontSize: "10px", letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--fg-dim)" }}>

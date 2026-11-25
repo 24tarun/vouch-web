@@ -6,10 +6,6 @@ import { getIntegrationSession } from "@/lib/integration-session";
 import { runWithIntegrationContext } from "@/lib/integration-context";
 import { MCP_TOOLS } from "@/lib/mcp/tools";
 
-/**
- * Stateless MCP server (Streamable HTTP, JSON responses). Auth: `Authorization: Bearer vouch_…`.
- * Every tool runs as the API key's owner through the app's own actions.
- */
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 const INSTRUCTIONS =
     "Vouch is an accountability app: tasks have deadlines, a voucher who approves completion, and a failure cost. " +
@@ -90,14 +86,12 @@ export async function POST(request: NextRequest) {
         Boolean(message && typeof message === "object" && typeof (message as JsonRpcRequest).method === "string"));
     if (valid.length === 0) return jsonNoStore(rpcError(null, -32700, "Parse error"), 400);
 
-    // Notifications (no id) get no response body.
     const requests = valid.filter((message) => message.id !== undefined && message.id !== null);
     const responses = await Promise.all(requests.map((message) => handle(message, auth.userId, auth.keyPrefix)));
     if (responses.length === 0) return new NextResponse(null, { status: 202 });
     return jsonNoStore(Array.isArray(body) ? responses : responses[0]);
 }
 
-/** No server-initiated stream: this server is stateless. */
 export function GET() {
     return new NextResponse(null, { status: 405, headers: { Allow: "POST" } });
 }

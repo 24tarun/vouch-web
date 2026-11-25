@@ -9,18 +9,6 @@ test("postpone default uses current deadline plus one day when the existing dead
         new Date(new Date(existingDeadlineIso).getTime() + 24 * 60 * 60 * 1000)
     );
 
-    /*
-     * What and why this test checks:
-     * This verifies postpone defaults are anchored to the task's current deadline, not to the current clock time,
-     * so users get a deterministic "same time next day" seed when opening the dialog.
-     *
-     * Passing scenario:
-     * A valid existing deadline produces a default local datetime equal to existing deadline + 1 day.
-     *
-     * Failing scenario:
-     * If the function returns now + 1 day (or any other base), the default no longer follows the intended
-     * postpone-by-deadline behavior.
-     */
     assert.equal(getDefaultDeadlineDraftValue(existingDeadlineIso), expected);
 });
 
@@ -32,18 +20,6 @@ test("postpone default falls back to now plus one day when the existing deadline
     try {
         const expected = toDateTimeLocalValue(new Date(fixedNowMs + 24 * 60 * 60 * 1000));
 
-        /*
-         * What and why this test checks:
-         * This verifies we still provide a valid default when no usable deadline exists, using now + 1 day as a
-         * safe fallback to keep the input prefilled and future-valid.
-         *
-         * Passing scenario:
-         * Missing/null or invalid deadline input resolves to a local datetime equal to mocked now + 1 day.
-         *
-         * Failing scenario:
-         * If the fallback does not use current time + 1 day, users may get empty/incorrect defaults that do not
-         * preserve expected postpone UX when task deadline data is absent or malformed.
-         */
         assert.equal(getDefaultDeadlineDraftValue(null), expected);
         assert.equal(getDefaultDeadlineDraftValue("invalid-date"), expected);
     } finally {

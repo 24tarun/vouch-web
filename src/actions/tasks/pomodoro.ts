@@ -29,7 +29,6 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
         };
     }
 
-    // @ts-ignore
     const { data: task } = await (supabase
         .from("tasks") as any)
         .select("id, user_id")
@@ -46,7 +45,6 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
         return { error: "Could not identify this browser. Refresh and try again." };
     }
 
-    // @ts-ignore
     const { data: existing } = await (supabase
         .from("pomo_sessions") as any)
         .select(ACTIVE_POMO_SELECT)
@@ -58,7 +56,6 @@ export async function startPomoSession(taskId: string, durationMinutes: number) 
         return { error: describePomoConflict(existing as PomoConflictSummary), conflict: existing };
     }
 
-    // @ts-ignore
     const { data: session, error } = await (supabase
         .from("pomo_sessions") as any)
         .insert({
@@ -89,7 +86,6 @@ export async function pausePomoSession(sessionId: string) {
     const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
     if (!ownerUserClientInstanceId) return { error: "Could not identify this browser." };
 
-    // @ts-ignore
     const { data: session } = await (supabase
         .from("pomo_sessions") as any)
         .select("*")
@@ -105,7 +101,6 @@ export async function pausePomoSession(sessionId: string) {
     const additionalElapsed = Math.max(0, Math.floor((now.getTime() - startTime.getTime()) / 1000));
     const newElapsed = (session.elapsed_seconds || 0) + additionalElapsed;
 
-    // @ts-ignore
     const { error } = await (supabase
         .from("pomo_sessions") as any)
         .update({
@@ -135,7 +130,6 @@ export async function resumePomoSession(sessionId: string) {
     const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
     if (!ownerUserClientInstanceId) return { error: "Could not identify this browser." };
 
-    // @ts-ignore
     const { data: session } = await (supabase
         .from("pomo_sessions") as any)
         .select("status")
@@ -147,7 +141,6 @@ export async function resumePomoSession(sessionId: string) {
     if (!session) return { error: "Session not found" };
     if ((session as any).status !== "PAUSED") return { error: "Session is not paused" };
 
-    // @ts-ignore
     const { data: resumed, error } = await (supabase
         .from("pomo_sessions") as any)
         .update({
@@ -182,7 +175,6 @@ export async function endPomoSession(
     const ownerUserClientInstanceId = await resolveWebUserClientInstanceId(user.id);
     if (!ownerUserClientInstanceId) return { error: "Could not identify this browser." };
 
-    // @ts-ignore
     const { data: session } = await (supabase
         .from("pomo_sessions") as any)
         .select("*")
@@ -207,7 +199,6 @@ export async function endPomoSession(
     const terminalStatus = "COMPLETED";
     const completedAt = new Date().toISOString();
 
-    // @ts-ignore
     const { error } = await (supabase
         .from("pomo_sessions") as any)
         .update({
@@ -223,7 +214,6 @@ export async function endPomoSession(
     if (error) return { error: error.message };
 
     if (session.task_id) {
-        // @ts-ignore
         const { data: task } = await (supabase.from("tasks") as any)
             .select("id, title, status")
             .eq("id", session.task_id as any)
@@ -306,7 +296,6 @@ export async function getActivePomoSession() {
         return { session: null, blockingSession: null, serverNow };
     }
 
-    // @ts-ignore
     const { data: session } = await (supabase
         .from("pomo_sessions") as any)
         .select(ACTIVE_POMO_SELECT)

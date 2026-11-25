@@ -50,6 +50,5 @@ export async function GET(request: Request) {
         return NextResponse.redirect(`${origin}/login?error=exchange_failed`);
     }
 
-    // No supported auth credentials provided
     return NextResponse.redirect(`${origin}/login?error=missing_code`);
 }

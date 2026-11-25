@@ -23,7 +23,7 @@ function joinWithAnd(parts: string[]): string {
 
 function getWeekdayName(index: number, locale?: string): string | null {
     if (!Number.isInteger(index) || index < 0 || index > 6) return null;
-    const sunday = new Date(Date.UTC(2024, 0, 7)); // Known Sunday in UTC.
+    const sunday = new Date(Date.UTC(2024, 0, 7));
     const date = new Date(sunday);
     date.setUTCDate(sunday.getUTCDate() + index);
     return new Intl.DateTimeFormat(locale, { weekday: "long", timeZone: "UTC" }).format(date);

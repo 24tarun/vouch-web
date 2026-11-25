@@ -44,7 +44,6 @@ export async function GET(_req: NextRequest, context: { params: Promise<{ taskId
     const secFetchDest = _req.headers.get("sec-fetch-dest");
     const allowedDests = new Set(["image", "video", "empty"]);
 
-    // Best-effort hardening: only serve same-origin media fetches, not top-level document navigation.
     if (secFetchSite && secFetchSite !== "same-origin") {
         return jsonNoStore({ error: "Cross-site access denied" }, 403);
     }

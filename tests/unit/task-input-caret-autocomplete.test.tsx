@@ -124,17 +124,6 @@ test("typing partial keyword keeps caret at native input end while ghost suffix 
         assert.equal(view.getByTestId("task-input-completion-suffix").textContent, "w");
     });
 
-    /*
-     * What and why this test checks:
-     * This validates the primary caret bug regression path: keyword-driven ghost completion should not move the real input caret.
-     * We intentionally type a partial `tmr` token that triggers `tmrw` suffix rendering.
-     *
-     * Passing scenario:
-     * Native input value remains unchanged (`... tmr`), caret stays at value end, and the ghost suffix (`w`) renders separately.
-     *
-     * Failing scenario:
-     * If caret drifts or the value mutates prematurely, typing appears offset and users lose deterministic cursor behavior.
-     */
     await waitFor(() => {
         assert.equal(input.value, "check dustbin emptiness tmr");
         assert.equal(input.selectionStart, input.value.length);
@@ -167,17 +156,6 @@ test("Tab accepts completion atomically and places caret at inserted token end",
     });
     fireEvent.keyDown(input, { key: "Tab", code: "Tab" });
 
-    /*
-     * What and why this test checks:
-     * This checks atomic completion application: Tab should replace only the active fragment and update selection in the same transaction.
-     * It protects against stale selection writes that can leave the caret behind after autocomplete accept.
-     *
-     * Passing scenario:
-     * Value becomes `... tmrw`, caret equals new value length, and suffix overlay disappears because completion is fully applied.
-     *
-     * Failing scenario:
-     * If caret lands before the inserted token or suffix remains, users see duplicated/misaligned completion behavior.
-     */
     await waitFor(() => {
         assert.equal(input.value, "check dustbin emptiness tmrw");
         assert.equal(input.selectionStart, input.value.length);
@@ -212,17 +190,6 @@ test("tapping ghost suffix accepts completion and places caret at inserted token
     });
     fireEvent.click(suffix);
 
-    /*
-     * What and why this test checks:
-     * This validates the mobile tap path for inline autocomplete by tapping the rendered ghost suffix itself.
-     * The interaction must mirror Tab acceptance so touch users get deterministic completion behavior without a hardware keyboard.
-     *
-     * Passing scenario:
-     * Tapping the suffix applies `tmrw` atomically, places caret at the end, and removes the suffix overlay node.
-     *
-     * Failing scenario:
-     * If tap does not apply completion (or leaves caret/suffix in stale state), mobile users lose parity with the desktop Tab flow.
-     */
     await waitFor(() => {
         assert.equal(input.value, "check dustbin emptiness tmrw");
         assert.equal(input.selectionStart, input.value.length);
@@ -258,17 +225,6 @@ test("tapping completion fragment does not auto-accept completion", async () => 
     });
     fireEvent.click(fragmentNode);
 
-    /*
-     * What and why this test checks:
-     * This validates the anti-accidental-accept behavior for inline completion fragments.
-     * Only the ghost suffix should commit autocomplete; tapping already-typed fragment text should preserve normal editing intent.
-     *
-     * Passing scenario:
-     * Tapping the fragment keeps value/caret unchanged (`... tmr`) and leaves suffix visible for explicit acceptance.
-     *
-     * Failing scenario:
-     * If fragment taps apply completion, users can trigger unwanted replacements while trying to position caret near highlighted text.
-     */
     await waitFor(() => {
         assert.equal(input.value, "check dustbin emptiness tmr");
         assert.equal(input.selectionStart, input.value.length);
@@ -303,17 +259,6 @@ test("weekday completion suffix is contiguous with typed fragment in overlay str
         return node;
     });
 
-    /*
-     * What and why this test checks:
-     * This verifies the overlay render stream keeps typed fragment and ghost suffix contiguous for weekday completion.
-     * It prevents the visual split bug where `mond` and `ay` appear separated by an unintended extra space/gap.
-     *
-     * Passing scenario:
-     * The overlay text stream reads exactly `groceries monday`, with no inserted whitespace between fragment and suffix.
-     *
-     * Failing scenario:
-     * If text stream contains additional whitespace around suffix, users see a visible gap and misaligned inline completion.
-     */
     assert.equal(suffix.parentElement?.textContent, "groceries monday");
 });
 
@@ -344,17 +289,6 @@ test("Tab completion is ignored during composition and only applies after compos
 
     fireEvent.keyDown(input, { key: "Tab", code: "Tab", isComposing: true });
 
-    /*
-     * What and why this test checks:
-     * This validates the IME safety guard in the new keydown flow: completion shortcuts must not fire while composition is active.
-     * The component intentionally blocks Enter/Tab actions during composition to avoid corrupting partially composed characters.
-     *
-     * Passing scenario:
-     * During composition, Tab does not apply completion and the title remains `... tmr`. After composition ends, Tab applies `tmrw` normally.
-     *
-     * Failing scenario:
-     * If completion applies during composition, IME users can lose in-progress text and experience broken caret/selection behavior.
-     */
     await waitFor(() => {
         assert.equal(input.value, typed);
         assert.equal(view.getByTestId("task-input-completion-suffix").textContent, "w");

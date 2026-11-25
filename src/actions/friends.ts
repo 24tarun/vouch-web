@@ -109,7 +109,6 @@ function revalidateFriendPaths() {
         revalidatePath("/settings");
         revalidatePath("/tasks");
     } catch {
-        // Ignore revalidation errors
     }
 }
 
@@ -143,7 +142,6 @@ async function getFriendReputationScores(friendIds: string[]): Promise<Map<strin
     try {
         const supabaseAdmin = createAdminClient();
 
-        // Use admin reads for consistent score computation while still limiting scope to explicit friend IDs.
         const [ownedResult, vouchedResult, pomoResult] = await Promise.all([
             (supabaseAdmin.from("tasks" as any) as any)
                 .select(REPUTATION_TASK_SELECT)
@@ -221,8 +219,6 @@ export async function addFriend(formData: FormData) {
         return { error: "Email is required" };
     }
 
-    // Find user by email
-    // @ts-ignore
     const { data: friend } = await supabase
         .from("profiles" as any)
         .select("*")
@@ -235,7 +231,6 @@ export async function addFriend(formData: FormData) {
         return { error: "No user found with that email" };
     }
 
-    // @ts-ignore
     if (friendProfile.id === user.id) {
         return { error: "You cannot add yourself as a friend" };
     }
@@ -243,8 +238,6 @@ export async function addFriend(formData: FormData) {
         return { error: "Use AI Features in Settings to add AI as a friend." };
     }
 
-    // Check if already friends (either direction)
-    // @ts-ignore
     const { data: existing } = await supabase
         .from("friendships" as any)
         .select("*")
@@ -256,11 +249,8 @@ export async function addFriend(formData: FormData) {
         return { error: "Already friends with this user" };
     }
 
-    // Use admin client for both inserts to ensure symmetric creation
     const supabaseAdmin = createAdminClient();
 
-    // 1. User -> Friend
-    // @ts-ignore
     const { error: error1 } = await supabaseAdmin.from("friendships" as any).insert({
         user_id: (user as any).id,
         friend_id: friendProfile.id,
@@ -271,8 +261,6 @@ export async function addFriend(formData: FormData) {
         return { error: "Failed to add friend" };
     }
 
-    // 2. Friend -> User (reciprocal)
-    // @ts-ignore
     const { error: error2 } = await supabaseAdmin.from("friendships" as any).insert({
         user_id: friendProfile.id,
         friend_id: (user as any).id,
@@ -280,7 +268,6 @@ export async function addFriend(formData: FormData) {
 
     if (error2 && error2.code !== '23505') {
         console.error("Failed to create reciprocal friendship (friend->user):", error2);
-        // Don't fail - the first link was created
     }
 
     revalidateFriendPaths();
@@ -300,8 +287,6 @@ export async function removeFriend(friendId: string) {
         return { error: "Use AI Features in Settings to remove AI as a friend." };
     }
 
-    // Check if friend is active voucher for any pending tasks
-    // @ts-ignore
     const { data: activeTasks } = await supabase
         .from("tasks")
         .select("*")
@@ -323,11 +308,8 @@ export async function removeFriend(friendId: string) {
         };
     }
 
-    // Use admin client for both deletions to ensure symmetric removal
     const supabaseAdmin = createAdminClient();
 
-    // Delete User -> Friend
-    // @ts-ignore
     const { error: error1 } = await supabaseAdmin
         .from("friendships")
         .delete()
@@ -339,8 +321,6 @@ export async function removeFriend(friendId: string) {
         return { error: "Failed to remove friend" };
     }
 
-    // Delete Friend -> User (reciprocal)
-    // @ts-ignore
     const { error: error2 } = await supabaseAdmin
         .from("friendships")
         .delete()
@@ -349,11 +329,8 @@ export async function removeFriend(friendId: string) {
 
     if (error2) {
         console.error("Failed to delete reciprocal friendship:", error2);
-        // Don't fail - the first deletion was successful
     }
 
-    // If the removed friend was the default voucher, fall back to self.
-    // @ts-ignore
     const { error: clearDefaultError } = await (supabase.from("profiles" as any) as any)
         .update({ default_voucher_id: user.id } as any)
         .eq("id", user.id as any)
@@ -376,7 +353,6 @@ export async function getFriends(): Promise<FriendProfile[]> {
     if (!user) return [];
 
     const [friendshipsRes, blocksRes] = await Promise.all([
-        // @ts-ignore
         supabase
             .from("friendships")
             .select(
@@ -386,7 +362,6 @@ export async function getFriends(): Promise<FriendProfile[]> {
         `
             )
             .eq("user_id", user.id),
-        // @ts-ignore
         supabase
             .from("user_blocks")
             .select("blocked_id")
@@ -435,7 +410,6 @@ export async function getRelationshipData(): Promise<RelationshipDataResult> {
     }
 
     const [friendshipsRes, incomingRes, outgoingRes, blockedRes] = await Promise.all([
-        // @ts-ignore
         supabase
             .from("friendships")
             .select(
@@ -448,7 +422,6 @@ export async function getRelationshipData(): Promise<RelationshipDataResult> {
         `
             )
             .eq("user_id", user.id),
-        // @ts-ignore
         supabase
             .from("friend_requests")
             .select(
@@ -466,7 +439,6 @@ export async function getRelationshipData(): Promise<RelationshipDataResult> {
             .eq("receiver_id", user.id)
             .eq("status", "PENDING")
             .order("created_at", { ascending: false }),
-        // @ts-ignore
         supabase
             .from("friend_requests")
             .select(
@@ -484,7 +456,6 @@ export async function getRelationshipData(): Promise<RelationshipDataResult> {
             .eq("sender_id", user.id)
             .eq("status", "PENDING")
             .order("created_at", { ascending: false }),
-        // @ts-ignore
         supabase
             .from("user_blocks")
             .select("blocked_id")
@@ -763,8 +734,6 @@ export async function setAiAsFriendEnabled(enabled: boolean) {
     }
 
     if (!enabled) {
-        // Prevent disabling while AI is actively assigned as voucher for pending owner tasks.
-        // @ts-ignore
         const { data: activeTasks } = await supabase
             .from("tasks")
             .select("id")
@@ -780,7 +749,6 @@ export async function setAiAsFriendEnabled(enabled: boolean) {
     const supabaseAdmin = createAdminClient();
 
     if (enabled) {
-        // @ts-ignore
         const { error: ownerToAiError } = await (supabaseAdmin.from("friendships" as any) as any).insert({
             user_id: user.id,
             friend_id: AI_PROFILE_ID,
@@ -791,7 +759,6 @@ export async function setAiAsFriendEnabled(enabled: boolean) {
             return { error: "Could not add AI as a friend." };
         }
 
-        // @ts-ignore
         const { error: aiToOwnerError } = await (supabaseAdmin.from("friendships" as any) as any).insert({
             user_id: AI_PROFILE_ID,
             friend_id: user.id,
@@ -801,7 +768,6 @@ export async function setAiAsFriendEnabled(enabled: boolean) {
             console.error("Failed to create reciprocal friendship (ai->user):", aiToOwnerError);
         }
     } else {
-        // @ts-ignore
         const { error: ownerToAiDeleteError } = await (supabaseAdmin.from("friendships" as any) as any)
             .delete()
             .eq("user_id", user.id as any)
@@ -812,7 +778,6 @@ export async function setAiAsFriendEnabled(enabled: boolean) {
             return { error: "Could not remove AI as a friend." };
         }
 
-        // @ts-ignore
         const { error: aiToOwnerDeleteError } = await (supabaseAdmin.from("friendships" as any) as any)
             .delete()
             .eq("user_id", AI_PROFILE_ID as any)
@@ -822,7 +787,6 @@ export async function setAiAsFriendEnabled(enabled: boolean) {
             console.error("Failed to delete reciprocal friendship (ai->user):", aiToOwnerDeleteError);
         }
 
-        // @ts-ignore
         const { error: clearDefaultError } = await (supabase.from("profiles" as any) as any)
             .update({ default_voucher_id: user.id } as any)
             .eq("id", user.id as any)
@@ -845,7 +809,6 @@ export async function setAiAsFriendEnabled(enabled: boolean) {
     }
 
     const resolvedEnabled = Boolean(friendship);
-    // @ts-ignore
     const { error: profileUpdateError } = await (supabase.from("profiles" as any) as any)
         .update({ ai_friend_opt_in: resolvedEnabled } as any)
         .eq("id", user.id as any);
@@ -871,7 +834,6 @@ export async function getWorkingFriendActivities(): Promise<FriendPomoActivity[]
 
     if (!user) return [];
 
-    // @ts-ignore
     const { data: friendships } = await supabase
         .from("friendships")
         .select(
@@ -895,8 +857,6 @@ export async function getWorkingFriendActivities(): Promise<FriendPomoActivity[]
     const friendIds = [...friendMetaById.keys()];
     if (friendIds.length === 0) return [];
 
-    // Rely on RLS: friends can only read ACTIVE/PAUSED sessions for linked friends.
-    // @ts-ignore
     const { data: sessions, error: sessionsError } = await (supabase.from("pomo_sessions") as any)
         .select("user_id, status, updated_at")
         .in("user_id", friendIds as any)

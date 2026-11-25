@@ -71,7 +71,7 @@ import {
 
 const TITLE_TEXT_METRICS_CLASS =
     "text-base sm:text-lg font-medium leading-normal [font-kerning:none] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'clig'_0]";
-const weekdayOrder = [1, 2, 3, 4, 5, 6, 0]; // Mon–Sun
+const weekdayOrder = [1, 2, 3, 4, 5, 6, 0];
 const weekdayShort = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 interface TaskInputProps {
@@ -88,7 +88,6 @@ interface TaskInputProps {
     defaultRequiresProofForAllTasks: boolean;
     deadlineOneHourWarningEnabled?: boolean;
     deadlineFinalWarningEnabled?: boolean;
-    /** Gates the per-reminder ALARM toggle; alarms need push notifications switched on. */
     alarmNotificationsEnabled?: boolean;
     selfUserId: string;
     onCreateTaskOptimistic?: (payload: TaskInputCreatePayload) => void;
@@ -105,7 +104,6 @@ export interface TaskInputCreatePayload {
     eventStartIso: string | null;
     eventEndIso: string | null;
     reminderIsos: string[];
-    /** Reminder instants that should fire as an alarm (`task_reminders.alarm_enabled`). */
     urgentReminderIsos: string[];
     includeDefaultOneHourReminder: boolean;
     includeDefaultTenMinuteReminder: boolean;
@@ -252,8 +250,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         pendingCaretPositionRef.current = nextCaretIndex;
     }, []);
 
-    // Apply pending caret position synchronously after DOM update (before browser paint)
-    // so visual selection and overlay model stay in lockstep across desktop and mobile keyboards.
     useLayoutEffect(() => {
         const pos = pendingCaretPositionRef.current;
         if (pos === null) return;
@@ -323,7 +319,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         let cursorInserted = false;
 
         const insertCursor = () => {
-            // Keep native input caret active to avoid overlay-caret layout jitter while typing.
             cursorInserted = true;
         };
 
@@ -440,15 +435,11 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
     }, [defaultRequiresProofForAllTasks]);
 
     useEffect(() => {
-        // Profile default takes precedence over localStorage — if the user has a
-        // default voucher set and it's still a valid friend, always use it.
         if (defaultVoucherId && friends.some((f) => f.id === defaultVoucherId)) {
             setSelectedVoucherId(defaultVoucherId);
             return;
         }
 
-        // No profile default (or default is no longer a friend) — fall back to
-        // the last voucher the user picked, then to self.
         try {
             const savedVoucherId = window.localStorage.getItem(LAST_VOUCHER_STORAGE_KEY);
             if (savedVoucherId) {
@@ -456,7 +447,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
                 return;
             }
         } catch {
-            // Ignore localStorage failures and fallback to default behavior.
         }
 
         setSelectedVoucherId(resolveVoucherSelection(defaultVoucherId));
@@ -467,7 +457,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         try {
             window.localStorage.setItem(LAST_VOUCHER_STORAGE_KEY, selectedVoucherId);
         } catch {
-            // Ignore localStorage failures.
         }
     }, [selectedVoucherId]);
 
@@ -832,9 +821,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         }
     }, [title, friends, isDeadlineManuallyPicked, selfUserId]);
 
-
-
-
     const handleTaskSubmit = useTaskInputSubmit({
         title,
         recurrenceType,
@@ -887,8 +873,6 @@ export const TaskInput = forwardRef<TaskInputHandle, TaskInputProps>(function Ta
         finally { groupLock.current = false; setIsLoading(false); }
     };
 
-    // Parser flags keep their controls in sync when typed, while the controls
-    // themselves can still be toggled without rewriting the title.
     const isProofTask = parseProofRequiredFromTitle(title);
     const isProofControlPressed = isProofTask || requiresProof;
 

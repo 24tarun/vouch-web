@@ -3,7 +3,6 @@ import { authenticateIntegrationRequest, jsonNoStore } from "@/lib/integration-r
 import { createBlockForUser } from "@/lib/calendar/service";
 import { createBlockSchema, integrationDb, toBlockTarget } from "@/lib/calendar/integration";
 
-/** POST /api/integrations/calendar/blocks — { task_id | rule_id + occurrence_deadline, start_at, end_at } */
 export async function POST(request: NextRequest) {
     const auth = await authenticateIntegrationRequest(request, "calendar");
     if (auth.response) return auth.response;

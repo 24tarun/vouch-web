@@ -41,9 +41,7 @@ export function useCollapsibleSection(sessionKey: string) {
                 window.sessionStorage.removeItem(sessionKey);
             }
         } catch {
-            // Ignore sessionStorage write failures.
         }
-        // Storage events do not fire in the same tab that writes sessionStorage.
         forceRender();
     }, [forceRender, isOpen, sessionKey]);
 

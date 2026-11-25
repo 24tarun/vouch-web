@@ -68,7 +68,6 @@ function cellStyle(status: DayStatus | undefined, isToday: boolean, isSelected: 
             color: "rgb(148,163,184)",
         };
     }
-    // future or no tasks
     return {
         background: "rgba(15,23,42,0.40)",
         border: "1px solid rgba(51,65,85,0.20)",

@@ -13,17 +13,10 @@ const PROOF_TIMESTAMP_PLACEHOLDER = '??:?? ??/??/??';
 const MAX_TASK_PROOF_VIDEO_DURATION_MS = 15_000;
 const MAX_TASK_PROOF_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_TASK_PROOF_VIDEO_BYTES = 30 * 1024 * 1024;
-// Ordinary mobile latency should never cost a user a task they finished on
-// time, so the online begin-capture call is forgiven a wide transport window.
 const CAPTURE_ATTESTATION_TRANSPORT_GRACE_MS = 60_000;
 const CAPTURE_ATTESTATION_MAX_CLOCK_SKEW_MS = 30_000;
 const CAPTURE_ATTESTATION_TTL_MS = 10 * 60 * 1000;
 
-// A capture license is fetched while the device still has connectivity and lets
-// it start a qualifying capture later with no network at all. The license
-// carries server-signed bounds; the exact instant inside them is the device's
-// claim. Its expiry is additionally clamped to the task's own deadline, so a
-// license can never authorize a capture the deadline would have refused.
 const CAPTURE_LICENSE_TTL_MS = 2 * 60 * 60 * 1000;
 
 const ALLOWED_PROOF_MIME_TYPES = new Set([
@@ -234,16 +227,6 @@ interface CaptureAttestationPayload {
   expiresAt: string;
 }
 
-/**
- * Server-signed permission to start a capture offline.
- *
- * Issued while the device is online, then presented at upload time alongside
- * the capture start the device recorded locally. The signature makes the
- * *window* trustworthy — a capture cannot be claimed before the license was
- * issued or after it expired — while the precise instant within that window is
- * the device's word. `notAfter` is clamped to the task deadline at issue time,
- * so a valid license can never smuggle a capture past the deadline.
- */
 interface CaptureLicensePayload {
   version: 1;
   kind: 'capture-license';
@@ -312,13 +295,7 @@ async function signCaptureLicense(payload: CaptureLicensePayload, secret: string
 
 type CaptureAttestationResult =
   | { status: 'valid'; payload: CaptureAttestationPayload }
-  // Structurally invalid, forged, or otherwise untrustworthy -- must hard-fail.
   | { status: 'invalid' }
-  // Signature checks out and the payload is well-formed, it has simply aged
-  // past CAPTURE_ATTESTATION_TTL_MS. Distinct from 'invalid' so the caller can
-  // fall back to a cached capture license instead of rejecting outright, since
-  // the TTL is shorter than the advertised upload window (see
-  // code-review/02-correctness-findings.md #4).
   | { status: 'expired' };
 
 async function verifyCaptureAttestation(
@@ -335,13 +312,6 @@ async function verifyCaptureAttestation(
   }
 }
 
-/**
- * Validates an offline capture claim against its license.
- *
- * Returns the accepted capture instant, or null when the license is forged,
- * for another task or user, or the claimed capture falls outside the window
- * the license authorized.
- */
 async function verifyLicensedCaptureStart(input: {
   token: string;
   secret: string;
@@ -701,9 +671,6 @@ Deno.serve(async (request) => {
     (task as { status: string }).status = 'AWAITING_AI';
   }
 
-  // Fetched while the device still has connectivity so a capture can be started
-  // later with no network at all. Cheap and idempotent — the client refreshes it
-  // opportunistically for tasks whose deadline is approaching.
   if (action === 'issue-capture-license') {
     const issuedAtMs = Date.now();
     let notAfterMs = issuedAtMs + CAPTURE_LICENSE_TTL_MS;
@@ -714,8 +681,6 @@ Deno.serve(async (request) => {
       if (!Number.isFinite(deadlineMs) || issuedAtMs >= cutoffMs) {
         return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
       }
-      // Clamp to the deadline so a valid license can never authorize a capture
-      // the deadline itself would have refused.
       notAfterMs = Math.min(notAfterMs, cutoffMs - 1);
     }
 
@@ -804,22 +769,11 @@ Deno.serve(async (request) => {
         }
         deadlineAttestedAt = attestation.startedAt;
       } else if (attestationResult.status === 'invalid' || !proofIntent.captureLicense) {
-        // A forged/malformed attestation always hard-fails. An expired one
-        // with no cached license to fall back on also hard-fails, same as
-        // before this fix.
         return json(400, { success: false, error: 'Proof capture timing could not be verified.' });
       }
-      // else: the attestation merely expired (CAPTURE_ATTESTATION_TTL_MS is
-      // shorter than CAPTURE_UPLOAD_WINDOW_MS) and a cached license is
-      // present, so fall through to the license check below instead of
-      // rejecting an upload that is still within its advertised window.
     }
 
     if (!deadlineAttestedAt && proofIntent.captureLicense) {
-      // Offline path: the device had no connectivity to obtain a server
-      // attestation at capture time, so it presents the license it fetched
-      // earlier plus the start time it recorded locally. Also reached when a
-      // server attestation was obtained but has since expired.
       if (
         proofIntent.proofOrigin !== 'CAMERA'
         || proofIntent.proofTimestampSource !== 'CAMERA_CAPTURE'
@@ -863,7 +817,6 @@ Deno.serve(async (request) => {
 
     const bucketName = ((existingProof as { bucket?: string } | null)?.bucket || TASK_PROOFS_BUCKET);
     const existingObjectPath = ((existingProof as { object_path?: string } | null)?.object_path || '').trim();
-    // object_path is immutable at DB level; keep the same path for replacements.
     const objectPath = existingObjectPath || buildTaskProofObjectPath(user.id, taskId, proofIntent.mimeType);
 
     if (existingObjectPath) {
@@ -972,8 +925,6 @@ Deno.serve(async (request) => {
         console.error(`Could not mark rejected proof failed for task ${taskId}:`, failError);
         return;
       }
-      // If finalization committed or another upload replaced this one, do not
-      // remove the shared immutable object path.
       if (!failedProof) return;
 
       if (storedProofObjectPath) {
@@ -1003,10 +954,6 @@ Deno.serve(async (request) => {
       return json(409, { success: false, error: COMPLETION_EDIT_LOCKED_ERROR });
     }
 
-    // A capture attested as on-time carries the upload past the deadline, but
-    // not indefinitely — otherwise a staged proof could be redeemed hours later.
-    // The window is wide enough for a large video on a poor connection or an
-    // upload resumed after the app was killed.
     if (isCompletionEditingLocked(taskStatus, taskDeadline)) {
       const stagedAtMs = proofStagedAt ? new Date(proofStagedAt).getTime() : NaN;
       if (!Number.isFinite(stagedAtMs) || Date.now() - stagedAtMs > CAPTURE_UPLOAD_WINDOW_MS) {

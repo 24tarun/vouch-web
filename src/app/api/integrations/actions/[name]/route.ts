@@ -5,10 +5,6 @@ import { getIntegrationSession } from "@/lib/integration-session";
 import { runWithIntegrationContext } from "@/lib/integration-context";
 import { INTEGRATION_ACTIONS, decodeActionArgs } from "@/lib/integration-actions";
 
-/**
- * POST /api/integrations/actions/:name  { "args": [...] }
- * Runs the app's own server action as the API key's owner, with the same checks as the UI.
- */
 export async function POST(request: NextRequest, ctx: { params: Promise<{ name: string }> }) {
     const auth = await authenticateIntegrationRequest(request, "actions");
     if (auth.response) return auth.response;

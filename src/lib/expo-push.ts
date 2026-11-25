@@ -1,7 +1,3 @@
-/**
- * Sends push notifications to all Expo push tokens registered for a user.
- * Each token represents one device (iPhone, iPad, etc.).
- */
 
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -36,7 +32,6 @@ export interface ExpoPushPayload {
   sound?: string | null;
   channelId?: string | null;
   ttlSeconds?: number;
-  /** Devices that already have this notification armed locally. */
   excludeClientInstanceIds?: string[];
 }
 
@@ -112,10 +107,6 @@ async function loadDeliveryTokenEntries(
   const scopedTokenEntries = tokenEntries.filter((row) => row.user_client_instance_id);
   const allTokenEntries = scopedTokenEntries.length > 0 ? scopedTokenEntries : tokenEntries;
 
-  // A device that already armed this reminder on its own OS scheduler must not
-  // also receive a push, or the user is alerted twice. Devices that did not
-  // claim it still get one, so local scheduling failing on a single device
-  // never costs the user the notification everywhere.
   const excluded = new Set(excludeClientInstanceIds ?? []);
   const deliveryTokenEntries = excluded.size === 0
     ? allTokenEntries
@@ -189,14 +180,12 @@ async function sendExpoMessages(
         delivered++;
       } else {
         failed++;
-        // DeviceNotRegistered means the token is no longer valid — clean it up
         if (ticket.details?.error === "DeviceNotRegistered") {
           staleTokens.push(deliveryTokenEntries[i].token);
         }
       }
     }
 
-    // Clean up stale tokens in the background
     if (staleTokens.length > 0) {
       supabase
         .from("expo_push_tokens")
@@ -281,8 +270,6 @@ export async function sendExpoDataPushToUser(
     payload.excludeClientInstanceIds
   );
 
-  // Invalidation wake-ups target the specific devices holding a stale schedule
-  // rather than every device the user owns.
   const onlyInstances = new Set(payload.onlyClientInstanceIds ?? []);
   const deliveryTokenEntries = onlyInstances.size === 0
     ? allEntries

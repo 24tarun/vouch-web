@@ -3,7 +3,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 type Session = { access_token: string; refresh_token: string; expires_at?: number };
 
-// shortcut: per-server-instance memory cache; each cold instance mints one extra session.
 const sessionCache = new Map<string, Session>();
 const REUSE_MARGIN_MS = 5 * 60 * 1000;
 
@@ -13,10 +12,6 @@ function anonClient() {
     });
 }
 
-/**
- * A real Supabase session for the API key's owner, minted server-side with the service role
- * (magic-link token verified immediately; no email is sent). Cached per key until near expiry.
- */
 export async function getIntegrationSession(userId: string, cacheKey: string): Promise<{ session?: Session; error?: string }> {
     const cached = sessionCache.get(cacheKey);
     if (cached?.expires_at && cached.expires_at * 1000 - Date.now() > REUSE_MARGIN_MS) return { session: cached };
@@ -38,7 +33,6 @@ export async function getIntegrationSession(userId: string, cacheKey: string): P
     return { session };
 }
 
-/** Client signed in with an existing session (no cookies, no refresh). */
 export async function createSessionClient(session: { access_token: string; refresh_token: string }) {
     const client = anonClient();
     const { error } = await client.auth.setSession(session);

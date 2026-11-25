@@ -1,5 +1,3 @@
--- Rectification stays open until the ledger month resolves: 00:00 on the
--- third day of the following month in the owner's timezone.
 UPDATE public.rectification_requests
 SET auto_rectify_at = (
   (to_date(request_period || '-01', 'YYYY-MM-DD') + interval '1 month 2 days')::timestamp

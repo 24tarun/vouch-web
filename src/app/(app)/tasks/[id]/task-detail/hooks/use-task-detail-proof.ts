@@ -172,7 +172,6 @@ export function useTaskDetailProof({
         try {
             window.sessionStorage.removeItem(storageKey);
         } catch {
-            // Ignore storage quota/privacy mode errors.
         }
     }, [storageKey]);
 
@@ -188,7 +187,6 @@ export function useTaskDetailProof({
             };
             window.sessionStorage.setItem(storageKey, JSON.stringify(payload));
         } catch {
-            // Ignore storage persistence failures and continue with in-memory draft.
         }
     }, [storageKey]);
 

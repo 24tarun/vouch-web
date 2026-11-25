@@ -1,12 +1,3 @@
-/**
- * Trigger: task-proof-cleanup
- * Runs: Every 5 minutes (cron expression every 5 min).
- * What it does when it runs:
- * 1) Scans completion proof rows.
- * 2) Deletes proofs for tasks that are no longer awaiting voucher.
- * 3) Deletes proofs after voucher response deadline expiry.
- * 4) Deletes stale pending uploads that never finalized.
- */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { deleteTaskProof } from "@/lib/task-proof";
@@ -32,9 +23,6 @@ export const taskProofCleanup = schedules.task({
         const nowMs = Date.now();
 
         const staleUploadCutoff = new Date(nowMs - STALE_PENDING_UPLOAD_MS).toISOString();
-        // Two targeted queries instead of a full table scan:
-        // 1. PENDING/FAILED proofs — always cleanup candidates
-        // 2. UPLOADED proofs older than 10 minutes — task may have moved out of AWAITING_VOUCHER
         const uploadedCheckCutoff = new Date(nowMs - 10 * 60 * 1000).toISOString();
         const selectFields = `
             task_id,

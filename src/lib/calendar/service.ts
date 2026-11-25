@@ -1,7 +1,3 @@
-/**
- * Calendar reads and block writes for one user. Callers authenticate first:
- * server actions (session) and the integration API (API key) share this code.
- */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { listUpcomingOccurrences, type RecurrenceScheduleRule } from "@/lib/recurrence-schedule";
 import { validateBlockRange } from "@/lib/calendar/grid";
@@ -88,7 +84,6 @@ export async function loadCalendarRange(db: SupabaseClient, userId: string, rang
     const taskRows = new Map<string, TaskRow>();
     for (const row of (tasksResult.data as TaskRow[] | null) || []) taskRows.set(row.id, row);
 
-    // Blocks can sit in this week while their task is due next week.
     const missingTaskIds = [...new Set(blocks.map((block) => block.task_id).filter((id): id is string => Boolean(id) && !taskRows.has(id as string)))];
     if (missingTaskIds.length > 0) {
         const { data: extraTasks } = await db.from("tasks").select(TASK_COLUMNS).eq("user_id", userId).in("id", missingTaskIds);
@@ -107,7 +102,6 @@ export async function loadCalendarRange(db: SupabaseClient, userId: string, rang
     }
     const unknownRuleIds = [...allRuleIds].filter((id) => !knownRuleIds.has(id));
     if (unknownRuleIds.length > 0) {
-        // Paused rules still constrain postponing of their existing tasks.
         const { data: pausedRules } = await db.from("recurrence_rules").select("id, rule_config, timezone").eq("user_id", userId).in("id", unknownRuleIds);
         for (const rule of (pausedRules as Array<{ id: string; rule_config: { frequency?: string }; timezone: string | null }> | null) || []) {
             if (String(rule.rule_config?.frequency).toUpperCase() === "DAILY") dailyTimezoneByRule.set(rule.id, rule.timezone || "UTC");

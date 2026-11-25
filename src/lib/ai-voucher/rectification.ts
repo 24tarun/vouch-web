@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { tasks as triggerTasks } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { evaluateProofWithGemini } from "@/lib/ai-voucher/gemini";

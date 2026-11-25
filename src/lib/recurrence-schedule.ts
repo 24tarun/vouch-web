@@ -1,8 +1,3 @@
-/**
- * Recurrence scheduling shared by the recurrence generator (which creates the
- * occurrence for the current local date) and the calendar (which previews
- * upcoming occurrences as "ghosts" before they are generated).
- */
 import type { RecurrenceRuleConfig } from "@/lib/types";
 
 export type DateParts = { year: number; month: number; day: number };
@@ -153,12 +148,6 @@ export function shouldRunForLocalDate(
     }
 }
 
-/**
- * Local date the schedule counts from (month/day for MONTHLY/YEARLY, cycle
- * start for intervals). The last generated date is always a real occurrence,
- * and creation seeds it with the first deadline's date; `created_at` is only a
- * fallback, since a task created today for 24 Aug must repeat on 24 Aug.
- */
 export function recurrenceAnchorLocalDate(
     rule: { last_generated_date: string | null; created_at: string },
     getLocalDateParts: (date: Date) => DateParts
@@ -188,20 +177,13 @@ export interface RecurrenceScheduleRule {
 export interface RecurrenceOccurrence {
     ruleId: string;
     title: string;
-    /** Local date (rule timezone) on which the generator creates this occurrence. */
     localDate: string;
     deadlineIso: string;
-    /** Start of the event / strict window, when the rule has one. */
     spanStartIso: string | null;
     isEvent: boolean;
     isStrict: boolean;
 }
 
-/**
- * Deadline (and optional window start) of the occurrence generated on
- * `localDateStr`. Mirrors the recurrence generator exactly, including the
- * midnight rule (a 00:00 occurrence is due at the following midnight).
- */
 export function computeOccurrenceTimes(
     rule: Pick<RecurrenceScheduleRule, "rule_config" | "timezone" | "window_start_offset_minutes" | "google_event_duration_minutes">,
     localDateStr: string
@@ -220,11 +202,6 @@ export function computeOccurrenceTimes(
 
 const MAX_GHOST_SCAN_DAYS = 400;
 
-/**
- * Occurrences the generator has not created yet whose deadline falls in
- * [rangeStartMs, rangeEndMs). Only today and later local dates qualify: the
- * generator never back-fills dates it skipped.
- */
 export function listUpcomingOccurrences(
     rule: RecurrenceScheduleRule,
     rangeStartMs: number,
@@ -240,7 +217,6 @@ export function listUpcomingOccurrences(
     const { getLocalDateParts } = buildTimeZoneContext(rule.timezone || "UTC");
     const anchorLocalDateStr = recurrenceAnchorLocalDate(rule, getLocalDateParts);
     const todayLocal = toDateStr(getLocalDateParts(now));
-    // A midnight occurrence generated the day before the range is due inside it.
     const rangeFirstLocal = toDateStr(addLocalDays(getLocalDateParts(new Date(rangeStartMs)), -1));
     const rangeLastLocal = toDateStr(getLocalDateParts(new Date(rangeEndMs)));
 

@@ -1,5 +1,3 @@
--- Preserve the actual failure outcome in the ledger instead of collapsing all
--- outcomes into the generic `failure` accounting category.
 
 ALTER TABLE public.ledger_entries
   DROP CONSTRAINT ledger_entries_entry_type_check;
@@ -10,8 +8,6 @@ ALTER TABLE public.ledger_entries
     'failure', 'denied', 'missed', 'surrendered', 'rectified', 'override', 'voucher_timeout_penalty'
   ]));
 
--- Backfill legacy rows using the immutable task event history. This still works
--- after a task was rectified, because the original failure event remains.
 UPDATE public.ledger_entries AS ledger
 SET entry_type = CASE
   WHEN EXISTS (
@@ -41,8 +37,6 @@ ALTER TABLE public.ledger_entries
     'denied', 'missed', 'surrendered', 'rectified', 'override', 'voucher_timeout_penalty'
   ]));
 
--- These functions find the original charge before creating a rectification.
--- Recreate them with all three explicit failure outcomes.
 DO $$
 DECLARE
   function_definition text;

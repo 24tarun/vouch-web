@@ -37,7 +37,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    // Use admin client throughout — Bearer auth means no cookie session exists
     const supabase = createAdminClient();
 
     let body: MobileSyncAction;

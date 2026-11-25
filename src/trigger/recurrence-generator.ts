@@ -1,12 +1,3 @@
-/**
- * Trigger: recurrence-generator
- * Runs: Every hour at minute 0 (`0 * * * *`).
- * What it does when it runs:
- * 1) Loads all unpaused recurrence_rules.
- * 2) For each rule, evaluates whether a task should be generated for the current date in the rule's timezone.
- * 3) If due, creates a new ACTIVE task using the rule settings (title, voucher, cost, deadline, recurrence_rule_id).
- * 4) Updates recurrence_rules.last_generated_date so the same date is not generated twice.
- */
 import { schedules } from "@trigger.dev/sdk/v3";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { RecurrenceRule } from "@/lib/types";
@@ -28,14 +19,11 @@ import {
 
 export const recurrenceGenerator = schedules.task({
     id: "recurrence-generator",
-    cron: "0 * * * *", // Run every hour at minute 0
+    cron: "0 * * * *",
     run: async (payload, { ctx }) => {
         const supabase = createAdminClient();
         console.log("Starting recurrence generator check...");
 
-        // Fetch only active recurrence rules. Paused rules retain their configuration
-        // but must not generate tasks or advance iteration numbers.
-        // @ts-ignore
         const { data: rules, error } = await supabase
             .from("recurrence_rules")
             .select(
@@ -313,9 +301,6 @@ async function processRule(
     const currentLocalDateStr = toDateStr(currentLocalParts);
     const anchorLocalDateStr = recurrenceAnchorLocalDate(rule, getLocalDateParts);
 
-    // The initial task may be scheduled for a future local date. Treat that
-    // future cursor as already generated too; otherwise this run creates an
-    // overdue task for today and moves the cursor backward.
     if (isRecurrenceDateAlreadyGenerated(rule.last_generated_date, currentLocalDateStr)) {
         return;
     }
@@ -333,10 +318,6 @@ async function processRule(
         const alarmOffsetsMs = new Set(sanitizeAlarmReminderOffsets(rule.alarm_reminder_offsets_ms));
 
         const [hours, minutes] = time_of_day.split(":").map(Number);
-        // Midnight is the boundary between two daily instances. A task born at
-        // 00:00 must be due at the following midnight, not immediately when it
-        // is created. This lets the previous and next instances coexist only at
-        // the handoff, as separate tasks with separate iteration numbers.
         const deadlineDateParts = hours === 0 && minutes === 0
             ? addLocalDays(currentLocalParts, 1)
             : currentLocalParts;
@@ -351,8 +332,6 @@ async function processRule(
             ? new Date(new Date(deadlineIso).getTime() - windowStartOffsetMinutes * 60 * 1000).toISOString()
             : null;
 
-        // Reconcile safely if the cursor was lost or an earlier run inserted
-        // the task but failed before updating the rule.
         const { data: existingTask, error: existingTaskError } = await supabase
             .from("tasks")
             .select("id")
@@ -374,8 +353,6 @@ async function processRule(
             return;
         }
 
-        // Create Task
-        // @ts-ignore
         const { data: createdTask, error: insertError } = await (supabase.from("tasks") as any)
             .insert({
                 user_id: rule.user_id,
@@ -455,8 +432,6 @@ async function processRule(
             }
         }
 
-        // Update Rule
-        // @ts-ignore
         await supabase.from("recurrence_rules")
             .update({ last_generated_date: currentLocalDateStr, updated_at: new Date().toISOString() })
             .eq("id", rule.id)
