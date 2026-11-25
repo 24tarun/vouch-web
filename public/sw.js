@@ -1,4 +1,4 @@
-const SW_VERSION = 'v5';
+const SW_VERSION = 'v6';
 const STATIC_CACHE = `tas-static-${SW_VERSION}`;
 const PAGE_CACHE = `tas-pages-${SW_VERSION}`;
 const RUNTIME_CACHE = `tas-runtime-${SW_VERSION}`;
@@ -49,7 +49,10 @@ function isStaticAsset(url) {
     );
 }
 
+const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(self.location.hostname);
+
 function shouldBypass(url, request) {
+    if (IS_LOCAL_DEV) return true;
     if (request.method !== 'GET') return true;
     if (!isSameOrigin(url)) return true;
     if (url.pathname.startsWith('/api')) return true;
